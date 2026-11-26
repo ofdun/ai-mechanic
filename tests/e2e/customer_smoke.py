@@ -25,9 +25,15 @@ def exercise(page, base_url):
     diagnose = page.get_by_role('button', name='Получить результат диагностики')
     chat = page.get_by_role('tab', name='Чат', exact=True)
     ticket = page.get_by_role('tab', name='Заявка', exact=True)
+    open_ticket = page.get_by_role('button', name='К заявке', exact=True)
+    create_ticket = page.get_by_role('button', name='Создать заявку', exact=True)
     thread = page.get_by_role('log')
     question = page.get_by_label('Вопрос по двигателю')
 
+    open_ticket.click()
+    expect(ticket).to_be_focused()
+    expect(page.get_by_role('tabpanel', name='Заявка')).to_contain_text('Сначала получите результат диагностики')
+    expect(create_ticket).to_be_disabled()
     vehicle.select_option('M333YK47')
     session.select_option('S-0005')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
@@ -48,9 +54,10 @@ def exercise(page, base_url):
         assert all(claim['evidence_ids'] for claim in followup['claims'])
     else:
         expect(thread).to_contain_text('Рекомендуется дефектовка')
-    ticket.click()
+    page.get_by_role('tab', name='Результат', exact=True).click()
+    open_ticket.click()
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
-        page.get_by_role('button', name='Создать заявку', exact=True).click()
+        create_ticket.click()
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
@@ -64,13 +71,14 @@ def exercise(page, base_url):
     assert replay.ok and replay.json()['ticket_id'] == receipt
 
     vehicle.select_option('P456AT178')
-    for measurement, verdict in [('S-0001', 'Норма'), ('S-0003', 'Сбой проверки')]:
+    for measurement, verdict, reason in [('S-0001', 'Норма', 'Заявка на дефектовку не требуется'),
+                                         ('S-0003', 'Сбой проверки', 'Повторите замер')]:
         session.select_option(measurement)
         diagnose.click()
         expect(page.get_by_role('heading', name=verdict, exact=True)).to_be_visible()
-    expect(page.get_by_role('tabpanel')).to_contain_text('Повторите замер')
-    ticket.click()
-    expect(page.get_by_role('button', name='Создать заявку', exact=True)).to_be_disabled()
+        open_ticket.click()
+        expect(page.get_by_role('tabpanel', name='Заявка')).to_contain_text(reason)
+        expect(create_ticket).to_be_disabled()
 
     target = next(v for v in catalog if v['engine_model'] == 'ЗМЗ-5234.10')
     engines = page.get_by_label('Двигатель', exact=True)

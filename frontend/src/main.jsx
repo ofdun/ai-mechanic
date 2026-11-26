@@ -85,6 +85,15 @@ function EmptyView({ icon: Icon, title, children }) {
   return <div className="empty"><Icon aria-hidden="true" /><h3>{title}</h3><p>{children}</p></div>
 }
 
+function ticketUnavailableReason(result) {
+  if (result.requires_remeasurement) return result.message
+  if (result.diagnostic?.status === 'normal') return 'Замер в норме. Заявка на дефектовку не требуется.'
+  if (result.diagnostic?.status === 'anomaly' && result.search_plan) {
+    return 'Для этого отклонения в руководстве пока не найдены подтверждённые работы для заявки.'
+  }
+  return result.limitations?.join(' ') || result.message
+}
+
 function VehicleOptions({ vehiclesByEngine, engineFilter }) {
   const shown = engineFilter ? [[engineFilter, vehiclesByEngine.get(engineFilter)]] : vehiclesByEngine
   return Array.from(shown, ([engine, vehicles]) => <optgroup key={engine} label={engine}>
@@ -170,8 +179,7 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
         setQuestion('')
       }
       if (result.diagnostic || result.action === 'draft_ticket') {
-        setTicketHint(result.ticket_draft || result.can_create_ticket ? ''
-          : result.limitations?.join(' ') || result.message)
+        setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
         setDraft(result.ticket_draft && !ticketStatus ? { value: result.ticket_draft, evidence: result.evidence.items } : null)
       }
@@ -259,12 +267,12 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
           : draft ? <Draft draft={draft.value} evidence={draft.evidence} />
           : <EmptyView icon={ClipboardList} title="Заявка на дефектовку">
             {canDraft ? 'Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.'
-              : ticketHint || 'Сначала получите результат диагностики.'}</EmptyView>}
+              : ticketHint || (sessionId ? 'Сначала получите результат диагностики.' : 'У этой машины пока нет проверок. Выберите другое ТС.')}</EmptyView>}
       </div>
       <div className="panel-footer">
         {view === 'result' && <div className="footer-actions">
           <button className="secondary" onClick={() => { focusQuestion.current = true; setView('chat') }}><MessageSquare aria-hidden="true" />Задать вопрос</button>
-          <button disabled={!canDraft && !draft && !ticketStatus} onClick={() => selectTab('ticket')}>К заявке<ArrowRight aria-hidden="true" /></button>
+          <button type="button" aria-controls="panel-ticket" onClick={() => selectTab('ticket')}>К заявке<ArrowRight aria-hidden="true" /></button>
         </div>}
         {view === 'chat' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) { composer.current?.focus(); run('chat') } }}>
           <div className="compose-row"><input ref={composer} aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю…" value={question}
