@@ -6,7 +6,7 @@
       "labels": [
         "pc:reference"
       ],
-      "body": "Цель · за 48 часов собрать помощника механика для ООО «НейроДВС». Агент интерпретирует внешний акустический ML-результат, ищет доказательства в руководствах и отправляет подтверждённую заявку на дефектовку. Требования задаёт ТЗ v6, приоритеты уточняет брифинг. Mock ML, Mock ТОиР и их OpenAPI-спецификации предоставляет заказчик. Он отвечает за запись, обработку звука двигателя и акустическую диагностику.\n\n[Полный общий контекст](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md) · [Журнал экспериментов](https://github.com/ofdun/ai-mechanic/issues/9) · [Инструкция агентам](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/project-context.md)\n\n## Владельцы компонентов\n\n- Вадим · ML Lead, skeleton, Planner, Agent Core и интеграция.\n- Валерий · retrieval, chunking, embeddings и индексы.\n- Роман, предварительно · ingestion и ParsedDocument.\n- Алексей · generation и verification.\n- Елисей · веб-сервис, backend, frontend, мобильный UX и деплой.\n- Vision · владелец открыт.\n\nA0 — контроль, A — P0, B — P1. Текущие задачи, статусы и блокеры ведутся в карточках. [Карточки проекта](https://github.com/ofdun/ai-mechanic/issues?q=label%3Aproject-context)"
+      "body": "Цель · за 48 часов собрать помощника механика для ООО «НейроДВС». Агент интерпретирует внешний акустический ML-результат, ищет доказательства в руководствах и отправляет подтверждённую заявку на дефектовку. Требования задаёт ТЗ v6, приоритеты уточняет брифинг. Mock ML, Mock ТОиР и их OpenAPI-спецификации предоставляет заказчик. Он отвечает за запись, обработку звука двигателя и акустическую диагностику.\n\n[Полный общий контекст](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md) · [Журнал экспериментов](https://github.com/ofdun/ai-mechanic/issues/9) · [Инструкция агентам](https://github.com/ofdun/ai-mechanic/blob/main/docs/project-context.md)\n\n## Владельцы компонентов\n\n- Вадим · ML Lead, skeleton, Planner, Agent Core и интеграция.\n- Валерий · retrieval, chunking, embeddings и индексы.\n- Роман, предварительно · ingestion и ParsedDocument.\n- Алексей · generation и verification.\n- Елисей · веб-сервис, backend, frontend, мобильный UX и деплой.\n- Vision · владелец открыт.\n\nA0 — контроль, A — P0, B — P1. Текущие задачи, статусы и блокеры ведутся в карточках. [Карточки проекта](https://github.com/ofdun/ai-mechanic/issues?q=label%3Aproject-context)"
     },
     {
       "key": "architecture",
@@ -18,7 +18,7 @@
         "pc:rag",
         "pc:frontend"
       ],
-      "body": "Владельцы · Вадим — контракты, Planner и Agent Core, Валерий — retrieval, Роман предварительно — ingestion, Алексей — generation и verification, Елисей — веб-сервис. Vision пока без владельца.\n\nВход от веб-сервиса проходит через контекст, Planner, отдельные бизнес-инструменты и Technical RAG. Новой диагностике предшествует Mock ML. Planner совмещает tool calling, rewriting и decomposition. Пополнение корпуса проходит через ParsedDocument, chunking и индексы. Общий retriever применяет строгий фильтр модели перед top-k. Для первого контроля используем BM25. Hybrid и reranking сравниваем на той же разметке.\n\nA0 — контроль Planner + Generator. A — P0, добавляет Verifier и Finalizer одним вызовом. B — P1, пять основных вызовов и до одной итерации corrective retrieval с условным Repair. Во всех вариантах код проверяет источники, численные нормы и бизнес-ограничения.\n\n[Архитектура](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#6-общая-архитектура) · [Общие контракты](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#15-структура-и-общие-контракты)"
+      "body": "Владельцы · Вадим — контракты, Planner и Agent Core, Валерий — retrieval, Роман предварительно — ingestion, Алексей — generation и verification, Елисей — веб-сервис. Vision пока без владельца.\n\nВход от веб-сервиса проходит через контекст, Planner, отдельные бизнес-инструменты и Technical RAG. Новой диагностике предшествует Mock ML. Planner совмещает tool calling, rewriting и decomposition. Пополнение корпуса проходит через ParsedDocument, chunking и индексы. Общий retriever применяет строгий фильтр модели перед top-k. Для первого контроля используем BM25. Hybrid и reranking сравниваем на той же разметке.\n\nA0 — контроль Planner + Generator. A — P0, добавляет Verifier и Finalizer одним вызовом. B — P1, пять основных вызовов и до одной итерации corrective retrieval с условным Repair. Во всех вариантах код проверяет источники, численные нормы и бизнес-ограничения.\n\n[Архитектура](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#6-общая-архитектура) · [Общие контракты](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#15-структура-и-общие-контракты)"
     },
     {
       "key": "contract",
@@ -30,7 +30,7 @@
         "pc:agent",
         "pc:todo"
       ],
-      "body": "Владельцы · Вадим и Елисей. Контракт веб-сервиса ожидает согласования.\n\nТочки стыка: диагностика, чат, черновик, подтверждение, история, сводка и health. Согласовать Pydantic/OpenAPI, префиксы, идентичность и роли, пару vehicle_id/session_id, conversation_id, представление ссылок на PDF, ошибки и отображение TICKET_OUTCOME_UNKNOWN. Механик подтверждает черновик отдельным действием UI. Mock ML и Mock ТОиР сверены по коду, OpenAPI и HTTP.\n\nКритерий готовности · общая схема и C1–C3 через веб-сервис. [Внешние контракты](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#5-входы-выходы-и-внешние-контракты)"
+      "body": "Владельцы · Вадим и Елисей. Контракт веб-сервиса ожидает согласования.\n\nТочки стыка: диагностика, чат, черновик, подтверждение, история, сводка и health. Согласовать Pydantic/OpenAPI, префиксы, идентичность и роли, пару vehicle_id/session_id, conversation_id, представление ссылок на PDF, ошибки и отображение TICKET_OUTCOME_UNKNOWN. Механик подтверждает черновик отдельным действием UI. Mock ML и Mock ТОиР сверены по коду, OpenAPI и HTTP.\n\nКритерий готовности · общая схема и C1–C3 через веб-сервис. [Внешние контракты](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#5-входы-выходы-и-внешние-контракты)"
     },
     {
       "key": "rag",
@@ -40,7 +40,7 @@
         "pc:evaluation",
         "pc:todo"
       ],
-      "body": "Владелец retrieval · Валерий. Владелец ParsedDocument · Роман, предварительно.\n\nШесть PDF, 1743 страницы, 1735 с извлекаемым текстом. Шесть страниц без текстового слоя содержат значимые таблицы или рисунки. Начать с page-level BM25 на CPU, параллельно подготовить dense. Сравнить structural chunks, hybrid, RRF, reranking и parent retrieval. Для многомодельных таблиц проверять связь нормы с двигателем, колонкой, единицей и условиями.\n\nКритерий готовности · пересборка индекса и проверка источников на всех моделях, включая вопросы вне корпуса. [Retrieval engine](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#7-общий-retrieval-engine)"
+      "body": "Владелец retrieval · Валерий. Владелец ParsedDocument · Роман, предварительно.\n\nШесть PDF, 1743 страницы, 1735 с извлекаемым текстом. Шесть страниц без текстового слоя содержат значимые таблицы или рисунки. Начать с page-level BM25 на CPU, параллельно подготовить dense. Сравнить structural chunks, hybrid, RRF, reranking и parent retrieval. Для многомодельных таблиц проверять связь нормы с двигателем, колонкой, единицей и условиями.\n\nКритерий готовности · пересборка индекса и проверка источников на всех моделях, включая вопросы вне корпуса. [Retrieval engine](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#7-общий-retrieval-engine)"
     },
     {
       "key": "agent",
@@ -49,7 +49,7 @@
         "pc:agent",
         "pc:todo"
       ],
-      "body": "Владелец · Вадим. Алексей отвечает за этапы Generation и Verification.\n\nОбработать normal, anomaly и check_failed. Невалидный замер блокирует заявку. Порог confidence < 0,70 и повтор при warning ожидают согласования. Агент сохраняет предсказание и проверяет пригодность и применимость. Planner выбирает инструменты и формирует поисковую стратегию. A0 — контроль, A — P0. Сервер готовит черновик, проверяет доказательства и явное подтверждение. ТОиР выдаёт два ID для двух одинаковых POST, нужна защита от дублей и состояние неизвестного исхода.\n\nКритерий готовности · C1/C3, повторы и ошибки на живых моках. [A0 и A](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#8-архитектура-a-и-контроль-a0)"
+      "body": "Владелец · Вадим. Алексей отвечает за этапы Generation и Verification.\n\nОбработать normal, anomaly и check_failed. Невалидный замер блокирует заявку. Порог confidence < 0,70 и повтор при warning ожидают согласования. Агент сохраняет предсказание и проверяет пригодность и применимость. Planner выбирает инструменты и формирует поисковую стратегию. A0 — контроль, A — P0. Сервер готовит черновик, проверяет доказательства и явное подтверждение. ТОиР выдаёт два ID для двух одинаковых POST, нужна защита от дублей и состояние неизвестного исхода.\n\nКритерий готовности · C1/C3, повторы и ошибки на живых моках. [A0 и A](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#8-архитектура-a-и-контроль-a0)"
     },
     {
       "key": "frontend",
@@ -58,7 +58,7 @@
         "pc:frontend",
         "pc:todo"
       ],
-      "body": "Владелец · Елисей.\n\nВыбор ТС и сессии, показ статуса и качества записи, чат со ссылками на физические страницы, просмотр и подтверждение черновика. История, динамика и сводка главного механика подключаются по готовности backend.\n\nКритерий готовности · C1–C3 выполняются на телефоне. [Требования](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#3-требования-и-приёмка)"
+      "body": "Владелец · Елисей.\n\nВыбор ТС и сессии, показ статуса и качества записи, чат со ссылками на физические страницы, просмотр и подтверждение черновика. История, динамика и сводка главного механика подключаются по готовности backend.\n\nКритерий готовности · C1–C3 выполняются на телефоне. [Требования](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#3-требования-и-приёмка)"
     },
     {
       "key": "evaluation",
@@ -67,7 +67,7 @@
         "pc:evaluation",
         "pc:todo"
       ],
-      "body": "Владельцы по направлениям · Валерий — retrieval, Алексей — generation и verification, Вадим — агент и end-to-end. Роман предварительно ведёт ingestion, владелец vision открыт.\n\nПодготовить 30–50 ручных вопросов и отложить holdout. Порядок измерений — retrieval, Oracle Context, A0/A/B на одном retriever. Фиксировать фактическое качество, latency p50/p95 и стоимость цикла, включая модель, route, токены и выбранный split. [39 гипотез](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#11-гипотезы-и-владельцы-экспериментов) · [Метрики](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#12-оценка) · [Фактические прогоны](https://github.com/ofdun/ai-mechanic/issues/9)"
+      "body": "Владельцы по направлениям · Валерий — retrieval, Алексей — generation и verification, Вадим — агент и end-to-end. Роман предварительно ведёт ingestion, владелец vision открыт.\n\nПодготовить 30–50 ручных вопросов и отложить holdout. Порядок измерений — retrieval, Oracle Context, A0/A/B на одном retriever. Фиксировать фактическое качество, latency p50/p95 и стоимость цикла, включая модель, route, токены и выбранный split. [39 гипотез](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#11-гипотезы-и-владельцы-экспериментов) · [Метрики](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#12-оценка) · [Фактические прогоны](https://github.com/ofdun/ai-mechanic/issues/9)"
     },
     {
       "key": "blockers",
@@ -78,7 +78,7 @@
         "pc:backend",
         "pc:agent"
       ],
-      "body": "Выявленные ограничения · PDF с несколькими модификациями, разная печатная и физическая нумерация, растровые таблицы и векторные схемы. Некоторые синтетические диагнозы противоречат типу топлива. Mock ТОиР не поддерживает идемпотентность и поиск результата после тайм-аута.\n\nОткрыто · утверждение порога и warning, основания карантина, доставка страниц, роли и обработка неизвестного исхода записи. Роман указан предварительно. Владелец vision открыт. Фактические условия provider route проверяются до прогона.\n\n[Проверенные ограничения API](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#5-входы-выходы-и-внешние-контракты)"
+      "body": "Выявленные ограничения · PDF с несколькими модификациями, разная печатная и физическая нумерация, растровые таблицы и векторные схемы. Некоторые синтетические диагнозы противоречат типу топлива. Mock ТОиР не поддерживает идемпотентность и поиск результата после тайм-аута.\n\nОткрыто · утверждение порога и warning, основания карантина, доставка страниц, роли и обработка неизвестного исхода записи. Роман указан предварительно. Владелец vision открыт. Фактические условия provider route проверяются до прогона.\n\n[Проверенные ограничения API](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#5-входы-выходы-и-внешние-контракты)"
     },
     {
       "key": "experiments",
@@ -86,7 +86,7 @@
       "labels": [
         "pc:evaluation"
       ],
-      "body": "Пишите результаты в комментариях. Один комментарий на прогон. Укажите гипотезу, конфигурацию и модели, данные, коммит, измеренные метрики, latency, стоимость и итог. Добавьте ссылку на задачу или артефакт, если есть. Для повторного прогона выберите новый ID. Записывайте только фактические измерения и согласованные сведения для публичного репозитория.\n\nКоманда может писать прямо в браузере. Агенты используют `experiment-log --file` или `finish --run-file`. [Формат и инструкция](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/project-context.md#запись-эксперимента)\n\n[Полный каталог 39 гипотез с ID и владельцами](https://github.com/ofdun/ai-mechanic/blob/feat/project-context/docs/shared-project-context.md#11-гипотезы-и-владельцы-экспериментов)"
+      "body": "Пишите результаты в комментариях. Один комментарий на прогон. Укажите гипотезу, конфигурацию и модели, данные, коммит, измеренные метрики, latency, стоимость и итог. Добавьте ссылку на задачу или артефакт, если есть. Для повторного прогона выберите новый ID. Записывайте только фактические измерения и согласованные сведения для публичного репозитория.\n\nКоманда может писать прямо в браузере. Агенты используют `experiment-log --file` или `finish --run-file`. [Формат и инструкция](https://github.com/ofdun/ai-mechanic/blob/main/docs/project-context.md#запись-эксперимента)\n\n[Полный каталог 39 гипотез с ID и владельцами](https://github.com/ofdun/ai-mechanic/blob/main/docs/shared-project-context.md#11-гипотезы-и-владельцы-экспериментов)"
     }
   ],
   "plans": [

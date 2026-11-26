@@ -4,7 +4,7 @@
 
 ## Быстрый старт
 
-Обновите ветку `feat/project-context` и откройте её checkout в coding-агенте. В Codex запустите `$project-context`. Правило в корневом `AGENTS.md` применяется и при обычной работе над задачей. В других клиентах попросите агента прочитать `.agents/skills/project-context/SKILL.md`. Для команд нужны Python 3.10+, GitHub CLI и вход через `gh auth login --web`. [Как Codex обнаруживает навыки](https://developers.openai.com/blog/skills-agents-sdk)
+Общий контекст находится в `main`. Для новой задачи создайте рабочую ветку от актуальной `main` и откройте её в coding-агенте. В Codex запустите `$project-context`. Правило в корневом `AGENTS.md` применяется и при обычной работе над задачей. В других клиентах попросите агента прочитать `.agents/skills/project-context/SKILL.md`. Для команд нужны Python 3.10+, GitHub CLI и вход через `gh auth login --web`. [Как Codex обнаруживает навыки](https://developers.openai.com/blog/skills-agents-sdk)
 
 ```bash
 ctx=.agents/skills/project-context/scripts/context.py
