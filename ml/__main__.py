@@ -7,7 +7,7 @@ import httpx
 from pydantic import ValidationError
 
 from ml.config import Settings
-from ml.contracts import AgentError, AgentRequest, AudioInput, MAX_AUDIO_BYTES, TicketConfirmation
+from ml.contracts import AgentError, AgentRequest, TicketConfirmation
 from ml.pdf_baseline import build_pdf_pipeline
 from ml.pipeline import Pipeline
 
@@ -25,9 +25,7 @@ def main() -> int:
         command.add_argument('--session', required=True)
 
     run.add_argument('--command', choices=('auto', 'diagnose', 'draft_ticket'), default='auto')
-    inputs = run.add_mutually_exclusive_group()
-    inputs.add_argument('--message')
-    inputs.add_argument('--audio', type=Path)
+    run.add_argument('--message')
     confirm.add_argument('--draft-id', required=True)
     confirm.add_argument('--confirm', action='store_true')
     args = parser.parse_args()
@@ -40,11 +38,7 @@ def main() -> int:
         with httpx.Client(timeout=settings.http_timeout_seconds) as http:
             pipeline = build_pdf_pipeline(settings, http, args.pdf_index) if args.pdf_index else Pipeline(settings, http)
             if args.operation == 'run':
-                audio = None
-                if args.audio:
-                    with args.audio.open('rb') as file:
-                        audio = AudioInput(content=file.read(MAX_AUDIO_BYTES + 1))
-                result = pipeline.run(AgentRequest(**context, command=args.command, message=args.message, audio=audio))
+                result = pipeline.run(AgentRequest(**context, command=args.command, message=args.message))
             else:
                 result = pipeline.confirm_ticket(TicketConfirmation(
                     **context, draft_id=args.draft_id, draft_version=1, confirmed=args.confirm,

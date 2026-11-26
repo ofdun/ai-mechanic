@@ -1,11 +1,11 @@
 from contextlib import contextmanager
 from typing import Annotated, Callable
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
 from ml.contracts import (
-    MAX_AUDIO_BYTES, AgentError, AgentRequest, AgentResponse, AgentTurn, AudioInput, ConversationContext,
+    AgentError, AgentRequest, AgentResponse, AgentTurn, ConversationContext,
     TicketConfirmation, TicketDecision, TicketReceipt,
 )
 from ml.pipeline import Pipeline
@@ -22,11 +22,6 @@ ERROR_HTTP_STATUS = {
     'TICKET_OUTCOME_UNKNOWN': 409,
     'REMEASUREMENT_REQUIRED': 409,
     'CONFIRMATION_REQUIRED': 422,
-    'ASR_ERROR': 422,
-    'EMPTY_TRANSCRIPT': 422,
-    'INVALID_TRANSCRIPT': 422,
-    'AUDIO_TOO_LONG': 413,
-    'ASR_NOT_INSTALLED': 503,
     'LLM_EVIDENCE_NOT_ALLOWED': 403,
     'LLM_NOT_CONFIGURED': 503,
     'RAG_INDEX_UNAVAILABLE': 503,
@@ -55,34 +50,15 @@ def create_agent_router(
     router = APIRouter(prefix='/agent', tags=['agent'])
     Actor = Annotated[str, Depends(resolve_actor)]
 
-    def run(actor_id: str, turn: AgentTurn, audio: AudioInput | None = None) -> AgentResponse:
+    @router.post('/run', response_model=AgentResponse)
+    def run_text(turn: AgentTurn, actor_id: Actor) -> AgentResponse:
         try:
-            request = AgentRequest(actor_id=actor_id, **turn.model_dump(), audio=audio)
+            request = AgentRequest(actor_id=actor_id, **turn.model_dump())
         except ValidationError as error:
-            raise HTTPException(422, detail={'code': 'INVALID_INPUT', 'message': 'Нужен текст, аудио или явная команда.'}) from error
+            raise HTTPException(422, detail={'code': 'INVALID_INPUT', 'message': 'Нужен текст или явная команда.'}) from error
         with api_errors():
             context = load_context(actor_id, request.conversation_id) if load_context and request.conversation_id else None
             return pipeline.run(request, context=context)
-
-    @router.post('/run', response_model=AgentResponse)
-    def run_text(turn: AgentTurn, actor_id: Actor) -> AgentResponse:
-        return run(actor_id, turn)
-
-    @router.post('/audio', response_model=AgentResponse)
-    def run_audio(
-        actor_id: Actor, audio: UploadFile, vehicle_id: Annotated[str, Form(min_length=1)],
-        session_id: Annotated[str, Form(min_length=1)], conversation_id: Annotated[str | None, Form(min_length=1)] = None,
-    ) -> AgentResponse:
-        content = audio.file.read(MAX_AUDIO_BYTES + 1)
-        if len(content) > MAX_AUDIO_BYTES:
-            raise HTTPException(413, detail={'code': 'AUDIO_TOO_LARGE', 'message': 'Аудио превышает 20 МиБ.'})
-        if not content:
-            raise HTTPException(422, detail={'code': 'INVALID_INPUT', 'message': 'Пустой аудиофайл.'})
-        try:
-            turn = AgentTurn(vehicle_id=vehicle_id, session_id=session_id, conversation_id=conversation_id)
-        except ValidationError as error:
-            raise HTTPException(422, detail={'code': 'INVALID_INPUT', 'message': 'Укажите ТС и диагностическую сессию.'}) from error
-        return run(actor_id, turn, AudioInput(content=content))
 
     @router.post('/tickets/confirm', response_model=TicketReceipt)
     def confirm(body: TicketDecision, actor_id: Actor) -> TicketReceipt:

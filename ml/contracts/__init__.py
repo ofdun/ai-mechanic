@@ -9,7 +9,6 @@ FaultCode = Annotated[str, StringConstraints(pattern=r'^F(0[1-9]|1[0-4])$')]
 Score = Annotated[float, Field(ge=0, le=1)]
 PageNumber = Annotated[int, Field(ge=1)]
 Action = Literal['diagnose', 'search_manuals', 'get_diagnostic_history', 'draft_ticket', 'clarify']
-MAX_AUDIO_BYTES = 20 * 1024 * 1024
 
 
 class AgentError(Exception):
@@ -169,10 +168,6 @@ class TicketReceipt(BaseModel):
     status: Literal['created']
 
 
-class AudioInput(BaseModel):
-    content: Annotated[bytes, Field(min_length=1, max_length=MAX_AUDIO_BYTES)]
-
-
 class AgentTurn(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -185,14 +180,11 @@ class AgentTurn(BaseModel):
 
 class AgentRequest(AgentTurn):
     actor_id: Text
-    audio: AudioInput | None = None
 
     @model_validator(mode='after')
     def require_input(self):
-        if self.message is not None and self.audio is not None:
-            raise ValueError('Pass either text or audio')
-        if self.command == 'auto' and self.message is None and self.audio is None:
-            raise ValueError('An automatic request requires text or audio')
+        if self.command == 'auto' and self.message is None:
+            raise ValueError('An automatic request requires text')
         return self
 
 
@@ -220,7 +212,6 @@ class AgentResponse(BaseModel):
     engine_model: str
     action: Action
     message: str
-    transcript: str | None = None
     diagnostic: DiagnosticResult | None = None
     requires_remeasurement: bool = False
     can_create_ticket: bool = False
@@ -246,7 +237,3 @@ class Verifier(Protocol):
 
 class SearchWorkflow(Protocol):
     def run(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome: ...
-
-
-class Transcriber(Protocol):
-    def transcribe(self, audio: AudioInput) -> str: ...

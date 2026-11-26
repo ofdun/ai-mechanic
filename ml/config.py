@@ -30,8 +30,6 @@ class Settings(BaseSettings):
     b_critic_model: str = 'deepseek/deepseek-v4.1-flash'
     b_repair_model: str = 'deepseek/deepseek-v4.1-flash'
     b_finalizer_model: str = 'z-ai/glm-5.3-flash'
-    asr_model: str = 'base'
-    asr_language: str = 'ru'
 
     @field_validator('ml_api_url', 'maintenance_api_url', 'llm_base_url')
     @classmethod

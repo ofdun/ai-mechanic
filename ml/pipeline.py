@@ -4,12 +4,11 @@ from uuid import uuid4
 
 import httpx
 
-from ml.audio import WhisperASR
 from ml.config import Settings
 from ml.contracts import (
     AgentError, AgentRequest, AgentResponse, ConversationContext, DiagnosticResult, EvidenceBundle, Generator, Retriever,
     SearchPlan, SearchWorkflow, TechnicalClaim, TicketConfirmation, TicketDraft, TicketPayload, TicketReceipt,
-    TicketReference, Transcriber, Vehicle, Verifier,
+    TicketReference, Vehicle, Verifier,
 )
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
 from ml.providers.openrouter import OpenRouterClient
@@ -35,7 +34,6 @@ class Pipeline:
         verifier: Verifier | None = None,
         search_workflow: SearchWorkflow | None = None,
         planner: Planner | None = None,
-        transcriber: Transcriber | None = None,
     ):
         self.settings = settings
         self.vehicles = VehicleDirectory.load(settings)
@@ -46,9 +44,6 @@ class Pipeline:
         self.search_workflow = search_workflow
         self.planner = planner if planner is not None else (
             OfflinePlanner() if settings.planner_mode == 'offline' else LLMPlanner(OpenRouterClient(http, settings))
-        )
-        self.transcriber = transcriber if transcriber is not None else WhisperASR(
-            settings.asr_model, settings.asr_language, settings.artifacts_dir / 'asr',
         )
 
     @cached_property
@@ -63,10 +58,7 @@ class Pipeline:
             context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
         ) != (request.actor_id, request.vehicle_id, request.session_id, request.conversation_id, vehicle.engine_model):
             raise AgentError('CONTEXT_MISMATCH', 'Контекст не соответствует пользователю, диалогу или выбранной сессии ТС.')
-        transcript = self.transcriber.transcribe(request.audio).strip() if request.audio is not None else None
-        if transcript is not None and not 0 < len(transcript) <= 8000:
-            raise AgentError('INVALID_TRANSCRIPT', 'Распознанный запрос пуст или слишком длинный.')
-        message = request.message or transcript or {
+        message = request.message or {
             'diagnose': 'Запусти диагностику выбранной сессии.',
             'draft_ticket': 'Подготовь черновик заявки на дефектовку.',
         }[request.command]
@@ -86,7 +78,7 @@ class Pipeline:
         response = AgentResponse(
             request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
             engine_model=vehicle.engine_model, conversation_id=request.conversation_id,
-            action=decision.action, transcript=transcript,
+            action=decision.action,
             message='Уточните, что проверить или какой норматив найти.',
         )
 

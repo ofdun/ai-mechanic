@@ -18,7 +18,9 @@ uv sync
 cp .env.example .env
 ```
 
-Задайте `DATA_DIR` с `vehicles.json` или архивом `neurodvs_hackathon_mock_*.zip`. Можно передать конкретный путь к распакованному JSON через `VEHICLES_PATH`. Клиент моков использует `ML_API_URL` и `MAINTENANCE_API_URL`.
+Задайте `DATA_DIR` с `vehicles.json` или архивом `neurodvs_hackathon_mock_*.zip`. Можно передать конкретный путь к распакованному JSON через `VEHICLES_PATH`. Клиент использует `ML_API_URL` и `MAINTENANCE_API_URL`.
+
+Mock ML, Mock ТОиР и OpenAPI-спецификации предоставляет заказчик. Запись, обработка звука двигателя и акустическая диагностика относятся к его сервису. Ядро отправляет `vehicle_id` и `session_id` в `POST /diagnose`, получает готовый JSON и использует его для интерпретации и поиска по руководству. Для создания заявки ядро отправляет подтверждённый черновик в `POST /tickets`.
 
 ```bash
 # Получение результата Mock ML по явной команде доступно без ключа LLM.
@@ -31,16 +33,6 @@ PLANNER_MODE=offline uv run python -m ml run --vehicle M333YK47 --session S-0005
 ```
 
 В режиме `llm` один вызов OpenRouter выбирает инструмент. Для поиска он отдаёт переформулировку и до пяти подзапросов. `SearchPlan` сохраняет исходный текст, а доверенная модель двигателя берётся из карточки ТС. `--verbose` включает метрики вызова LLM без текста запроса. `PLANNER_MODE=offline` переключает на ограниченный набор текстовых команд для локального запуска.
-
-### Голос
-
-```bash
-uv sync --extra asr
-PLANNER_MODE=offline uv run --extra asr python -m ml run \
-  --vehicle M333YK47 --session S-0005 --audio /path/to/command.wav
-```
-
-Whisper извлекает речь локально на CPU. Первый запуск скачивает модель из `ASR_MODEL` в `ARTIFACTS_DIR/asr`. `ASR_LANGUAGE=ru` задаёт язык. Пустая транскрипция возвращает ошибку. Распознанная строка передаётся тому же Planner и возвращается как `transcript`. Лимит входа — 20 МиБ и 60 секунд после декодирования.
 
 ## Стыки для команды
 
@@ -59,7 +51,7 @@ with httpx.Client(timeout=settings.http_timeout_seconds) as http:
     ))
 ```
 
-Веб-сервис управляет сроком жизни `httpx.Client` и `Pipeline`. `actor_id` передаётся из проверенного контекста пользователя. Для голосового сообщения передайте `AgentRequest.audio=AudioInput(content=...)` с байтами файла. Для уточнения передайте `AgentRequest.conversation_id` и `context=ConversationContext(...)` с последним результатом диагностики, моделью двигателя и, при необходимости, последними сообщениями из серверной сессии. `AgentError` содержит машиночитаемые `code` и `retryable`.
+Веб-сервис управляет сроком жизни `httpx.Client` и `Pipeline`. `actor_id` передаётся из проверенного контекста пользователя. Для уточнения передайте `AgentRequest.conversation_id` и `context=ConversationContext(...)` с последним результатом диагностики, моделью двигателя и, при необходимости, последними сообщениями из серверной сессии. `AgentError` содержит машиночитаемые `code` и `retryable`.
 
 | Кто подключается | Точка входа |
 |---|---|
@@ -116,7 +108,6 @@ app.include_router(create_agent_router(pipeline, current_actor_id))
 | Маршрут | Что передавать |
 |---|---|
 | `POST /agent/run` | JSON с `vehicle_id`, `session_id`, опциональным `conversation_id`. Для запуска диагностики и черновика передайте `command=diagnose` или `command=draft_ticket`, для уточнения — `message` |
-| `POST /agent/audio` | Multipart с полями `vehicle_id`, `session_id`, опциональным `conversation_id` и файлом `audio`. Для ASR установите `extra asr` |
 | `POST /agent/tickets/confirm` | JSON с `vehicle_id`, `session_id`, `draft_id`, `draft_version` и `confirmed=true` |
 
 Известные ошибки ядра возвращаются как `detail` с полями `code`, `message` и `retryable`. Для серверной памяти можно передать `load_context(actor_id, conversation_id)` при создании router. Приложение команды хранит результаты предыдущих ходов и управляет сроком жизни `Pipeline` и HTTP-клиента.
@@ -131,7 +122,7 @@ SQLite открывается при первой операции с заявк
 
 ```bash
 uv run pytest -q
-uv run --extra api --extra asr pytest -q
+uv run --extra api pytest -q
 ```
 
-Тесты проверяют tool calling и переписывание запроса, контекст уточнений, фильтрацию источников, защиту подтверждения и отправки. С `extra asr` также проверяется реальное декодирование входного WAV. Для прогона с материалами заказчика удобно взять `M333YK47/S-0005` для аномалии, `P456AT178/S-0001` для нормы и `P456AT178/S-0003` для сбоя записи.
+Тесты проверяют tool calling и переформулирование текстового запроса, контекст уточнений, фильтрацию источников, защиту подтверждения и отправки. Для прогона с материалами заказчика используйте `M333YK47/S-0005` для аномалии, `P456AT178/S-0001` для нормы и `P456AT178/S-0003` для сбоя записи.

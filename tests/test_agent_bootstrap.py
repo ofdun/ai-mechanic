@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from ml.config import Settings
 from ml.contracts import (
-    AgentError, AgentRequest, AudioInput, ConversationContext, DocumentPage, Evidence, EvidenceBundle,
+    AgentError, AgentRequest, ConversationContext, DocumentPage, Evidence, EvidenceBundle,
     ParsedDocument, TechnicalClaim, TechnicalDraft, TicketConfirmation, VerifiedResponse,
 )
 from ml.pipeline import Pipeline
@@ -91,12 +91,6 @@ class FixtureGenerator:
         ])
 
 
-class FixtureASR:
-    def transcribe(self, audio):
-        assert audio.content == b'voice sample'
-        return 'Запусти диагностику двигателя.'
-
-
 class FixtureVerifier:
     def verify(self, draft, evidence):
         return VerifiedResponse(claims=[claim for claim in draft.claims if claim.text == OPERATION])
@@ -115,13 +109,12 @@ def setup(tmp_path: Path):
     upstreams = TestUpstreams()
     with httpx.Client(transport=httpx.MockTransport(upstreams)) as http:
         yield upstreams, Pipeline(settings, http, retriever=FixtureRetriever(), generator=FixtureGenerator(),
-                                  verifier=FixtureVerifier(), transcriber=FixtureASR())
+                                  verifier=FixtureVerifier())
 
 
-def test_voice_uses_native_tool_call_and_diagnoses(setup):
+def test_text_uses_native_tool_call_and_diagnoses(setup):
     upstreams, pipeline = setup
-    response = pipeline.run(utterance(audio=AudioInput(content=b'voice sample')))
-    assert response.transcript.startswith('Запусти диагностику')
+    response = pipeline.run(utterance(message='Запусти диагностику двигателя.'))
     assert response.diagnostic.status == 'anomaly'
     assert response.search_plan.anomaly_type == 'F08'
     assert response.can_create_ticket
