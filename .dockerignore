@@ -1,0 +1,16 @@
+**
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!ml/
+!ml/**
+!web/
+!web/**
+!frontend/
+!frontend/package*.json
+!frontend/index.html
+!frontend/vite.config.js
+!frontend/src/
+!frontend/src/**
+**/__pycache__/
+**/*.pyc

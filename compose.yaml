@@ -1,0 +1,65 @@
+x-image: &image
+  image: ai-mechanic-fleet:local
+  build: .
+
+x-fleet: &fleet
+  <<: *image
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DATA_DIR: /fleet
+    ARTIFACTS_DIR: /state
+    ML_API_URL: ${ML_API_URL:-http://ml:8001}
+    MAINTENANCE_API_URL: ${MAINTENANCE_API_URL:-http://maintenance:8002}
+    PLANNER_MODE: ${PLANNER_MODE:-local}
+    AGENT_ARCHITECTURE: ${AGENT_ARCHITECTURE:-baseline}
+  volumes:
+    - type: bind
+      source: ${FLEET_DIR:-./data}
+      target: /fleet
+      read_only: true
+      bind:
+        create_host_path: false
+    - state:/state
+
+x-mock: &mock
+  <<: *image
+  profiles: [mocks]
+  working_dir: /mocks
+  volumes:
+    - type: bind
+      source: ${MOCK_DIR:-./data/mocks}
+      target: /mocks
+      read_only: true
+      bind:
+        create_host_path: false
+
+services:
+  index:
+    <<: *fleet
+    command: ["python", "-m", "ml.manual_corpus"]
+
+  web:
+    <<: *fleet
+    depends_on:
+      index:
+        condition: service_completed_successfully
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ml:
+    <<: *mock
+    command: ["uvicorn", "mock_ml.app:app", "--host", "0.0.0.0", "--port", "8001"]
+
+  maintenance:
+    <<: *mock
+    command: ["uvicorn", "mock_toir.app:app", "--host", "0.0.0.0", "--port", "8002"]
+
+volumes:
+  state:
