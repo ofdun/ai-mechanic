@@ -150,6 +150,7 @@ class TicketDraft(BaseModel):
     expires_at: datetime
     payload: TicketPayload
     engine_model: Text | None = None
+    urgency_reason: Text | None = None
 
 
 class TicketDecision(BaseModel):
@@ -160,6 +161,7 @@ class TicketDecision(BaseModel):
     draft_id: Text
     draft_version: Literal[1]
     confirmed: StrictBool
+    urgency: TicketUrgency | None = None
 
 
 class TicketConfirmation(TicketDecision):
@@ -217,6 +219,8 @@ class AgentResponse(BaseModel):
     message: str
     diagnostic: DiagnosticResult | None = None
     requires_remeasurement: bool = False
+    recognition_error: bool = False
+    manual_referral: str | None = None
     can_create_ticket: bool = False
     search_plan: SearchPlan | None = None
     evidence: EvidenceBundle = Field(default_factory=EvidenceBundle)

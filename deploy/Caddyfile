@@ -1,0 +1,18 @@
+{
+	default_sni {$STAND_HOST}
+}
+
+https://{$STAND_HOST} {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+	basic_auth {
+		{$STAND_USER} {$STAND_PASSWORD_HASH}
+	}
+	header >Cache-Control "private, no-store"
+	reverse_proxy web:{$WEB_LISTEN_PORT} {
+		header_up -Authorization
+	}
+}

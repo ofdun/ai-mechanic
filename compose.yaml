@@ -75,7 +75,7 @@ services:
       agent:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-8080}:${WEB_LISTEN_PORT:-8080}"
+      - "127.0.0.1:${WEB_PORT:-8080}:${WEB_LISTEN_PORT:-8080}"
     healthcheck:
       test: ["CMD", "mechanic", "health"]
       interval: 10s

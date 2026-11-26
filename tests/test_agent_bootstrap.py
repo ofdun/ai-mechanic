@@ -198,6 +198,7 @@ def test_even_verbatim_substrings_cannot_create_unverified_ticket(setup, source_
     response = pipeline.run(utterance(command='draft_ticket'))
     assert response.evidence.items[0].text == source_text
     assert not response.claims and not response.can_create_ticket and response.ticket_draft is None
+    assert all(value in response.manual_referral for value in (VEHICLE, ENGINE, SESSION, 'F08', 'дефектовку'))
     assert not upstreams.calls('/tickets')
 
 
@@ -216,12 +217,36 @@ def test_no_draft_from_normal_or_unusable_measurement(setup, status, signal, con
     assert response.diagnostic.status == status
     assert not response.can_create_ticket
     assert response.ticket_draft is None
+    assert response.manual_referral is None
     assert not upstreams.calls('/tickets')
 
 
-def confirmation(draft, *, actor='mechanic', confirmed=True):
+def test_wrong_fuel_is_recognition_error_without_manual_or_draft(setup):
+    _, pipeline = setup
+    vehicle, _ = pipeline.vehicles.get(VEHICLE, SESSION)
+    vehicle.fuel = 'бензин'
+    vehicle.engine_model = 'ЗМЗ-5234.10'
+    response = pipeline.run(utterance(command='draft_ticket'))
+    assert response.recognition_error
+    assert 'бензиновый двигатель ЗМЗ-5234.10' in response.message
+    assert not response.can_create_ticket and response.ticket_draft is None
+    assert response.search_plan is None and response.manual_referral is None
+
+
+@pytest.mark.parametrize('signal', ['warning', 'good'])
+def test_low_confidence_explains_configured_boundary(setup, signal):
+    upstreams, pipeline = setup
+    pipeline.settings.min_diagnostic_confidence = 0.875
+    upstreams.result = diagnostic(signal=signal, confidence=0.873)
+    response = pipeline.run(utterance(command='diagnose'))
+    assert response.requires_remeasurement
+    assert '87,3%' in response.message and '87,5%' in response.message
+    assert ('помехи' in response.message) == (signal == 'warning')
+
+
+def confirmation(draft, *, actor='mechanic', confirmed=True, urgency=None):
     return TicketConfirmation(actor_id=actor, vehicle_id=VEHICLE, session_id=SESSION,
-                              draft_id=draft.draft_id, draft_version=1, confirmed=confirmed)
+                              draft_id=draft.draft_id, draft_version=1, confirmed=confirmed, urgency=urgency)
 
 
 def test_ticket_requires_confirmation_and_is_idempotent(setup):
@@ -242,6 +267,24 @@ def test_ticket_requires_confirmation_and_is_idempotent(setup):
         pipeline.confirm_ticket(confirmation(other_draft))
     assert error.value.code == 'DUPLICATE_TICKET'
     assert upstreams.calls('/tickets') == [draft.payload.model_dump()]
+
+
+def test_mechanic_priority_is_sent_and_preserved_on_replay(setup):
+    upstreams, pipeline = setup
+    pipeline.settings.ticket_urgency_by_fault = {'F08': 'low'}
+    draft = pipeline.run(utterance(command='draft_ticket')).ticket_draft
+    assert draft.payload.urgency == 'low' and 'F08' in draft.urgency_reason
+    with pytest.raises(ValidationError):
+        confirmation(draft, urgency='critical')
+    decision = confirmation(draft, urgency='high')
+    receipt = pipeline.confirm_ticket(decision)
+    stored, _, saved_receipt = pipeline.tickets.load(decision)
+    assert stored.payload.urgency == 'high' and saved_receipt == receipt
+    assert pipeline.confirm_ticket(decision) == receipt
+    with pytest.raises(AgentError) as rejected:
+        pipeline.confirm_ticket(confirmation(draft, urgency='medium'))
+    assert rejected.value.code == 'DUPLICATE_TICKET'
+    assert upstreams.calls('/tickets') == [{**draft.payload.model_dump(), 'urgency': 'high'}]
 
 
 def test_confirm_rechecks_the_measurement(setup):

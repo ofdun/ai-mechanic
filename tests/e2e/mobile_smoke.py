@@ -158,6 +158,9 @@ def exercise(context, base_url):
     expect(preview.get_by_role('button', name=source_name)).to_be_focused()
     assert not popups and not downloads
     assert doc_requests and all(f'/api/documents/{DOCUMENT_ID}/pages/' in url for url in doc_requests)
+    priority = preview.get_by_label('Приоритет', exact=True)
+    priority.select_option('high')
+    expect(preview).to_contain_text('до выпуска в рейс')
     held = []
     page.route('**/agent/tickets/confirm', lambda route: held.append(route))
     with page.expect_response(lambda res: res.url.endswith('/agent/tickets/confirm')) as completed:
@@ -165,9 +168,11 @@ def exercise(context, base_url):
         expect(engine).to_be_disabled()
         expect(vehicle).to_be_disabled()
         expect(measurement).to_be_disabled()
+        expect(priority).to_be_disabled()
         held[0].continue_()
     receipt_response = completed.value
     assert receipt_response.ok
+    assert receipt_response.request.post_data_json['urgency'] == 'high'
     ticket_id = receipt_response.json()['ticket_id']
     expect(page.get_by_text(re.compile(re.escape(ticket_id)))).to_be_visible()
     expect(confirm).to_have_count(0)

@@ -67,10 +67,12 @@ def exercise(page, base_url):
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
+    page.get_by_label('Приоритет', exact=True).select_option('high')
     with page.expect_response(lambda r: r.url.endswith('/agent/tickets/confirm')) as response:
         page.get_by_role('button', name='Подтвердить заявку').click()
     confirmed = response.value
     assert confirmed.ok
+    assert confirmed.request.post_data_json['urgency'] == 'high'
     receipt = confirmed.json()['ticket_id']
     expect(page.get_by_text(receipt, exact=True)).to_be_visible()
     replay = page.request.post(confirmed.url, data=confirmed.request.post_data_json)
@@ -85,6 +87,34 @@ def exercise(page, base_url):
         open_ticket.click()
         expect(page.get_by_role('tabpanel', name='Заявка')).to_contain_text(reason)
         expect(create_ticket).to_be_disabled()
+
+    vehicle.select_option('Y652CK98')
+    session.select_option('S-0132')
+    diagnose.click()
+    expect(page.get_by_role('heading', name='Ошибка распознавания')).to_be_visible()
+    chat.click()
+    expect(thread).to_contain_text('Ошибка распознавания')
+    expect(thread).not_to_contain_text('Уверенность ИИ')
+    ticket.click()
+    expect(create_ticket).to_be_disabled()
+
+    vehicle.select_option('P854BT78')
+    session.select_option('S-0021')
+    diagnose.click()
+    report = page.get_by_role('tabpanel', name='Результат')
+    expect(report).to_contain_text('66%')
+    expect(report).to_contain_text('порог для этой проверки 70%')
+    expect(report).to_contain_text('помехи')
+
+    vehicle.select_option('T801PO178')
+    session.select_option('S-0046')
+    diagnose.click()
+    expect(report).to_contain_text('F11')
+    open_ticket.click()
+    handoff = page.get_by_role('region', name='Рекомендация на дефектовку')
+    for field in ('T801PO178', 'ЯМЗ-236М2', 'S-0046', 'F11', 'порядку автопарка'):
+        expect(handoff).to_contain_text(field)
+    expect(create_ticket).to_be_disabled()
 
     target = next(v for v in catalog if v['engine_model'] == 'ЗМЗ-5234.10')
     engines = page.get_by_label('Двигатель', exact=True)
@@ -132,7 +162,8 @@ def main():
         stack.enter_context(patch.dict(os.environ, {
             'DATA_DIR': str(args.data_dir), 'VEHICLES_PATH': str(args.mock_dir / 'data' / 'vehicles.json'),
             'ARTIFACTS_DIR': str(state), 'PLANNER_MODE': 'local', 'AGENT_ARCHITECTURE': 'baseline',
-            'ALLOW_EXTERNAL_EVIDENCE': 'false', 'ML_API_URL': stack.enter_context(serve(mock_ml)),
+            'ALLOW_EXTERNAL_EVIDENCE': 'false', 'MIN_DIAGNOSTIC_CONFIDENCE': '0.70',
+            'ML_API_URL': stack.enter_context(serve(mock_ml)),
             'MAINTENANCE_API_URL': stack.enter_context(serve(mock_toir)),
         }))
         agent_url = stack.enter_context(serve(create_app()))

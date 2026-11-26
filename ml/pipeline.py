@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from functools import cached_property
 from uuid import uuid4
 
@@ -23,6 +24,10 @@ def scope_evidence(evidence: EvidenceBundle, engine_model: str) -> EvidenceBundl
     if len({item.evidence_id for item in items}) != len(items):
         raise AgentError('RAG_SCHEMA_ERROR', 'Поиск вернул повторяющиеся идентификаторы источников.')
     return EvidenceBundle(items=items)
+
+
+def percentage(value: float) -> str:
+    return format((Decimal(str(value)) * 100).normalize(), 'f').replace('.', ',') + '%'
 
 
 class Pipeline:
@@ -105,11 +110,14 @@ class Pipeline:
     def measurement_issue(self, result: DiagnosticResult) -> str | None:
         if result.status == 'check_failed' or result.signal_quality == 'bad':
             return 'По этой записи нельзя оценить работу двигателя. Повторите замер.'
-        if result.confidence is None or result.confidence < self.settings.min_diagnostic_confidence:
-            return 'Искусственный интеллект не смог уверенно распознать звук двигателя. Повторите замер.'
-        if result.signal_quality == 'warning' and self.settings.repeat_on_warning:
-            return 'В записи есть помехи. Повторите замер.'
-        return None
+        threshold = self.settings.min_diagnostic_confidence
+        noisy = result.signal_quality == 'warning'
+        if result.confidence is not None and result.confidence >= threshold and not (noisy and self.settings.repeat_on_warning):
+            return None
+        quality = 'В записи есть помехи. ' if noisy else ''
+        confidence = (f'Уверенность ИИ {percentage(result.confidence)}' if result.confidence is not None
+                      else 'Уверенность ИИ неизвестна')
+        return f'{quality}{confidence}, порог для этой проверки {percentage(threshold)}. Повторите замер.'
 
     @staticmethod
     def ticket_mismatch(vehicle: Vehicle, result: DiagnosticResult) -> str | None:
@@ -117,27 +125,30 @@ class Pipeline:
         if (result.anomaly_type == 'F08' and fuel == 'бензин') or (
             result.anomaly_type in {'F12', 'F13'} and fuel == 'дизель'
         ):
-            return 'Предполагаемая неисправность не соответствует типу топлива этой машины. Проверьте карточку машины и выбранный замер.'
+            engine = 'бензиновый' if fuel == 'бензин' else 'дизельный'
+            return (f'На машине установлен {engine} двигатель {vehicle.engine_model}. '
+                    f'ИИ указал «{result.anomaly_title}», но такая неисправность к этому двигателю неприменима. '
+                    'Диагноз по записи поставить нельзя.')
         return None
 
     def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse) -> None:
         result = self.services.diagnose(request.vehicle_id, request.session_id)
         response.diagnostic = result
-        if problem := self.measurement_issue(result):
+        problem = self.measurement_issue(result)
+        mismatch = self.ticket_mismatch(vehicle, result)
+        if mismatch and result.signal_quality != 'bad':
+            next_step = problem or 'Повторите замер или направьте машину на дефектовку.'
+            response.message = f'{mismatch} {next_step}'
+            response.recognition_error = True
+            return
+        if problem:
             response.message = problem
             if result.status == 'anomaly' and result.signal_quality == 'warning':
-                response.message = (
-                    f'На записи с помехами получена гипотеза «{result.anomaly_title}». '
-                    + (f'Уверенность {result.confidence:.0%}. ' if result.confidence is not None else '')
-                    + 'Для вывода о состоянии двигателя нужен повторный замер.'
-                )
+                response.message = f'Предварительная гипотеза ИИ — «{result.anomaly_title}». {problem}'
             response.requires_remeasurement = True
             return
         if result.status == 'normal':
             response.message = 'На записи звук двигателя в пределах нормы.'
-            return
-        if mismatch := self.ticket_mismatch(vehicle, result):
-            response.message = mismatch
             return
         response.message = (f'Искусственный интеллект обнаружил признаки отклонения «{result.anomaly_title}». '
                             'Причину нужно уточнить при осмотре.')
@@ -146,6 +157,13 @@ class Pipeline:
             response.limitations.append('Риск для этого замера по руководству не подтверждён. Рекомендуется дефектовка.')
         operations = [claim for claim in response.claims if claim.kind == 'operation']
         response.can_create_ticket = bool(operations)
+        if not operations:
+            response.manual_referral = (
+                f'ТС {result.vehicle_id}, двигатель {vehicle.engine_model}, проверка {result.session_id}. '
+                f'По записи предполагается отклонение «{result.anomaly_title}» ({result.anomaly_type}). '
+                'Подтвердить порядок работ по руководству для этого двигателя не удалось. '
+                'Рекомендуется оформить дефектовку по порядку автопарка.'
+            )
         if response.action == 'draft_ticket':
             if operations:
                 response.ticket_draft = self.save_draft(request.actor_id, response, result, operations)
@@ -194,6 +212,9 @@ class Pipeline:
         references = dict.fromkeys((item.manual, item.pdf_page) for item in response.evidence.items if item.evidence_id in cited)
         draft = TicketDraft(
             draft_id=uuid4().hex, engine_model=response.engine_model,
+            urgency_reason=(f'По правилу для кода {result.anomaly_type}'
+                            if result.anomaly_type in self.settings.ticket_urgency_by_fault
+                            else None),
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             payload=TicketPayload(
                 vehicle_id=result.vehicle_id, session_id=result.session_id, anomaly_type=result.anomaly_type,
@@ -218,11 +239,13 @@ class Pipeline:
         if draft.engine_model != vehicle.engine_model:
             raise AgentError('DRAFT_STALE', 'Модель двигателя не совпадает с черновиком. Подготовьте новый.')
         result = self.services.diagnose(confirmation.vehicle_id, confirmation.session_id)
-        if self.measurement_issue(result):
-            raise AgentError('REMEASUREMENT_REQUIRED', 'Сначала повторите замер.')
+        if problem := self.measurement_issue(result):
+            raise AgentError('REMEASUREMENT_REQUIRED', problem)
         if result != original or result.status != 'anomaly' or self.ticket_mismatch(vehicle, result):
             raise AgentError('DRAFT_STALE', 'Диагностика изменилась. Подготовьте новый черновик.')
 
+        if confirmation.urgency is not None:
+            draft.payload.urgency = confirmation.urgency
         if receipt := tickets.reserve(confirmation, draft):
             return receipt
         try:
