@@ -103,7 +103,7 @@ li + li { margin-top: .4rem; }
 .view-switch button[aria-pressed="true"] { color: var(--ink); border-color: #b74910; }
 .view-switch button:hover { background: #f2f0e6; }
 .view-switch button:focus-visible { outline-offset: -4px; }
-.pane { height: clamp(16rem, 42dvh, 29rem); overflow: auto; scrollbar-gutter: stable; padding-inline: clamp(1rem, 2.6vw, 2.4rem); }
+.pane { min-height: 0; overflow: auto; scrollbar-gutter: stable; padding-inline: clamp(1rem, 2.6vw, 2.4rem); }
 .ticket-pane .draft { background: none; border: none; padding: 1.2rem 0; }
 .ticket-pane .notice { margin-block: 1rem; }
 .panel-footer, .panel-status { padding-inline: clamp(1rem, 2.6vw, 2.4rem); }
@@ -111,6 +111,16 @@ li + li { margin-top: .4rem; }
 .footer-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .footer-actions button:not(.secondary) { background: #f0eee5; color: var(--ink); border-color: var(--rule); }
 .panel-status { min-height: 1.75rem; color: #77411d; font-size: .9rem; }
+@media (width > 47rem) {
+  #root { display: grid; grid-template-rows: auto 1fr; min-height: 100dvh; }
+  main, .mast > div { width: min(100%, 112rem); }
+  main { display: flex; flex-direction: column; padding-bottom: 1rem; }
+  .page-title { padding-block: clamp(1rem, 2.5vh, 2rem) clamp(1rem, 2vh, 1.5rem); }
+  .workspace { flex: 1; grid-template-columns: clamp(17.5rem, 26%, 25rem) minmax(0, 1fr); }
+  .chat { align-self: stretch; display: grid; grid-template-rows: auto minmax(15rem, 1fr) auto auto; }
+  .pane { height: 0; min-height: 100%; }
+  .reply { max-width: 86ch; }
+}
 @media (max-width: 47rem) {
   .controls h2 { font-size: 1rem; }
   #selection { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: .4rem .65rem; }
