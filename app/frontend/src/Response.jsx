@@ -165,11 +165,11 @@ export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled }) {
       <dt><label htmlFor="ticket-urgency">Приоритет</label></dt>
       <dd>
         <select id="ticket-urgency" value={urgency} onChange={e => onUrgencyChange(e.target.value)}
-          disabled={disabled} aria-describedby="ticket-schedule ticket-priority-reason">
+          disabled={disabled} aria-describedby={draft.urgency_reason ? 'ticket-schedule ticket-priority-reason' : 'ticket-schedule'}>
           {Object.entries(priorities).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
         </select>
         <p id="ticket-schedule">{schedules[urgency]}</p>
-        <p id="ticket-priority-reason" className="meta">{draft.urgency_reason || 'Предложенный приоритет'} — {priorities[payload.urgency].toLowerCase()}.</p>
+        {draft.urgency_reason && <p id="ticket-priority-reason" className="meta">{draft.urgency_reason} — {priorities[payload.urgency].toLowerCase()}.</p>}
       </dd>
       <dt>Заключение</dt><dd>{payload.conclusion}</dd>
       <dt>Работы</dt><dd><Entries items={payload.operations} /></dd>

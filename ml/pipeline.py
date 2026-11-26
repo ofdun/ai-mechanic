@@ -214,7 +214,7 @@ class Pipeline:
             draft_id=uuid4().hex, engine_model=response.engine_model,
             urgency_reason=(f'По правилу для кода {result.anomaly_type}'
                             if result.anomaly_type in self.settings.ticket_urgency_by_fault
-                            else 'По умолчанию для автопарка'),
+                            else None),
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             payload=TicketPayload(
                 vehicle_id=result.vehicle_id, session_id=result.session_id, anomaly_type=result.anomaly_type,
