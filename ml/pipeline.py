@@ -128,7 +128,7 @@ class Pipeline:
             engine = 'бензиновый' if fuel == 'бензин' else 'дизельный'
             return (f'На машине установлен {engine} двигатель {vehicle.engine_model}. '
                     f'ИИ указал «{result.anomaly_title}», но такая неисправность к этому двигателю неприменима. '
-                    'Диагноз по записи поставить нельзя. Повторите замер или направьте машину на дефектовку.')
+                    'Диагноз по записи поставить нельзя.')
         return None
 
     def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse) -> None:
@@ -137,7 +137,8 @@ class Pipeline:
         problem = self.measurement_issue(result)
         mismatch = self.ticket_mismatch(vehicle, result)
         if mismatch and result.signal_quality != 'bad':
-            response.message = mismatch if problem is None else f'{mismatch} {problem}'
+            next_step = problem or 'Повторите замер или направьте машину на дефектовку.'
+            response.message = f'{mismatch} {next_step}'
             response.recognition_error = True
             return
         if problem:
