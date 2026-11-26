@@ -3,16 +3,11 @@ import argparse
 import hashlib
 import json
 import math
-import os
 import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -30,15 +25,10 @@ METRICS = (
     'ticket_schema_validity', 'tool_selection_accuracy',
 )
 FIELDS = (
-    'run_id', 'status', 'recorded_at_utc', 'hypothesis', 'configuration', 'models',
+    'run_id', 'status', 'hypothesis', 'configuration', 'models',
     'dataset', 'split', 'commit', 'issue_url', 'artifact_url', 'k', *METRICS,
     'latency_p50_ms', 'latency_p95_ms', 'cost_per_cycle', 'currency', 'result', 'notes',
 )
-TAB = 'Experiments'
-SHEETS_RANGE = f'{TAB}!A:AA'
-SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
-OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token'
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 
 class ContextError(Exception):
@@ -52,6 +42,17 @@ def read_json(path):
 
 def dump(value):
     print(json.dumps(value, ensure_ascii=False, indent=2))
+
+
+def seed_body(item, plans):
+    key = item['key']
+    body = f"<!-- project-context:{key} -->\n\n{item['body']}\n"
+    if key == 'experiments':
+        body += '\n## Запланированные эксперименты\n\n'
+        for plan in plans:
+            body += (f"- **{plan['run_id']}** · {plan['hypothesis']} "
+                     f"{plan['configuration']}. Данные: {plan['dataset']}. {plan['notes']}.\n")
+    return body
 
 
 def run_cli(*args):
@@ -94,22 +95,39 @@ class GitHub:
                 if key in by_marker:
                     raise ContextError(f'Найдены дубли начальной карточки {key}. Проверьте Issues перед повтором.')
                 by_marker[key] = issue['url']
-        for item in seed:
+        for item in seed['issues']:
             key = item['key']
             if key not in by_marker:
-                body = f"<!-- project-context:{key} -->\n\n{item['body']}\n"
+                body = seed_body(item, seed['plans'])
                 by_marker[key] = self.gh(
                     'issue', 'create', '--title', item['title'], '--body-file', self.body_file(body),
                     '--label', ','.join(['project-context', *item['labels']]),
                 )
             print(by_marker[key])
-        return int(by_marker['hub'].rsplit('/', 1)[-1])
+        return {f'{key}_issue': int(by_marker[key].rsplit('/', 1)[-1])
+                for key in ('hub', 'experiments')}
 
     @staticmethod
     def body_file(body):
         path = Path(OPERATIONS) / 'github-body.md'
         path.write_text(body, encoding='utf-8')
         return str(path)
+
+    def log_experiment(self, number, record):
+        validate_record(record)
+        run_id = record['run_id']
+        payload = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True)
+        digest = hashlib.sha256(payload.encode()).hexdigest()[:20]
+        prefix = f'<!-- project-context-run:{run_id}:'
+        marker = f'{prefix}{digest} -->'
+        issue = self.issue(number)
+        matches = [comment for comment in issue['comments'] if comment['body'].startswith(prefix)]
+        if matches:
+            if len(matches) != 1 or not matches[0]['body'].startswith(marker):
+                raise ContextError(f'Конфликт run_id {run_id}. Проверьте журнал и выберите новый ID.')
+            return matches[0]['url']
+        body = f"{marker}\n\n### Прогон {run_id} · {record['status']}\n\n```json\n{payload}\n```\n"
+        return self.gh('issue', 'comment', str(number), '--body-file', self.body_file(body))
 
     def finish(self, issue, status, body):
         number = str(issue['number'])
@@ -134,148 +152,12 @@ class GitHub:
         print(issue['url'])
 
 
-def google_auth_file():
-    default = Path.home() / '.config' / 'ai-mechanic' / 'google-oauth.json'
-    path = Path(os.environ.get('PROJECT_CONTEXT_GOOGLE_AUTH_FILE', default)).expanduser().resolve()
-    if path.is_relative_to(SKILL_DIR.parents[2]):
-        raise ContextError('Файл OAuth должен находиться вне checkout.')
-    return path
-
-
-def google_login(client_secrets):
-    try:
-        from google_auth_oauthlib.flow import InstalledAppFlow
-    except ImportError as error:
-        raise ContextError('Для sheet-login запустите этот скрипт через uv run --with google-auth-oauthlib.') from error
-    path = google_auth_file()
-    flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets), SCOPES, autogenerate_code_verifier=True)
-    credentials = flow.run_local_server(port=0, prompt='consent select_account')
-    if not credentials.refresh_token:
-        raise ContextError('Google не выдал refresh token. Повторите вход с подтверждением доступа.')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as file:
-        json.dump({
-            'client_id': credentials.client_id,
-            'client_secret': credentials.client_secret,
-            'refresh_token': credentials.refresh_token,
-        }, file)
-    Path(file.name).replace(path)
-    print('Google OAuth настроен. Проверьте таблицу командой sheet-list или sheet-init.')
-
-
-def google_token():
-    if token := os.environ.get('GOOGLE_SHEETS_ACCESS_TOKEN'):
-        return token
-    path = google_auth_file()
-    if not path.is_file():
-        raise ContextError('Google OAuth не настроен. Выполните sheet-login по docs/project-context.md.')
-    credentials = read_json(path)
-    keys = ('client_id', 'client_secret', 'refresh_token')
-    if not isinstance(credentials, dict) or not all(credentials.get(key) for key in keys):
-        raise ContextError('Локальный файл OAuth неполный. Повторите sheet-login.')
-    data = urlencode({'grant_type': 'refresh_token', **{key: credentials[key] for key in keys}}).encode()
-    try:
-        with urlopen(Request(OAUTH_TOKEN_URL, data=data), timeout=20) as response:
-            return json.load(response)['access_token']
-    except HTTPError as error:
-        raise ContextError(f'Google OAuth HTTP {error.code}. Если доступ истёк, повторите sheet-login.') from error
-    except (URLError, TimeoutError) as error:
-        raise ContextError('Не удалось подключиться к Google OAuth.') from error
-
-
-class Google:
-    def __init__(self, spreadsheet_id):
-        if spreadsheet_id and not re.fullmatch(r'[A-Za-z0-9_-]+', spreadsheet_id):
-            raise ContextError('Передайте ID таблицы без URL или пробелов.')
-        self.spreadsheet_id = spreadsheet_id
-        self.token = google_token()
-
-    def request(self, method, url, payload=None):
-        headers = {'Authorization': f'Bearer {self.token}', 'Content-Type': 'application/json'}
-        if quota_project := os.environ.get('PROJECT_CONTEXT_GOOGLE_QUOTA_PROJECT'):
-            headers['X-Goog-User-Project'] = quota_project
-        data = json.dumps(payload, ensure_ascii=False).encode() if payload is not None else None
-        try:
-            with urlopen(Request(url, method=method, headers=headers, data=data), timeout=20) as response:
-                return json.load(response)
-        except HTTPError as error:
-            detail = json.loads(error.read()).get('error', {})
-            reasons = ', '.join(item.get('reason', '') for item in detail.get('details', []) if item.get('reason'))
-            raise ContextError(f'Google API HTTP {error.code} · {detail.get("status", "")} {reasons}'.rstrip()) from error
-        except (URLError, TimeoutError) as error:
-            raise ContextError('Google API недоступен. После ошибки записи проверьте ID перед повтором.') from error
-
-    @property
-    def url(self):
-        return f'https://docs.google.com/spreadsheets/d/{self.spreadsheet_id}/edit'
-
-    def values_url(self):
-        if not self.spreadsheet_id:
-            raise ContextError('ID общей таблицы ещё не задан. См. docs/project-context.md.')
-        return f'{SHEETS_API}/{self.spreadsheet_id}/values/{quote(SHEETS_RANGE, safe="")}'
-
-    @staticmethod
-    def tab_properties():
-        return {'title': TAB, 'gridProperties': {
-            'rowCount': 1000, 'columnCount': len(FIELDS), 'frozenRowCount': 1, 'frozenColumnCount': 2,
-        }}
-
-    def values(self):
-        return self.request('GET', f'{self.values_url()}?valueRenderOption=UNFORMATTED_VALUE').get('values', [])
-
-    def create(self):
-        response = self.request('POST', SHEETS_API, {
-            'properties': {'title': 'Цифровой механик · эксперименты', 'timeZone': 'Etc/UTC'},
-            'sheets': [{'properties': self.tab_properties()}],
-        })
-        self.spreadsheet_id = response['spreadsheetId']
-
-    def initialize(self, plans):
-        endpoint = f'{SHEETS_API}/{self.spreadsheet_id}'
-        info = self.request('GET', f'{endpoint}?fields=sheets.properties.title')
-        if not any(sheet['properties']['title'] == TAB for sheet in info.get('sheets', [])):
-            self.request('POST', f'{endpoint}:batchUpdate', {
-                'requests': [{'addSheet': {'properties': self.tab_properties()}}],
-            })
-        values = self.values()
-        if not values:
-            self.request('PUT', f'{SHEETS_API}/{self.spreadsheet_id}/values/{TAB}!A1?valueInputOption=RAW', {
-                'values': [list(FIELDS)],
-            })
-        for plan in plans:
-            self.log({**plan, 'status': 'planned'})
-        print(self.url)
-
-    def records(self):
-        values = self.values()
-        if not values or values[0] != list(FIELDS):
-            raise ContextError('Заголовки Experiments не соответствуют схеме skill. Проверьте таблицу перед записью.')
-        return [dict(zip(FIELDS, row)) for row in values[1:] if row and row[0]]
-
-    def log(self, record):
-        validate_record(record)
-        run_id = record['run_id']
-        old = [row for row in self.records() if row['run_id'] == run_id]
-        if old:
-            if len(old) != 1 or any(old[0].get(key, '') != record.get(key, '')
-                                    for key in FIELDS if key != 'recorded_at_utc'):
-                raise ContextError(f'Конфликт run_id {run_id}. Проверьте существующие строки и выберите новый ID.')
-            return run_id
-        record = {**record, 'recorded_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds')}
-        self.request('POST', f'{self.values_url()}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS', {
-            'values': [[record.get(key, '') for key in FIELDS]],
-        })
-        found = [row for row in self.records() if row['run_id'] == run_id]
-        if len(found) != 1 or any(found[0].get(key, '') != val for key, val in record.items()):
-            raise ContextError(f'Проверка записи {run_id} не прошла. Проверьте таблицу перед повторной отправкой.')
-        return run_id
-
 def validate_record(record):
     if not isinstance(record, dict) or record.keys() - set(FIELDS):
         raise ContextError('Ожидается JSON-объект прогона с полями из docs/project-context.md.')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,99}', str(record.get('run_id', ''))):
         raise ContextError('run_id должен быть уникальной строкой без пробелов.')
-    if not isinstance(record.get('run_id'), str) or record.get('status') not in {'planned', 'completed', 'failed'}:
+    if not isinstance(record.get('run_id'), str) or record.get('status') not in ('planned', 'completed', 'failed'):
         raise ContextError('Нужны строковый run_id и status planned, completed или failed.')
     required = ['hypothesis', 'configuration', 'dataset']
     if record['status'] != 'planned':
@@ -295,8 +177,6 @@ def validate_record(record):
         raise ContextError('Для Recall@K нужен целый положительный k.')
     if 'cost_per_cycle' in record and not re.fullmatch(r'[A-Z]{3}', record.get('currency', '')):
         raise ContextError('Для стоимости нужна трёхбуквенная валюта, например RUB.')
-    if 'recorded_at_utc' in record:
-        raise ContextError('recorded_at_utc заполняется автоматически.')
 
 
 def write_config(settings):
@@ -311,8 +191,7 @@ def start(args, config, github):
     view = {'repository': config['repository']}
     if config['hub_issue']:
         view['hub_url'] = f'https://github.com/{config["repository"]}/issues/{config["hub_issue"]}'
-    if config['spreadsheet_id']:
-        view['spreadsheet_url'] = f'https://docs.google.com/spreadsheets/d/{config["spreadsheet_id"]}/edit'
+    view['experiments_url'] = f'https://github.com/{config["repository"]}/issues/{config["experiments_issue"]}'
     try:
         fields = 'number,title,url,labels,assignees,updatedAt'
         filters = ['--label', 'project-context', '--limit', str(args.limit)]
@@ -326,15 +205,14 @@ def start(args, config, github):
             issue = github.issue(args.issue)
             issue['comments'] = issue['comments'][-5:]
             view['task'] = issue
+        if args.experiments:
+            journal = github.issue(config['experiments_issue'])
+            journal['comments'] = [comment for comment in journal['comments']
+                                   if '<!-- project-context-update:' not in comment['body']][-args.limit:]
+            view['experiments'] = journal
     except ContextError as error:
         view['github_error'] = str(error)
         had_error = True
-    if args.experiments:
-        try:
-            view['recent_experiments'] = Google(config['spreadsheet_id']).records()[-args.limit:]
-        except ContextError as error:
-            view['sheets_error'] = str(error)
-            had_error = True
     dump(view)
     return int(had_error)
 
@@ -353,14 +231,8 @@ def main():
     finish.add_argument('--body-file', type=Path, required=True)
     finish.add_argument('--run-file', type=Path)
     commands.add_parser('github-init')
-    login = commands.add_parser('sheet-login')
-    login.add_argument('--client-secrets', type=Path, required=True)
-    sheet_init = commands.add_parser('sheet-init')
-    sheet_init.add_argument('--spreadsheet-id')
-    log = commands.add_parser('sheet-log')
+    log = commands.add_parser('experiment-log')
     log.add_argument('--file', type=Path, required=True)
-    listing = commands.add_parser('sheet-list')
-    listing.add_argument('--limit', type=int, choices=range(1, 51), default=12, metavar='1..50')
     args = parser.parse_args()
     config = read_json(SKILL_DIR / 'context.json')
     github = GitHub(config['repository'])
@@ -368,9 +240,11 @@ def main():
     if args.command == 'start':
         return start(args, config, github)
     if args.command == 'github-init':
-        config['hub_issue'] = github.initialize(read_json(SKILL_DIR / 'seed.json')['issues'])
+        config.update(github.initialize(read_json(SKILL_DIR / 'seed.json')))
         write_config(config)
     elif args.command == 'finish':
+        if args.issue == config['experiments_issue']:
+            raise ContextError('Журнал экспериментов принимает комментарии через experiment-log.')
         body = args.body_file.read_text(encoding='utf-8').strip()
         if not body:
             raise ContextError('Файл результата задачи пуст.')
@@ -378,34 +252,15 @@ def main():
         if issue['state'] == 'CLOSED' and args.status != 'done':
             raise ContextError('Issue закрыта. Согласуйте повторное открытие перед изменением статуса.')
         if args.run_file:
-            google = Google(config['spreadsheet_id'])
             record = read_json(args.run_file)
             validate_record(record)
             if record.get('issue_url', issue['url']) != issue['url']:
                 raise ContextError('issue_url прогона не совпадает с Issue.')
-            run_id = google.log({**record, 'issue_url': issue['url']})
-            body += f'\n\nПрогон `{run_id}` · [Google Sheets]({google.url})'
+            run_url = github.log_experiment(config['experiments_issue'], {**record, 'issue_url': issue['url']})
+            body += f"\n\n[Прогон {record['run_id']}]({run_url})"
         github.finish(issue, args.status, body)
-    elif args.command == 'sheet-login':
-        google_login(args.client_secrets)
-    elif args.command == 'sheet-init':
-        existing = config['spreadsheet_id']
-        if existing and args.spreadsheet_id and args.spreadsheet_id != existing:
-            raise ContextError('В репозитории настроена другая таблица. Согласуйте миграцию перед заменой ID.')
-        google = Google(existing or args.spreadsheet_id)
-        if not google.spreadsheet_id:
-            google.create()
-            config['spreadsheet_id'] = google.spreadsheet_id
-            write_config(config)
-            print(google.url, flush=True)
-        google.initialize(read_json(SKILL_DIR / 'seed.json')['plans'])
-        config['spreadsheet_id'] = google.spreadsheet_id
-        write_config(config)
-    elif args.command == 'sheet-list':
-        dump(Google(config['spreadsheet_id']).records()[-args.limit:])
-    elif args.command == 'sheet-log':
-        google = Google(config['spreadsheet_id'])
-        print(google.log(read_json(args.file)), google.url)
+    elif args.command == 'experiment-log':
+        print(github.log_experiment(config['experiments_issue'], read_json(args.file)))
     return 0
 
 
