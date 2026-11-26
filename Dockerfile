@@ -10,7 +10,7 @@ WORKDIR /src
 COPY app/backend/go.* ./
 RUN go mod download
 COPY app/backend/ ./
-RUN --mount=type=cache,target=/root/.cache/go-build go test -trimpath ./... && go build -trimpath -o /out/mechanic .
+RUN --mount=type=cache,target=/root/.cache/go-build go test -tags=nomsgpack -trimpath ./... && go build -tags=nomsgpack -trimpath -o /out/mechanic .
 
 FROM python:3.12-slim-bookworm AS agent
 WORKDIR /app
@@ -23,6 +23,7 @@ USER mechanic
 CMD ["uvicorn","ml.worker:create_app","--factory","--host","0.0.0.0","--port","8000"]
 
 FROM debian:bookworm-slim AS web
+ENV GIN_MODE=release
 RUN useradd --create-home mechanic && install -d -o mechanic -g mechanic /state
 COPY --from=backend /out/mechanic /usr/local/bin/mechanic
 COPY --from=frontend /frontend/dist /app/frontend/dist

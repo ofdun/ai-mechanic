@@ -3,31 +3,36 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/ofdun/ai-mechanic/backend/internal/mechanic"
 )
 
-func (s *Server) run(w http.ResponseWriter, r *http.Request, actor string) {
+func (s *Server) run(c *gin.Context) {
 	var t mechanic.Turn
-	if !decode(w, r, &t) {
+	if !decode(c, &t) {
 		return
 	}
-	data, err := s.Service.Run(r.Context(), actor, t)
+	data, err := s.Service.Run(c.Request.Context(), c.GetString(actorKey), t)
 	if err != nil {
-		problem(w, err)
+		problem(c, err)
 		return
 	}
-	reply(w, 200, data)
+	c.Data(http.StatusOK, jsonType, data)
 }
 
-func (s *Server) confirm(w http.ResponseWriter, r *http.Request, actor string) {
+func (s *Server) confirm(c *gin.Context) {
 	var payload mechanic.Decision
-	if !decode(w, r, &payload) {
+	if !decode(c, &payload) {
 		return
 	}
-	data, err := s.Service.Confirm(r.Context(), actor, payload)
+	data, err := s.Service.Confirm(c.Request.Context(), c.GetString(actorKey), payload)
 	if err != nil {
-		problem(w, err)
+		problem(c, err)
 		return
 	}
-	reply(w, 200, data)
+	c.Data(http.StatusOK, jsonType, data)
 }
+
+func health(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) }
+
+func (s *Server) vehicles(c *gin.Context) { c.Data(http.StatusOK, jsonType, s.Fleet) }

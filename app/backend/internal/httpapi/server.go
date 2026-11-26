@@ -3,11 +3,9 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
-	"os"
-	"path/filepath"
 
+	"github.com/gin-gonic/gin"
 	"github.com/ofdun/ai-mechanic/backend/internal/mechanic"
 )
 
@@ -20,27 +18,22 @@ type Server struct {
 }
 
 func (s *Server) Routes(dist string) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+HealthPath, func(w http.ResponseWriter, r *http.Request) { reply(w, 200, []byte(`{"status":"ok"}`)) })
-	mux.HandleFunc("GET /api/vehicles", s.session(func(w http.ResponseWriter, r *http.Request, _ string) { reply(w, 200, s.Fleet) }))
-	mux.HandleFunc("POST /agent/run", s.session(s.run))
-	mux.HandleFunc("POST /agent/tickets/confirm", s.session(s.confirm))
-	docs := &httputil.ReverseProxy{Rewrite: func(p *httputil.ProxyRequest) {
-		p.SetURL(s.Worker)
-		p.Out.Header.Del("Cookie")
-		p.Out.Header.Del("Authorization")
-	}}
-	mux.Handle("GET /api/documents/{id}", docs)
-	mux.Handle("GET /api/documents/{id}/pages/{page}", docs)
-	assets := http.FileServer(http.Dir(dist))
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		path := filepath.Join(dist, filepath.FromSlash(r.URL.Path))
-		fi, err := os.Stat(path)
-		if err != nil || (fi.IsDir() && r.URL.Path != "/") {
-			http.NotFound(w, r)
-			return
-		}
-		assets.ServeHTTP(w, r)
-	})
-	return mux
+	router := gin.New()
+	router.HandleMethodNotAllowed = true
+	router.Use(gin.Recovery())
+	read := []string{http.MethodGet, http.MethodHead}
+
+	router.Match(read, HealthPath, health)
+	docs := router.Group("/api/documents")
+	document := documentProxy(s.Worker)
+	docs.Match(read, "/:id", document)
+	docs.Match(read, "/:id/pages/:page", document)
+
+	session := router.Group("/", s.resolveSession)
+	session.Match(read, "/api/vehicles", s.vehicles)
+	session.POST("/agent/run", s.run)
+	session.POST("/agent/tickets/confirm", s.confirm)
+
+	router.NoRoute(staticFiles(dist))
+	return router
 }

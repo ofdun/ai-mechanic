@@ -5,22 +5,19 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/ofdun/ai-mechanic/backend/internal/mechanic"
 )
 
-func reply(w http.ResponseWriter, status int, data []byte) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(data)
-}
+const jsonType = "application/json"
 
 const maxBodyBytes = 1 << 20
 
-func decode(w http.ResponseWriter, r *http.Request, dest any) bool {
-	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+func decode(c *gin.Context, dest any) bool {
+	d := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, maxBodyBytes))
 	d.DisallowUnknownFields()
 	if err := d.Decode(dest); err != nil || d.Decode(new(any)) != io.EOF {
-		problem(w, mechanic.ErrInput)
+		problem(c, mechanic.ErrInput)
 		return false
 	}
 	return true

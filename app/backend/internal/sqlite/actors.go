@@ -6,33 +6,38 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
 	"github.com/ofdun/ai-mechanic/backend/internal/mechanic"
 )
 
 func actorID(token string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(token))) }
 
-func (s Store) Actor(ctx context.Context, token string) (id, newToken string, err error) {
+func (s Store) Actor(ctx context.Context, token string) (string, string, error) {
+	db := s.db.WithContext(ctx)
 	now := time.Now()
 	if token != "" {
-		id = actorID(token)
-		var valid bool
-		err = s.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM actors WHERE actor=? AND expires>?)", id, now.Unix()).Scan(&valid)
-		if err != nil || valid {
-			return id, "", err
+		id := actorID(token)
+		var count int64
+		err := db.Model(&actor{}).Where(&actor{Actor: id}).Where(clause.Gt{Column: "expires", Value: now.Unix()}).Count(&count).Error
+		if err != nil {
+			return "", "", err
+		}
+		if count > 0 {
+			return id, "", nil
 		}
 	}
-	newToken = mechanic.RandomID(32)
-	id = actorID(newToken)
-	tx, err := s.BeginTx(ctx, nil)
+	token = mechanic.RandomID(32)
+	record := actor{Actor: actorID(token), Expires: now.Add(mechanic.SessionLifetime).Unix()}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where(clause.Lte{Column: "expires", Value: now.Unix()}).Delete(&actor{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&record).Error
+	})
 	if err != nil {
 		return "", "", err
 	}
-	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "DELETE FROM actors WHERE expires<=?", now.Unix()); err != nil {
-		return "", "", err
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO actors VALUES (?,?)", id, now.Add(mechanic.SessionLifetime).Unix()); err != nil {
-		return "", "", err
-	}
-	return id, newToken, tx.Commit()
+	return record.Actor, token, nil
 }

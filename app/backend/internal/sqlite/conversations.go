@@ -2,66 +2,48 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/ofdun/ai-mechanic/backend/internal/mechanic"
 )
 
 func (s Store) Begin(ctx context.Context, l mechanic.Lease, vehicle, session string) (*mechanic.Conversation, error) {
-	tx, err := s.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO conversations(actor,conversation,vehicle,session) VALUES (?,?,?,?)", l.Actor, l.ID, vehicle, session)
-	if err != nil {
-		return nil, err
-	}
-	var v, m string
-	var saved sql.NullString
-	var until int64
-	err = tx.QueryRowContext(ctx, "SELECT vehicle,session,context,lease_until FROM conversations WHERE actor=? AND conversation=?", l.Actor, l.ID).Scan(&v, &m, &saved, &until)
-	if err != nil {
-		return nil, err
-	}
-	if v != vehicle || m != session {
-		return nil, mechanic.ErrMismatch
-	}
-	now := time.Now()
-	if until > now.Unix() {
-		return nil, mechanic.ErrBusy
-	}
-	var prev *mechanic.Conversation
-	if saved.Valid {
-		if err = json.Unmarshal([]byte(saved.String), &prev); err != nil {
-			return nil, err
-		}
-	}
-	_, err = tx.ExecContext(ctx, "UPDATE conversations SET turn=?,lease_until=? WHERE actor=? AND conversation=?", l.Token, now.Add(mechanic.TurnLease).Unix(), l.Actor, l.ID)
-	if err != nil {
-		return nil, err
-	}
-	return prev, tx.Commit()
-}
-
-func (s Store) Finish(l mechanic.Lease, next *mechanic.Conversation) error {
-	var data any
-	if next != nil {
-		b, err := json.Marshal(next)
+	var row conversation
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		key := conversation{Actor: l.Actor, Conversation: l.ID}
+		err := tx.Where(&key).Attrs(conversation{Vehicle: vehicle, Session: session}).FirstOrCreate(&row).Error
 		if err != nil {
 			return err
 		}
-		data = string(b)
-	}
-	result, err := s.Exec("UPDATE conversations SET context=COALESCE(?,context),turn=NULL,lease_until=0 WHERE actor=? AND conversation=? AND turn=?", data, l.Actor, l.ID, l.Token)
+		if row.Vehicle != vehicle || row.Session != session {
+			return mechanic.ErrMismatch
+		}
+		now := time.Now()
+		if row.LeaseUntil > now.Unix() {
+			return mechanic.ErrBusy
+		}
+		return tx.Model(&row).Select("Turn", "LeaseUntil").Updates(conversation{Turn: &l.Token, LeaseUntil: now.Add(mechanic.TurnLease).Unix()}).Error
+	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	n, err := result.RowsAffected()
-	if err == nil && n != 1 {
+	return row.Context, nil
+}
+
+func (s Store) Finish(l mechanic.Lease, next *mechanic.Conversation) error {
+	fields := []string{"Turn", "LeaseUntil"}
+	if next != nil {
+		fields = append(fields, "Context")
+	}
+	key := conversation{Actor: l.Actor, Conversation: l.ID, Turn: &l.Token}
+	update := s.db.Model(&conversation{}).Where(&key, "Actor", "Conversation", "Turn").Select(fields).Updates(conversation{Context: next})
+	if update.Error != nil {
+		return update.Error
+	}
+	if update.RowsAffected != 1 {
 		return mechanic.ErrMismatch
 	}
-	return err
+	return nil
 }
