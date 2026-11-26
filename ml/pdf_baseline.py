@@ -9,11 +9,13 @@ from pathlib import Path
 
 import httpx
 
+from ml.architectures import LLMEvidenceWorkflow
 from ml.config import Settings
 from ml.contracts import (
     AgentError, DiagnosticResult, Evidence, EvidenceBundle, SearchPlan, TechnicalClaim, TechnicalDraft, VerifiedResponse,
 )
 from ml.pipeline import Pipeline
+from ml.providers.openrouter import OpenRouterClient
 
 
 ENGINE = 'ЯМЗ-236М2'
@@ -122,7 +124,11 @@ class ReviewedOperations:
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:
     operations = ReviewedOperations()
-    return Pipeline(settings, http, retriever=PdfPageRetriever(index), generator=operations, verifier=operations)
+    retriever = PdfPageRetriever(index)
+    if settings.planner_mode == 'offline' or settings.agent_architecture == 'baseline':
+        return Pipeline(settings, http, retriever=retriever, generator=operations, verifier=operations)
+    workflow = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, operations)
+    return Pipeline(settings, http, search_workflow=workflow)
 
 
 def main() -> int:

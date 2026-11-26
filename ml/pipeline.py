@@ -8,13 +8,20 @@ from ml.audio import WhisperASR
 from ml.config import Settings
 from ml.contracts import (
     AgentError, AgentRequest, AgentResponse, ConversationContext, DiagnosticResult, EvidenceBundle, Generator, Retriever,
-    SearchPlan, TechnicalClaim, TicketConfirmation, TicketDraft, TicketPayload, TicketReceipt,
+    SearchPlan, SearchWorkflow, TechnicalClaim, TicketConfirmation, TicketDraft, TicketPayload, TicketReceipt,
     TicketReference, Transcriber, Vehicle, Verifier,
 )
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.mocks import MockServices, VehicleDirectory
 from ml.tools.tickets import TicketStore
+
+
+def scope_evidence(evidence: EvidenceBundle, engine_model: str) -> EvidenceBundle:
+    items = [item for item in evidence.items if engine_model in item.engine_models]
+    if len({item.evidence_id for item in items}) != len(items):
+        raise AgentError('RAG_SCHEMA_ERROR', 'Поиск вернул повторяющиеся идентификаторы источников.')
+    return EvidenceBundle(items=items)
 
 
 class Pipeline:
@@ -26,6 +33,7 @@ class Pipeline:
         retriever: Retriever | None = None,
         generator: Generator | None = None,
         verifier: Verifier | None = None,
+        search_workflow: SearchWorkflow | None = None,
         planner: Planner | None = None,
         transcriber: Transcriber | None = None,
     ):
@@ -35,6 +43,7 @@ class Pipeline:
         self.retriever = retriever
         self.generator = generator
         self.verifier = verifier
+        self.search_workflow = search_workflow
         self.planner = planner if planner is not None else (
             OfflinePlanner() if settings.planner_mode == 'offline' else LLMPlanner(OpenRouterClient(http, settings))
         )
@@ -138,16 +147,24 @@ class Pipeline:
 
     def search(self, response: AgentResponse, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> None:
         response.search_plan = plan
+        if self.search_workflow is not None:
+            outcome = self.search_workflow.run(plan, diagnostic)
+            if outcome.plan.engine_model != plan.engine_model:
+                raise AgentError('RAG_SCHEMA_ERROR', 'Поисковая стратегия изменила модель двигателя.')
+            response.search_plan = outcome.plan
+            response.evidence = scope_evidence(outcome.evidence, plan.engine_model)
+            source_ids = {item.evidence_id for item in response.evidence.items}
+            response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
+            if not response.claims:
+                response.limitations.append('Недостаточно доказательств для технических выводов.')
+            return
         if self.retriever is None:
             response.limitations.append('Retriever ещё не подключён. Доступен поисковый план.')
             return
 
-        items = [item for item in self.retriever.search(plan).items if plan.engine_model in item.engine_models]
-        sources = {item.evidence_id: item for item in items}
-        if len(sources) != len(items):
-            raise AgentError('RAG_SCHEMA_ERROR', 'Поиск вернул повторяющиеся идентификаторы источников.')
-        response.evidence = EvidenceBundle(items=items)
-        if not items:
+        response.evidence = scope_evidence(self.retriever.search(plan), plan.engine_model)
+        sources = {item.evidence_id for item in response.evidence.items}
+        if not response.evidence.items:
             response.limitations.append('Применимых доказательств для выбранного двигателя не найдено.')
             return
         if self.generator is None or self.verifier is None:

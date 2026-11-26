@@ -120,6 +120,12 @@ class VerifiedResponse(TechnicalDraft):
     pass
 
 
+class SearchOutcome(BaseModel):
+    plan: SearchPlan
+    evidence: EvidenceBundle
+    claims: list[TechnicalClaim]
+
+
 class TicketReference(BaseModel):
     manual: Text
     pdf_page: PageNumber
@@ -236,6 +242,10 @@ class Generator(Protocol):
 
 class Verifier(Protocol):
     def verify(self, draft: TechnicalDraft, evidence: EvidenceBundle) -> VerifiedResponse: ...
+
+
+class SearchWorkflow(Protocol):
+    def run(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome: ...
 
 
 class Transcriber(Protocol):
