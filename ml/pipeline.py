@@ -10,6 +10,7 @@ from ml.contracts import (
     SearchPlan, SearchWorkflow, TechnicalClaim, TicketConfirmation, TicketDraft, TicketPayload, TicketReceipt,
     TicketReference, Vehicle, Verifier,
 )
+from ml.generation.finalizer import MechanicFinalizer, conflict_notes, ticket_fields
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.mocks import MockServices, VehicleDirectory
@@ -34,6 +35,7 @@ class Pipeline:
         verifier: Verifier | None = None,
         search_workflow: SearchWorkflow | None = None,
         planner: Planner | None = None,
+        finalizer: MechanicFinalizer | None = None,
     ):
         self.settings = settings
         self.vehicles = VehicleDirectory.load(settings)
@@ -42,6 +44,7 @@ class Pipeline:
         self.generator = generator
         self.verifier = verifier
         self.search_workflow = search_workflow
+        self.finalizer = finalizer
         self.planner = planner if planner is not None else (
             OfflinePlanner() if settings.planner_mode == 'offline' else LLMPlanner(OpenRouterClient(http, settings))
         )
@@ -93,6 +96,9 @@ class Pipeline:
         elif decision.action == 'get_diagnostic_history':
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
+        response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
+        if self.finalizer is not None:
+            response.message = self.finalizer.compose(response)
         return response
 
     def measurement_issue(self, result: DiagnosticResult) -> str | None:
@@ -177,13 +183,14 @@ class Pipeline:
         parts = [claim for claim in response.claims if claim.kind == 'spare_part']
         cited = {key for claim in operations + parts for key in claim.evidence_ids}
         references = dict.fromkeys((item.manual, item.pdf_page) for item in response.evidence.items if item.evidence_id in cited)
+        conclusion, urgency = ticket_fields(result, response.claims)
         draft = TicketDraft(
             draft_id=uuid4().hex, engine_model=response.engine_model,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             payload=TicketPayload(
                 vehicle_id=result.vehicle_id, session_id=result.session_id, anomaly_type=result.anomaly_type,
-                conclusion=f'Предполагаемое отклонение {result.anomaly_type} · {result.anomaly_title}. Требуется дефектовка.',
-                urgency='medium', operations=list(dict.fromkeys(claim.text for claim in operations)),
+                conclusion=conclusion,
+                urgency=urgency, operations=list(dict.fromkeys(claim.text for claim in operations)),
                 spare_parts=list(dict.fromkeys(claim.text for claim in parts)),
                 references=[TicketReference(manual=manual, pdf_page=page) for manual, page in references],
             ),

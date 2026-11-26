@@ -7,7 +7,7 @@ from ml.contracts import (
     TicketPayload, TicketReference,
 )
 from ml.generation.claims import GroundedClaim
-from ml.generation.finalizer import MechanicFinalizer, find_conflicts, trend
+from ml.generation.finalizer import MechanicFinalizer, conflict_notes, find_conflicts, trend
 from ml.generation.profiles import mentions_unit, urgency_for
 
 
@@ -129,9 +129,15 @@ def test_disagreeing_sources_are_shown_side_by_side():
     same_manual = [claim('reference_value', 'Зазор клапанов 0,25–0,30 мм.'),
                    claim('reference_value', 'Зазор клапанов 0,30–0,35 мм.')]
     assert find_conflicts(same_manual, sources) == []
-    text = FINALIZER.compose(response('search_manuals', search_plan=PLAN, evidence=EVIDENCE, claims=marked))
+    answer = response('search_manuals', search_plan=PLAN, evidence=EVIDENCE, claims=marked)
+    note, = conflict_notes(answer)
+    assert note == ('Руководства расходятся: «Регулировать зазоры на холодном двигателе» (Fixture РЭ, стр. 31); '
+                    '«Регулировать зазоры не ранее чем через 15 мин после остановки» (Fixture РК, стр. 269). '
+                    'Уточните у специалиста или в документации производителя для вашей модификации двигателя.')
+    answer.limitations.append(note)
+    text = FINALIZER.compose(answer)
     assert '⚖️ Источники расходятся — агент не выбирает сам:' in text
-    assert 'Что проверить' not in text and 'Fixture РК, стр. 269' in text
+    assert 'Что проверить' not in text and 'Fixture РК, стр. 269' in text and 'Руководства расходятся' not in text
 
 
 def test_explicit_prohibition_raises_urgency():

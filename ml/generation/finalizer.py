@@ -42,7 +42,11 @@ NO_EVIDENCE_LIMITATIONS = {
     'Недостаточно доказательств для технических выводов.',
     'Применимых доказательств для выбранного двигателя не найдено.',
     'По найденным фрагментам не удалось подтвердить технические утверждения.',
+    'В руководстве по этому двигателю недостаточно сведений для вывода.',
+    'В руководстве по этому двигателю ответ не найден.',
+    'На найденных страницах руководства нет подтверждения для ответа.',
 }
+CONFLICT_PREFIX = 'Руководства расходятся'
 TICKET_LIMITATION = 'Для заявки нужна хотя бы одна подтверждённая операция.'
 _PROHIBITION = re.compile(
     r'(?:запрещ[а-я]*|не\s+допуска[а-я]*|нельзя)\s+(?:[а-я]+\s+){0,3}?'
@@ -260,8 +264,8 @@ class MechanicFinalizer:
             sections.append(AnswerSection(title='Источники', note=PAGE_NOTE, items=[
                 AnswerItem(text=f'{manual} — стр. {", ".join(map(str, sorted(pages)))}')
                 for manual, pages in cited.items()]))
-        limitations = [text for text in response.limitations
-                       if text not in NO_EVIDENCE_LIMITATIONS and text != TICKET_LIMITATION]
+        limitations = [text for text in response.limitations if text not in NO_EVIDENCE_LIMITATIONS
+                       and text != TICKET_LIMITATION and not text.startswith(CONFLICT_PREFIX)]
         limitations += extra
         if limitations:
             sections.append(AnswerSection(title='Ограничения', items=[
@@ -281,20 +285,34 @@ class MechanicFinalizer:
     # Ticket fields ----------------------------------------------------------------------------
 
     def ticket_fields(self, result: DiagnosticResult, claims: list[TechnicalClaim]) -> tuple[str, Urgency]:
-        """Conclusion and urgency for the maintenance request."""
-        prohibited = any(prohibits_operation(claim) for claim in claims)
-        urgency = urgency_for(result.anomaly_type, result.anomaly_score, prohibited=prohibited)
-        profile = PROFILES.get(result.anomaly_type or '')
-        parts = [f'Предполагаемая неисправность: {result.anomaly_title} ({result.anomaly_type}) по акустической '
-                 f'проверке {result.session_id}: оценка аномалии {decimal(result.anomaly_score)}, '
-                 f'уверенность модели {percent(result.confidence)}.']
-        if result.description:
-            parts.append(f'Признаки: {result.description.rstrip(".")}.')
-        if profile:
-            parts.append(f'Требуется дефектовка: {profile.unit}.')
-        if prohibited:
-            parts.append('Руководство запрещает эксплуатацию до устранения неисправности.')
-        return ' '.join(parts), urgency
+        return ticket_fields(result, claims)
+
+
+def ticket_fields(result: DiagnosticResult, claims: list[TechnicalClaim]) -> tuple[str, Urgency]:
+    """Conclusion and urgency for the maintenance request."""
+    prohibited = any(prohibits_operation(claim) for claim in claims)
+    urgency = urgency_for(result.anomaly_type, result.anomaly_score, prohibited=prohibited)
+    profile = PROFILES.get(result.anomaly_type or '')
+    parts = [f'Предполагаемая неисправность: {result.anomaly_title} ({result.anomaly_type}) по акустической '
+             f'проверке {result.session_id}: оценка аномалии {decimal(result.anomaly_score)}, '
+             f'уверенность модели {percent(result.confidence)}.']
+    if result.description:
+        parts.append(f'Признаки: {result.description.rstrip(".")}.')
+    if profile:
+        parts.append(f'Требуется дефектовка: {profile.unit}.')
+    if prohibited:
+        parts.append('Руководство запрещает эксплуатацию до устранения неисправности.')
+    return ' '.join(parts), urgency
+
+
+def conflict_notes(response: AgentResponse) -> list[str]:
+    """One line per disagreement between sources, for any client that shows ``limitations``."""
+    sources = {item.evidence_id: item for item in response.evidence.items}
+    notes = []
+    for group in find_conflicts(response.claims, sources):
+        wordings = '; '.join(f'«{claim.text.rstrip(".")}» {citation(claim, sources)}'.rstrip() for claim in group)
+        notes.append(f'{CONFLICT_PREFIX}: {wordings}. {CONFLICT_NOTE}')
+    return notes
 
 
 def citation(claim: TechnicalClaim, sources: dict[str, Evidence]) -> str:

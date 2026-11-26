@@ -6,7 +6,7 @@ import pytest
 
 from ml.config import Settings
 from ml.contracts import AgentRequest, Evidence, EvidenceBundle, SearchPlan
-from ml.generation import ClaimGenerator, EvidenceVerifier, GroundedClaim, TechnicalReasoner
+from ml.generation import ClaimGenerator, EvidenceVerifier, GroundedClaim, MechanicFinalizer, TechnicalReasoner
 from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
 
@@ -80,8 +80,8 @@ def test_reasoner_uses_the_reasoning_prompt():
     assert 'признак → возможная причина' in requests[0]['messages'][0]['content']
 
 
-@pytest.fixture
-def pipeline(tmp_path: Path):
+@pytest.fixture(params=[False, True], ids=['web', 'text'])
+def pipeline(tmp_path: Path, request):
     vehicles = tmp_path / 'vehicles.json'
     record = {'vehicle_id': 'M333YK47', 'session_id': 'S-0005', 'status': 'anomaly', 'anomaly_type': 'F08',
               'anomaly_title': 'Дизельная топливоподача', 'anomaly_score': 0.9, 'confidence': 0.8,
@@ -104,7 +104,9 @@ def pipeline(tmp_path: Path):
 
     with httpx.Client(transport=httpx.MockTransport(upstream)) as http:
         generator = ClaimGenerator(OpenRouterClient(http, settings), settings.a_generator_model)
-        yield Pipeline(settings, http, retriever=Retriever(), generator=generator, verifier=EvidenceVerifier(ENGINE))
+        finalizer = MechanicFinalizer() if request.param else None
+        yield Pipeline(settings, http, retriever=Retriever(), generator=generator, verifier=EvidenceVerifier(ENGINE),
+                       finalizer=finalizer)
 
 
 def test_pipeline_drafts_ticket_from_verified_claims(pipeline):
@@ -115,6 +117,10 @@ def test_pipeline_drafts_ticket_from_verified_claims(pipeline):
     assert payload.operations == [OPERATION['text']] and payload.urgency == 'high'
     assert payload.conclusion.startswith('Предполагаемая неисправность: Дизельная топливоподача (F08)')
     assert payload.references[0].pdf_page == 52
-    assert response.message.startswith('⚠️ Отклонение: Дизельная топливоподача (F08)')
-    assert '25 МПа' not in response.message and '22–23 МПа' in response.message
-    assert 'Черновик заявки' in response.message
+    if pipeline.finalizer is None:
+        # The web client renders claims itself and shows ``message`` as a one-line lead.
+        assert '\n' not in response.message and 'Отклонение:' not in response.message
+    else:
+        assert response.message.startswith('⚠️ Отклонение: Дизельная топливоподача (F08)')
+        assert '25 МПа' not in response.message and '22–23 МПа' in response.message
+        assert 'Черновик заявки' in response.message

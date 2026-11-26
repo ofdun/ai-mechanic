@@ -18,7 +18,7 @@ FOREIGN = PAGE.model_copy(update={'evidence_id': 'wrong-engine', 'engine_models'
 
 
 def claim(text, reference='p52', kind='check'):
-    return {'text': text, 'kind': kind, 'evidence_ids': [reference]}
+    return {'text': text, 'kind': kind, 'evidence_ids': [reference], 'quote': text, 'conflict_group': ''}
 
 
 def configured_workflow(architecture, replies, *, corrective_page=False):
@@ -88,16 +88,14 @@ def test_b_reconsiders_earlier_instruction_when_corrective_lookup_finds_conflict
         'document_id': 'other-guide', 'manual': 'РК', 'text': 'Начать проверку не раньше 10 минут.',
     })
     first = claim('Начать проверку раньше 10 минут.')
-    conflict = {
-        'kind': 'observation',
-        'text': 'Первый источник требует начать раньше 10 минут, второй — не раньше 10 минут. Уточните у специалиста.',
-        'evidence_ids': ['p52', 'p53'],
-    }
+    # A disagreement is two claims, each with its own quote and a shared conflict group.
+    earlier = {**first, 'conflict_group': 'c1'}
+    later = {**claim('Начать проверку не раньше 10 минут.', 'p53'), 'conflict_group': 'c1'}
     replies = iter([
         {'rewritten_query': 'Условия проверки', 'subqueries': []},
         {'claims': [first]},
         {'indexes': [0], 'corrective_query': 'Условия в ремонтном руководстве'},
-        {'claims': [conflict]},
+        {'claims': [earlier, later]},
         {'indexes': [0, 1]},
     ])
     workflow, http, requests, _ = configured_workflow('b', replies)
@@ -108,7 +106,7 @@ def test_b_reconsiders_earlier_instruction_when_corrective_lookup_finds_conflict
 
     repair_input = json.loads(requests[-2]['messages'][-1]['content'])
     assert [source['evidence_id'] for source in repair_input['sources']] == ['p52', 'p53']
-    assert [item.model_dump() for item in result.claims] == [conflict]
+    assert [item.model_dump() for item in result.claims] == [earlier, later]
 
 
 def test_architectures_require_permission_to_send_evidence():
