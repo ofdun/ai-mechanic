@@ -86,7 +86,7 @@ function EmptyView({ icon: Icon, title, children }) {
 }
 
 function ticketUnavailableReason(result) {
-  if (result.requires_remeasurement) return result.message
+  if (result.requires_remeasurement || result.recognition_error) return result.message
   if (result.diagnostic?.status === 'normal') return 'Замер в норме. Заявка на дефектовку не требуется.'
   if (result.diagnostic?.status === 'anomaly' && result.search_plan) {
     return 'Для этого отклонения в руководстве пока не найдены подтверждённые работы для заявки.'
@@ -153,7 +153,9 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
     try {
       if (kind === 'confirm') {
         const { draft_id, draft_version } = draft.value
-        const receipt = await request('/agent/tickets/confirm', { ...pair, draft_id, draft_version, confirmed: true }, controller.signal)
+        const receipt = await request('/agent/tickets/confirm', {
+          ...pair, draft_id, draft_version, confirmed: true, urgency: draft.urgency,
+        }, controller.signal)
         if (controller.signal.aborted) return
         setTicketStatus({ ticketId: receipt.ticket_id })
         setDraft(null)
@@ -181,7 +183,9 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
       if (result.diagnostic || result.action === 'draft_ticket') {
         setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
-        setDraft(result.ticket_draft && !ticketStatus ? { value: result.ticket_draft, evidence: result.evidence.items } : null)
+        setDraft(result.ticket_draft && !ticketStatus ? {
+          value: result.ticket_draft, evidence: result.evidence.items, urgency: result.ticket_draft.payload.urgency,
+        } : null)
       }
     } catch (err) {
       if (controller.signal.aborted) return
@@ -264,7 +268,13 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
         {ticketStatus ? ticketStatus.ticketId
           ? <div className="receipt" role="status"><CheckCheck aria-hidden="true" /><h3>Заявка создана</h3><p>Номер в ТОиР <strong>{ticketStatus.ticketId}</strong></p></div>
           : <p className="limitations" role="status">{ticketStatus.message}</p>
-          : draft ? <Draft draft={draft.value} evidence={draft.evidence} />
+          : draft ? <Draft draft={draft.value} evidence={draft.evidence} urgency={draft.urgency}
+              disabled={!!pending} onUrgencyChange={urgency => setDraft(current => ({ ...current, urgency }))} />
+          : diagnosis?.manual_referral ? <section className="draft" aria-label="Рекомендация на дефектовку">
+            <h3>Рекомендация на дефектовку</h3>
+            <p>Заявка в ТОиР не отправлена. Для ручного оформления используйте этот текст.</p>
+            <p className="manual-referral">{diagnosis.manual_referral}</p>
+          </section>
           : <EmptyView icon={ClipboardList} title="Заявка на дефектовку">
             {canDraft ? 'Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.'
               : ticketHint || (sessionId ? 'Сначала получите результат диагностики.' : 'У этой машины пока нет проверок. Выберите другое ТС.')}</EmptyView>}

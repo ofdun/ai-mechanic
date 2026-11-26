@@ -55,7 +55,7 @@ class TicketStore:
         with self.connect() as db:
             row = self.find(db, confirmation)
             draft = TicketDraft.model_validate_json(row['draft'])
-            return draft, DiagnosticResult.model_validate_json(row['diagnostic']), self.receipt(row, draft)
+            return draft, DiagnosticResult.model_validate_json(row['diagnostic']), self.receipt(row, draft, confirmation)
 
     @staticmethod
     def find(db, confirmation: TicketConfirmation):
@@ -67,8 +67,10 @@ class TicketStore:
             raise AgentError('DRAFT_NOT_FOUND', 'Черновик не найден в контексте пользователя и сессии.')
         return row
 
-    def receipt(self, row, draft: TicketDraft) -> TicketReceipt | None:
+    def receipt(self, row, draft: TicketDraft, confirmation: TicketConfirmation) -> TicketReceipt | None:
         if row['state'] == 'created':
+            if confirmation.urgency is not None and confirmation.urgency != draft.payload.urgency:
+                raise AgentError('DUPLICATE_TICKET', 'Заявка уже создана с другим приоритетом.')
             return TicketReceipt.model_validate_json(row['receipt'])
         if row['state'] == 'sending' and time() - row['started_at'] <= self.pending_timeout:
             raise AgentError('TICKET_IN_PROGRESS', 'Заявка уже отправляется.', retryable=True)
@@ -82,11 +84,12 @@ class TicketStore:
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row = self.find(db, confirmation)
-            receipt = self.receipt(row, draft)
+            receipt = self.receipt(row, TicketDraft.model_validate_json(row['draft']), confirmation)
             if receipt:
                 return receipt
             try:
-                db.execute("UPDATE drafts SET state='sending', started_at=? WHERE draft_id=?", (time(), draft.draft_id))
+                db.execute("UPDATE drafts SET state='sending', started_at=?, draft=? WHERE draft_id=?",
+                           (time(), draft.model_dump_json(), draft.draft_id))
             except sqlite3.IntegrityError as error:
                 raise AgentError('DUPLICATE_TICKET', 'Для этой сессии уже есть заявка или попытка отправки.') from error
             return None

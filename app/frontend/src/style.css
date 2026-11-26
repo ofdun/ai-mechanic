@@ -112,7 +112,9 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
   color: var(--paper); background: #df1010;
 }
 .report-normal .report-heading h3, .verdict.normal h3 { background: var(--pine); }
-.report-check_failed .report-heading h3, .verdict.check_failed h3 { background: #37424c; }
+.report-check_failed .report-heading h3, .verdict.check_failed h3,
+.report-recognition_error .report-heading h3, .verdict.recognition_error h3 { background: #37424c; }
+.manual-referral { margin-top: 1rem; padding: 1rem; border-left: 3px solid var(--pine); user-select: all; }
 .report-reading, .meta { color: var(--muted); font-size: .88rem; font-variant-numeric: tabular-nums; }
 .report .report-lead {
   font-size: clamp(1.19rem, 1.7vw, 1.7rem); line-height: 1.38; letter-spacing: -.02em;

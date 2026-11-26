@@ -3,7 +3,7 @@ import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { Source } from './ManualReader'
 
-const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки' }
+const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const qualities = { good: 'хорошая', warning: 'с помехами', bad: 'непригодная' }
 const sections = {
   observation: 'Наблюдения', cause: 'Возможные причины', risk: 'Риски',
@@ -26,10 +26,18 @@ function verifiedClaims(result) {
   return { sources, verified }
 }
 
+function verdict(result) {
+  if (result.recognition_error) return { status: 'recognition_error', title: outcomes.recognition_error }
+  if (result.requires_remeasurement && result.diagnostic.status !== 'check_failed')
+    return { status: 'check_failed', title: 'Требуется повторный замер' }
+  const status = result.diagnostic.status
+  return { status, title: outcomes[status] }
+}
+
 export function DiagnosticReport({ result }) {
-  const { diagnostic, requires_remeasurement: repeat } = result
+  const { diagnostic } = result
   const { sources, verified } = verifiedClaims(result)
-  const status = repeat ? 'check_failed' : diagnostic.status
+  const { status, title: statusTitle } = verdict(result)
   const claims = status === 'anomaly' ? verified : []
   const narrative = claims.filter(c => ['observation', 'cause', 'risk'].includes(c.kind))
   const actions = ['check', 'reference_value', 'operation', 'spare_part'].flatMap(kind =>
@@ -62,12 +70,12 @@ export function DiagnosticReport({ result }) {
   }
   const quality = qualities[diagnostic.signal_quality]
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
-  const OutcomeIcon = { anomaly: CircleAlert, check_failed: RotateCcw, normal: CheckCircle2 }[status]
+  const OutcomeIcon = { anomaly: CircleAlert, recognition_error: CircleAlert, check_failed: RotateCcw, normal: CheckCircle2 }[status]
   const lead = status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.' : result.message
   const title = status === 'anomaly' && diagnostic.anomaly_title
   const titleAt = title ? lead.indexOf(title) : -1
   return <article className={'report report-' + status}>
-    <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[status]}</h3>
+    <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{statusTitle}</h3>
       <p className="report-reading">{[
         quality && 'Запись ' + quality,
         status === 'anomaly' && diagnostic.anomaly_type && 'Код ' + diagnostic.anomaly_type,
@@ -94,16 +102,17 @@ export function DiagnosticReport({ result }) {
 }
 
 export function DiagnosticVerdict({ result }) {
-  const { diagnostic, message, requires_remeasurement: repeat } = result
+  const { diagnostic, message } = result
+  const { status, title } = verdict(result)
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
   return <div className="diagnostic-verdict">
-    <div className={'verdict ' + (repeat ? 'check_failed' : diagnostic.status)}>
-      <h3>{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[diagnostic.status]}</h3>
+    <div className={'verdict ' + status}>
+      <h3>{title}</h3>
       <span>Запись {qualities[diagnostic.signal_quality]}</span>
     </div>
     <p>{message}</p>
-    {diagnostic.status === 'normal' && !repeat && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
-    {!repeat && diagnostic.status === 'anomaly' && <p className="meta">
+    {status === 'normal' && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
+    {status === 'anomaly' && <p className="meta">
       Код {diagnostic.anomaly_type}
       {!message.includes(diagnostic.anomaly_title) && ' · ' + diagnostic.anomaly_title}
       {confidence && !message.includes(confidence) && ' · Уверенность ИИ ' + confidence}
@@ -142,13 +151,26 @@ export function Response({ result }) {
 }
 
 const priorities = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }
-export function Draft({ draft, evidence }) {
+const schedules = {
+  low: 'Проверить узел при следующей проверке.',
+  medium: 'Запланировать дефектовку на ближайшее ТО. До него машина работает под наблюдением.',
+  high: 'Запланировать дефектовку до выпуска в рейс.',
+}
+export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled }) {
   const { payload } = draft
   return <section className="draft" aria-label="Черновик заявки">
     <h3>Черновик заявки на дефектовку</h3>
     <dl className="fields">
       <dt>ТС / проверка</dt><dd>{payload.vehicle_id} / {payload.session_id}</dd>
-      <dt>Приоритет</dt><dd>{priorities[payload.urgency]}</dd>
+      <dt><label htmlFor="ticket-urgency">Приоритет</label></dt>
+      <dd>
+        <select id="ticket-urgency" value={urgency} onChange={e => onUrgencyChange(e.target.value)}
+          disabled={disabled} aria-describedby="ticket-schedule ticket-priority-reason">
+          {Object.entries(priorities).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+        </select>
+        <p id="ticket-schedule">{schedules[urgency]}</p>
+        <p id="ticket-priority-reason" className="meta">{draft.urgency_reason || 'Предложенный приоритет'} — {priorities[payload.urgency].toLowerCase()}.</p>
+      </dd>
       <dt>Заключение</dt><dd>{payload.conclusion}</dd>
       <dt>Работы</dt><dd><Entries items={payload.operations} /></dd>
       <dt>Запчасти</dt><dd>{payload.spare_parts.length ? payload.spare_parts.join(', ') : 'Нет подтверждённых позиций'}</dd>

@@ -1,0 +1,26 @@
+services:
+  web:
+    ports: !reset []
+
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      STAND_HOST: ${STAND_HOST:?Set the stand DNS hostname}
+      STAND_USER: ${STAND_USER:?Set the stand username}
+      STAND_PASSWORD_HASH: ${STAND_PASSWORD_HASH:?Set a bcrypt password hash}
+      WEB_LISTEN_PORT: ${WEB_LISTEN_PORT:-8080}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - gateway_data:/data
+      - gateway_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  gateway_data:
+  gateway_config:

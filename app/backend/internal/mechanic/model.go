@@ -55,11 +55,12 @@ type Repository interface {
 var ErrConfirmation = errors.New("confirmation required")
 
 type Decision struct {
-	Vehicle   string `json:"vehicle_id"`
-	Session   string `json:"session_id"`
-	Draft     string `json:"draft_id"`
-	Version   int    `json:"draft_version"`
-	Confirmed *bool  `json:"confirmed"`
+	Vehicle   string  `json:"vehicle_id"`
+	Session   string  `json:"session_id"`
+	Draft     string  `json:"draft_id"`
+	Version   int     `json:"draft_version"`
+	Confirmed *bool   `json:"confirmed"`
+	Urgency   *string `json:"urgency,omitempty"`
 }
 
 type Agent interface {
