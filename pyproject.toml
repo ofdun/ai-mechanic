@@ -28,4 +28,4 @@ include = ["ml", "ml.*", "web", "web.*", "demo", "demo.*"]
 
 [tool.setuptools.package-data]
 demo = ["*.pdf"]
-"ml.ingestion" = ["manifest.json"]
+"ml.ingestion" = ["manifest.json", "reviewed_evidence.json"]

@@ -1,7 +1,6 @@
 [Unit]
 Description=Digital mechanic hackathon fleet
-Requires=mechanic-fleet-ml.service mechanic-fleet-toir.service
-After=network.target mechanic-fleet-ml.service mechanic-fleet-toir.service
+After=network.target
 
 [Service]
 User=mechanic-demo

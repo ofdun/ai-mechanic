@@ -1,79 +1,103 @@
-"""Defect-assessment jobs reviewed against exact physical pages of the fleet manuals."""
-
+"""Resolve reviewed statements against the installed edition of an engine manual."""
 import hashlib
+import re
+from collections.abc import Callable
+from functools import cache
+from pathlib import Path
+from string import Formatter
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from ml.contracts import Evidence, EvidenceBundle, FaultCode, SearchOutcome, SearchPlan, TechnicalClaim
+
+DEFAULT_CATALOG = Path(__file__).with_name('ingestion') / 'reviewed_evidence.json'
+PageKey = Annotated[str, Field(pattern=r'^[^:]+:[1-9]\d*$')]
 
 
-# Review the whole page, including any conditions in adjacent sentences, before adding a job.
-# The digest is the first 96 bits of SHA-256 of the whitespace-normalized page text.
-INSPECTIONS = {
-    'F01': (
-        ('yamz-236_re_2010', 25, '58d4cac3cd3cd67bfde9eb53',
-         'Проверить тепловые зазоры в приводе клапанов по порядку обслуживания этого двигателя.'),
-        ('zmz-5234_rk_2025', 21, '9d8e2d6a3ddf71b34547ddcd',
-         'На холодном двигателе проверить щупом зазор между коромыслом и стержнем клапана в указанном для цилиндра положении.'),
-    ),
-    'F02': (
-        ('yamz-236_re_2010', 23, '2aafada428e2e317a81d0980',
-         'Проверить уровень масла в картере двигателя.'),
-        ('zmz-5234_rk_2025', 28, '613c835daec30d99b172ae4e',
-         'Проверить уровень масла в картере двигателя по указателю.'),
-        ('zmz-40904-40905_rk_2025', 95, '1f02727cb8f9cc6217c70b4f',
-         'Проверить уровень масла в картере двигателя по указателю.'),
-        ('yamz-536_re_2016', 218, '74fea5777a4ff4a000ae8a3c',
-         'При подозрении на неверные показания штатного прибора проверить давление масла эталонным манометром или диагностическим прибором.'),
-    ),
-    'F03': (
-        ('yamz-236_re_2010', 48, '2d5e05dbf896abd2e44422ae',
-         'При нарушении температурного режима проверить исправность термостатов и их прокладок.'),
-        ('zmz-5234_rk_2025', 54, '7a566533029f203c134629dd',
-         'При перегреве и недостатке охлаждающей жидкости проверить герметичность соединений шлангов, сальников водяного насоса и радиатора.'),
-        ('zmz-40904-40905_rk_2025', 151, '0cd29cd2c17c6846a7aa32ee',
-         'При подозрении на неисправность термостата проверить его без снятия по методике руководства, начиная с холодного двигателя.'),
-    ),
-    'F04': (
-        ('yamz-236_re_2010', 28, 'f1d661902a6a1c7baa15f617',
-         'Проверить натяжение приводных ремней. При необходимости отрегулировать натяжение по величине прогиба для соответствующего привода.'),
-        ('yamz-536_re_2016', 162, '0768eeab91c5ff5405a9b917',
-         'Проверить состояние и натяжение приводных ремней согласно руководству.'),
-        ('zmz-5234_rk_2025', 54, '7a566533029f203c134629dd',
-         'Если подтверждена пробуксовка ремня вентилятора, отрегулировать его натяжение.'),
-    ),
-    'F05': (
-        ('yamz-536_re_2016', 161, '8123a1484daba62c165ce024',
-         'Проверить работу генератора по показаниям амперметра.'),
-        ('yamz-236_re_2010', 56, 'c87ea7d1522cd7cba40326ae',
-         'При подозрении на нарушение контакта щёток с кольцами генератора осмотреть поверхность колец и проверить, свободно ли движутся щётки.'),
-    ),
-    'F06': (
-        ('yamz-236_re_2010', 23, '2aafada428e2e317a81d0980',
-         'Проверить работу сцепления на машине.'),
-        ('zmz-40904-40905_rk_2025', 195, 'f98eca183496b9b1b66a6eda',
-         'Перед проверкой деталей сцепления проверить работу и отрегулировать привод выключения сцепления.'),
-    ),
-    'F09': (
-        ('yamz-536_re_2016', 161, '8123a1484daba62c165ce024',
-         'После остановки двигателя проверить на слух работу турбокомпрессора.'),
-    ),
-}
+class ReviewedPage(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    sha256: Annotated[str, Field(pattern=r'^[a-f0-9]{64}$')]
+    captures: dict[str, re.Pattern[str]] = Field(default_factory=dict)
+
+    def read(self, item: Evidence) -> dict[str, str] | None:
+        text = ' '.join(item.text.split())
+        if hashlib.sha256(text.encode()).hexdigest() != self.sha256:
+            return None
+        values = {}
+        for name, pattern in self.captures.items():
+            match = pattern.search(text)
+            if match is None or match[1] is None:
+                return None
+            values[name] = match[1]
+        return values
 
 
-RISKS = {
-    'F02': (
-        ('zmz-40904-40905_rk_2025', 91, 'af7ac51a185321794ab1df6e',
-         'Если горит лампа аварийного давления масла, работа двигателя грозит повреждением подшипников и привода газораспределения. '
-         'Руководство отдельно допускает загорание на минимальных оборотах холостого хода и при резком торможении. Сверьте условия.'),
-    ),
-    'F04': (
-        ('zmz-5234_rk_2025', 54, '7a566533029f203c134629dd',
-         'Если проскальзывает ремень вентилятора, двигатель может перегреваться.'),
-        ('yamz-236_re_2010', 28, 'f1d661902a6a1c7baa15f617',
-         'При чрезмерном или недостаточном натяжении приводные ремни могут преждевременно выйти из строя.'),
-    ),
-}
+class ReviewEntry(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    fault_code: FaultCode | None = None
+    topic: str | None = None
+    claims: list[TechnicalClaim] = Field(min_length=1)
 
 
-def reviewed(item, digest):
-    if not item:
-        return False
-    text = ' '.join(item.text.split())
-    return hashlib.sha256(text.encode()).hexdigest().startswith(digest)
+class ReviewCatalog(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    pages: dict[PageKey, ReviewedPage]
+    topics: dict[str, Annotated[list[re.Pattern[str]], Field(min_length=1)]]
+    entries: list[ReviewEntry]
+
+    @classmethod
+    def load(cls, path: Path | None = None):
+        return cls.model_validate_json((path or DEFAULT_CATALOG).read_bytes())
+
+    @model_validator(mode='after')
+    def check_references(self):
+        for page in self.pages.values():
+            if any(pattern.groups != 1 for pattern in page.captures.values()):
+                raise ValueError('Each capture must extract one value from the reviewed page')
+        for entry in self.entries:
+            if not (entry.fault_code or entry.topic) or (entry.topic and entry.topic not in self.topics):
+                raise ValueError('Review entry needs a known topic or diagnostic code')
+            for claim in entry.claims:
+                fields = set()
+                for key in claim.evidence_ids:
+                    if key not in self.pages or fields.intersection(self.pages[key].captures):
+                        raise ValueError(f'Unknown source or ambiguous capture in {key}')
+                    fields.update(self.pages[key].captures)
+                for _, name, spec, conversion in Formatter().parse(claim.text):
+                    if name is not None and (name not in fields or not name.isidentifier() or spec or conversion):
+                        raise ValueError(f'Unsupported field {name} in reviewed claim')
+        return self
+
+    def resolve(self, plan: SearchPlan, lookup: Callable[[str, str, int], Evidence | None], *,
+                fault: str | None = None, question: str = '', risk_only: bool = False) -> SearchOutcome:
+        @cache
+        def read(key):
+            document, number = key.rsplit(':', 1)
+            item = lookup(plan.engine_model, document, int(number))
+            if (item is None or item.document_id != document or item.pdf_page != int(number)
+                    or plan.engine_model not in item.engine_models):
+                return None
+            values = self.pages[key].read(item)
+            return (item, values) if values is not None else None
+
+        topics = {name for name, terms in self.topics.items() if all(term.search(question) for term in terms)}
+        sources = {}
+        claims = []
+        for entry in self.entries:
+            if not ((fault and entry.fault_code == fault) or entry.topic in topics):
+                continue
+            # A multi-page procedure is released as a unit, including exceptions and conflicting tables.
+            if any(read(key) is None for claim in entry.claims for key in claim.evidence_ids):
+                continue
+            for claim in entry.claims:
+                if risk_only and claim.kind != 'risk':
+                    continue
+                fields, ids = {}, []
+                for key in claim.evidence_ids:
+                    item, values = read(key)
+                    sources[item.evidence_id] = item
+                    ids.append(item.evidence_id)
+                    fields.update(values)
+                claims.append(TechnicalClaim(text=claim.text.format_map(fields), kind=claim.kind, evidence_ids=ids))
+        return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=list(sources.values())))

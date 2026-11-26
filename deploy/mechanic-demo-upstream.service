@@ -1,6 +1,7 @@
 [Unit]
 Description=Digital mechanic synthetic diagnosis and maintenance services
 After=network.target
+Before=mechanic-demo.service
 
 [Service]
 User=mechanic-demo

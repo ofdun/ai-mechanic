@@ -48,3 +48,40 @@ def test_local_planner_grounds_an_elliptical_question_in_the_current_diagnosis()
     with_context = planner.plan(message, 'Учебный мотор', diagnostic())
     assert with_context.action == 'search_manuals' and 'Ремённый привод' in with_context.rewritten_query
     assert planner.plan(message, 'Учебный мотор', None).rewritten_query == message
+
+
+def test_reviewed_norm_requires_all_pages_of_the_selected_engine():
+    import hashlib
+
+    from ml.reviewed_checks import ReviewCatalog
+
+    texts = ['На холодном стенде.', 'Начальное давление 14,2 кПа.']
+    engine = 'Atlas-24'
+    pages = {
+        number: Evidence(document_id='service', evidence_id=f'e{number}', manual='Регламент', engine_models=[engine],
+                         pdf_page=number, text=text)
+        for number, text in enumerate(texts, 1)
+    }
+    checks = {f'service:{number}': {'sha256': hashlib.sha256(page.text.encode()).hexdigest()}
+              for number, page in pages.items()}
+    checks['service:2']['captures'] = {'pressure': r'давление ([\d,]+) кПа'}
+    catalog = ReviewCatalog.model_validate({
+        'topics': {'pressure': ['давлен']}, 'pages': checks,
+        'entries': [{'topic': 'pressure', 'claims': [{
+            'kind': 'reference_value', 'text': 'На холодном стенде {pressure} кПа.',
+            'evidence_ids': ['service:1', 'service:2'],
+        }]}],
+    })
+    retriever = SimpleNamespace(search=lambda plan: EvidenceBundle(), page=lambda model, doc, n: pages.get(n))
+    workflow = LocalEvidence(retriever, catalog, [engine, 'Delta-31'])
+    question = 'Какое давление у Atlas-24?'
+    plan = SearchPlan(engine_model=engine, original_query=question, rewritten_query=question)
+    claim, = workflow.run(plan, None).claims
+    assert (claim.text, claim.evidence_ids) == ('На холодном стенде 14,2 кПа.', ['e1', 'e2'])
+    for other in ['Delta-31', 'Atlas-212']:
+        assert not workflow.run(plan.model_copy(update={'original_query': f'Какое давление у {other}?'}), None).claims
+    assert not workflow.run(plan.model_copy(update={'engine_model': 'Delta-31'}), None).claims
+    pages[1].text = 'На горячем стенде.'
+    assert not workflow.run(plan, None).claims
+    del pages[1]
+    assert not workflow.run(plan, None).claims

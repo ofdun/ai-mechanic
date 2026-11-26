@@ -6,6 +6,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, St
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 FaultCode = Annotated[str, StringConstraints(pattern=r'^F(0[1-9]|1[0-4])$')]
+TicketUrgency = Literal['low', 'medium', 'high']
 Score = Annotated[float, Field(ge=0, le=1)]
 PageNumber = Annotated[int, Field(ge=1)]
 Action = Literal['diagnose', 'search_manuals', 'get_diagnostic_history', 'draft_ticket', 'clarify']
@@ -137,7 +138,7 @@ class TicketPayload(BaseModel):
     session_id: Text
     anomaly_type: FaultCode
     conclusion: Text
-    urgency: Literal['low', 'medium', 'high']
+    urgency: TicketUrgency
     operations: list[Text] = Field(min_length=1)
     spare_parts: list[Text]
     references: list[TicketReference] = Field(min_length=1)

@@ -1,6 +1,7 @@
 [Unit]
 Description=Hackathon fleet diagnosis mock
 After=network.target
+Before=mechanic-fleet.service
 
 [Service]
 User=mechanic-demo

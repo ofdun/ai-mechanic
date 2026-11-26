@@ -10,7 +10,7 @@ from ml import manual_corpus
 from ml.pdf_baseline import PdfPageRetriever
 
 
-def test_shared_manual_index_is_scoped_numbered_and_rolls_back_bad_rebuild(tmp_path, monkeypatch):
+def test_shared_manual_index_is_scoped_numbered_and_rolls_back_bad_rebuild(tmp_path):
     pdf = tmp_path / 'stand.pdf'
     pdf.write_bytes((Path(__file__).resolve().parents[1] / 'demo' / 'training-stand.pdf').read_bytes())
     guide = {
@@ -19,9 +19,9 @@ def test_shared_manual_index_is_scoped_numbered_and_rolls_back_bad_rebuild(tmp_p
     }
     manifest = tmp_path / 'manifest.json'
     manifest.write_text(json.dumps({'documents': [guide]}))
-    monkeypatch.setattr(manual_corpus, 'MANIFEST', manifest)
+    assert manual_corpus.document_catalog(manifest) == {'stand': guide}
     index = tmp_path / 'manuals.sqlite3'
-    assert manual_corpus.build_index(tmp_path, index) == 2
+    assert manual_corpus.build_index(tmp_path, index, manifest) == 2
     retriever = PdfPageRetriever(index)
     for engine in guide['models']:
         page = retriever.page(engine, 'stand', 2)
@@ -33,6 +33,6 @@ def test_shared_manual_index_is_scoped_numbered_and_rolls_back_bad_rebuild(tmp_p
     second.write_bytes(b'other edition')
     manifest.write_text(json.dumps({'documents': [guide, {**guide, 'file': second.name, 'document_id': 'changed'}]}))
     with pytest.raises(ValueError, match='SHA-256'):
-        manual_corpus.build_index(tmp_path, index)
+        manual_corpus.build_index(tmp_path, index, manifest)
     assert retriever.page('Мотор А', 'stand', 2) == page.model_copy(update={'engine_models': ['Мотор А']})
     assert retriever.page('Мотор А', 'changed', 2) is None

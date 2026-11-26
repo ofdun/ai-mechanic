@@ -6,20 +6,22 @@ from contextlib import closing
 from pathlib import Path
 
 from ml.config import Settings
-from ml.ingestion.export_pages import manual_name, read_document_pages, read_manifest
 
 
 MANIFEST = Path(__file__).with_name('ingestion') / 'manifest.json'
 
 
-def document_catalog() -> dict[str, dict]:
-    entries = json.loads(MANIFEST.read_text(encoding='utf-8'))['documents']
+def document_catalog(manifest: Path | None = None) -> dict[str, dict]:
+    entries = json.loads((manifest or MANIFEST).read_text(encoding='utf-8'))['documents']
     return {entry['document_id']: entry for entry in entries}
 
 
-def build_index(data_dir: Path, output: Path) -> int:
-    documents = list(read_manifest(MANIFEST, data_dir))
-    if output.resolve() in {source.resolve() for _, source in documents} or output.resolve() == MANIFEST.resolve():
+def build_index(data_dir: Path, output: Path, manifest: Path | None = None) -> int:
+    from ml.ingestion.export_pages import manual_name, read_document_pages, read_manifest
+
+    manifest = manifest or MANIFEST
+    documents = list(read_manifest(manifest, data_dir))
+    if output.resolve() in {source.resolve() for _, source in documents} or output.resolve() == manifest.resolve():
         raise ValueError('Путь индекса совпадает с исходным документом.')
     output.parent.mkdir(exist_ok=True, parents=True)
     count = 0
@@ -44,7 +46,7 @@ def main() -> None:
     parser.add_argument('--data-dir', type=Path, default=settings.data_dir)
     parser.add_argument('--output', type=Path, default=settings.artifacts_dir / 'manuals.sqlite3')
     args = parser.parse_args()
-    count = build_index(args.data_dir, args.output)
+    count = build_index(args.data_dir, args.output, settings.manual_manifest_path)
     print(f'{args.output}: {count} физических страниц PDF')
 
 

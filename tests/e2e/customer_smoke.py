@@ -1,14 +1,15 @@
 """Exercise the release UI with the supplied fleet, actual mocks and a private ticket store."""
 import argparse
+import os
 from contextlib import ExitStack
 from pathlib import Path
 import re
 import sys
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
-from ml.config import Settings
 from web.app import create_app
 from mobile_smoke import serve
 
@@ -122,13 +123,13 @@ def main():
     with ExitStack() as stack:
         state = Path(stack.enter_context(TemporaryDirectory()))
         (state / 'manuals.sqlite3').symlink_to(args.index.resolve(strict=True))
-        settings = Settings(
-            _env_file=None, data_dir=args.data_dir, vehicles_path=args.mock_dir / 'data' / 'vehicles.json',
-            artifacts_dir=state, planner_mode='local', agent_architecture='baseline',
-            allow_external_evidence=False, ml_api_url=stack.enter_context(serve(mock_ml)),
-            maintenance_api_url=stack.enter_context(serve(mock_toir)),
-        )
-        base_url = stack.enter_context(serve(create_app(settings)))
+        stack.enter_context(patch.dict(os.environ, {
+            'DATA_DIR': str(args.data_dir), 'VEHICLES_PATH': str(args.mock_dir / 'data' / 'vehicles.json'),
+            'ARTIFACTS_DIR': str(state), 'PLANNER_MODE': 'local', 'AGENT_ARCHITECTURE': 'baseline',
+            'ALLOW_EXTERNAL_EVIDENCE': 'false', 'ML_API_URL': stack.enter_context(serve(mock_ml)),
+            'MAINTENANCE_API_URL': stack.enter_context(serve(mock_toir)),
+        }))
+        base_url = stack.enter_context(serve(create_app()))
         pw = stack.enter_context(sync_playwright())
         browser = pw.chromium.launch(channel=args.channel)
         stack.callback(browser.close)

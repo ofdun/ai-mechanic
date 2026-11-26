@@ -13,8 +13,9 @@ from ml.contracts import (
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
 from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
-from ml.tools.mocks import MockServices, VehicleDirectory
+from ml.tools.services import FleetServices
 from ml.tools.tickets import TicketStore
+from ml.vehicles import VehicleDirectory
 
 
 def scope_evidence(evidence: EvidenceBundle, engine_model: str) -> EvidenceBundle:
@@ -38,7 +39,7 @@ class Pipeline:
     ):
         self.settings = settings
         self.vehicles = VehicleDirectory.load(settings)
-        self.services = MockServices(http, settings)
+        self.services = FleetServices(http, settings)
         self.retriever = retriever
         self.generator = generator
         self.verifier = verifier
@@ -197,7 +198,8 @@ class Pipeline:
             payload=TicketPayload(
                 vehicle_id=result.vehicle_id, session_id=result.session_id, anomaly_type=result.anomaly_type,
                 conclusion=f'Предполагаемое отклонение {result.anomaly_type} · {result.anomaly_title}. Требуется дефектовка.',
-                urgency='medium', operations=list(dict.fromkeys(claim.text for claim in operations)),
+                urgency=self.settings.ticket_urgency_by_fault.get(result.anomaly_type, self.settings.default_ticket_urgency),
+                operations=list(dict.fromkeys(claim.text for claim in operations)),
                 spare_parts=list(dict.fromkeys(claim.text for claim in parts)),
                 references=[TicketReference(manual=manual, pdf_page=page) for manual, page in references],
             ),

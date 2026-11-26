@@ -1,7 +1,6 @@
 [Unit]
 Description=Digital mechanic training web application
-After=network.target mechanic-demo-upstream.service
-Requires=mechanic-demo-upstream.service
+After=network.target
 
 [Service]
 User=mechanic-demo
@@ -12,6 +11,7 @@ Environment=ARTIFACTS_DIR=/var/lib/mechanic-demo/artifacts
 Environment=ML_API_URL=http://127.0.0.1:8001
 Environment=MAINTENANCE_API_URL=http://127.0.0.1:8001
 Environment=PLANNER_MODE=offline
+EnvironmentFile=-/etc/ai-mechanic/demo.env
 ExecStartPre=/opt/ai-mechanic/venv/bin/python -m demo.prepare --directory /var/lib/mechanic-demo
 ExecStart=/opt/ai-mechanic/venv/bin/python -m uvicorn demo.app:create_app --factory --host 0.0.0.0 --port 8080 --no-access-log --limit-concurrency 48
 Restart=on-failure

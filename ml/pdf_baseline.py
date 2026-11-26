@@ -153,11 +153,16 @@ class ReviewedOperations:
 
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:
-    operations = ReviewedOperations()
     retriever = PdfPageRetriever(index)
     if settings.planner_mode == 'local':
         from ml.local_evidence import LocalEvidence
-        return Pipeline(settings, http, search_workflow=LocalEvidence(retriever))
+        from ml.manual_corpus import document_catalog
+        from ml.reviewed_checks import ReviewCatalog
+        catalog = ReviewCatalog.load(settings.reviewed_evidence_path)
+        manuals = document_catalog(settings.manual_manifest_path)
+        engines = {engine for manual in manuals.values() for engine in manual['models']}
+        return Pipeline(settings, http, search_workflow=LocalEvidence(retriever, catalog, engines))
+    operations = ReviewedOperations()
     if settings.planner_mode == 'offline' or settings.agent_architecture == 'baseline':
         return Pipeline(settings, http, retriever=retriever, generator=operations, verifier=operations)
     workflow = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, operations)

@@ -60,7 +60,7 @@ def create_app(
             yield
 
     app = FastAPI(title='Цифровой механик', lifespan=lifespan)
-    catalog = document_catalog() if documents is None else {}
+    catalog = document_catalog(settings.manual_manifest_path) if documents is None else {}
 
     def current_actor(request: Request, response: Response) -> str:
         actor, token = sessions.resolve(request.cookies.get('mechanic_session'))
