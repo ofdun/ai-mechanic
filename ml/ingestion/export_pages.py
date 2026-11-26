@@ -8,6 +8,7 @@ import re
 import sys
 import unicodedata
 from collections import defaultdict
+from itertools import zip_longest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
@@ -66,6 +67,24 @@ def page_content(raw_text, pdf_page, offset):
     return printed_page, "\n".join(lines).replace("\x02", "").strip()
 
 
+def format_table_row(text_page, raw_text, row):
+    # PDFium follows the cell order here. Preserve the pairing in a two-column layout.
+    cause = text_page.get_text_bounded(*row["cause_rect"]).strip().splitlines()
+    operation = text_page.get_text_bounded(*row["operation_rect"]).strip().splitlines()
+    original = "\n".join(cause + operation)
+    if not cause or not operation or raw_text.count(original) != 1:
+        raise ValueError(f"Не удалось сопоставить строку таблицы на PDF {row['pdf_page']}.")
+    width = max(map(len, cause)) + 2
+    aligned = "\n".join(
+        f"{left:<{width}}{right}" for left, right in zip_longest(cause, operation, fillvalue="")
+    )
+    return raw_text.replace(original, aligned, 1)
+
+
+def manual_name(document):
+    return (document.get("designation") or "").strip() or document["title"]
+
+
 def read_document_pages(document, source):
     digest = hashlib.sha256()
     with source.open("rb") as file:
@@ -76,6 +95,7 @@ def read_document_pages(document, source):
 
     sections = document.get("sections", [])
     offset = document.get("printed_page_offset")
+    table_rows = {row["pdf_page"]: row for row in document.get("table_rows", [])}
     with pypdfium2.PdfDocument(source) as pdf:
         page_count = len(pdf)
         if page_count != document["expected_pages"]:
@@ -87,7 +107,12 @@ def read_document_pages(document, source):
             pdf_page = page_index + 1
             page = pdf[page_index]
             try:
-                raw_text = page.get_textpage().get_text_bounded()
+                text_page = page.get_textpage()
+                raw_text = text_page.get_text_bounded()
+                if pdf_page in table_rows:
+                    raw_text = format_table_row(
+                        text_page, raw_text.replace("\r\n", "\n"), table_rows[pdf_page]
+                    )
             finally:
                 page.close()
             printed_page, text = page_content(raw_text, pdf_page, offset)
@@ -119,9 +144,11 @@ def export_pages(manifest_path, output):
             temporary = Path(stream.name)
             page_count = 0
             for document, source in documents:
+                manual = manual_name(document)
                 for page in read_document_pages(document, source):
                     record = {
                         "document_id": document["document_id"],
+                        "manual": manual,
                         "models": document["models"],
                         **page,
                     }
@@ -163,7 +190,7 @@ def export_parsed_documents(manifest_path, output):
             ]
             parsed_document = {
                 "document_id": document["document_id"],
-                "manual": document.get("designation") or document["title"],
+                "manual": manual_name(document),
                 "engine_models": document["models"],
                 "pages": pages,
             }
