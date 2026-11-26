@@ -12,14 +12,15 @@ import httpx
 from ml.architectures import LLMEvidenceWorkflow
 from ml.config import Settings
 from ml.contracts import (
-    AgentError, DiagnosticResult, Evidence, EvidenceBundle, SearchPlan, TechnicalClaim, TechnicalDraft, VerifiedResponse,
+    AgentError, DiagnosticResult, Evidence, EvidenceBundle, Retriever, SearchPlan, TechnicalClaim, TechnicalDraft,
+    VerifiedResponse,
 )
 from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
 
 
 ENGINE = 'ЯМЗ-236М2'
-DOCUMENT_ID = 'yamz-236-operations-2010'
+DOCUMENT_ID = 'yamz-236_re_2010'  # document_id из data/manifest.json ingestion
 MANUAL = '236-3902150-Б РЭ'
 PDF_NAME = 'ЯМЗ_236_руководство по эксплуатации.pdf'
 PDF_SHA256 = '4268a9519e02a668a826fe6d154de0360f6767015868ca2de7410ba570d73dd1'
@@ -123,8 +124,12 @@ class ReviewedOperations:
 
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:
+    return build_retrieval_pipeline(settings, http, PdfPageRetriever(index))
+
+
+def build_retrieval_pipeline(settings: Settings, http: httpx.Client, retriever: Retriever) -> Pipeline:
+    """Baseline or LLM architecture A/B over any retriever, e.g. ml.retrieval.RetrievalEngine."""
     operations = ReviewedOperations()
-    retriever = PdfPageRetriever(index)
     if settings.planner_mode == 'offline' or settings.agent_architecture == 'baseline':
         return Pipeline(settings, http, retriever=retriever, generator=operations, verifier=operations)
     workflow = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, operations)
