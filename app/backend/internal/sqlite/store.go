@@ -19,9 +19,9 @@ type actor struct {
 }
 
 type conversation struct {
-	Actor        string                 `gorm:"primaryKey;not null"`
+	ActorID      string                 `gorm:"column:actor;primaryKey;not null"`
 	Conversation string                 `gorm:"primaryKey;not null"`
-	Owner        actor                  `gorm:"foreignKey:Actor;references:Actor;constraint:OnDelete:CASCADE"`
+	Owner        actor                  `gorm:"foreignKey:ActorID;references:Actor;constraint:OnDelete:CASCADE"`
 	Vehicle      string                 `gorm:"not null"`
 	Session      string                 `gorm:"not null"`
 	Context      *mechanic.Conversation `gorm:"serializer:json;type:text"`

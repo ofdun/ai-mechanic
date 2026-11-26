@@ -100,7 +100,7 @@ func TestConcurrentTurnsAndExpiredActors(t *testing.T) {
 		t.Fatalf("expired actor reused: %v", err)
 	}
 	var count int64
-	if err := store.db.Model(&conversation{}).Where(&conversation{Actor: id}).Count(&count).Error; err != nil || count != 0 {
+	if err := store.db.Model(&conversation{}).Where(&conversation{ActorID: id}).Count(&count).Error; err != nil || count != 0 {
 		t.Fatalf("expired actor has %d conversations: %v", count, err)
 	}
 }

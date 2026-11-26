@@ -12,7 +12,7 @@ import (
 func (s Store) Begin(ctx context.Context, l mechanic.Lease, vehicle, session string) (*mechanic.Conversation, error) {
 	var row conversation
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		key := conversation{Actor: l.Actor, Conversation: l.ID}
+		key := conversation{ActorID: l.Actor, Conversation: l.ID}
 		err := tx.Where(&key).Attrs(conversation{Vehicle: vehicle, Session: session}).FirstOrCreate(&row).Error
 		if err != nil {
 			return err
@@ -37,8 +37,8 @@ func (s Store) Finish(l mechanic.Lease, next *mechanic.Conversation) error {
 	if next != nil {
 		fields = append(fields, "Context")
 	}
-	key := conversation{Actor: l.Actor, Conversation: l.ID, Turn: &l.Token}
-	update := s.db.Model(&conversation{}).Where(&key, "Actor", "Conversation", "Turn").Select(fields).Updates(conversation{Context: next})
+	key := conversation{ActorID: l.Actor, Conversation: l.ID, Turn: &l.Token}
+	update := s.db.Model(&conversation{}).Where(&key, "ActorID", "Conversation", "Turn").Select(fields).Updates(conversation{Context: next})
 	if update.Error != nil {
 		return update.Error
 	}
