@@ -107,7 +107,7 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
 .report-heading h3, .verdict h3 {
   display: inline-flex; justify-self: start; align-items: center; gap: .45rem;
   padding: .22rem .55rem; border-radius: 4px; font-size: 1.03rem;
-  color: var(--paper); background: var(--amber);
+  color: var(--paper); background: #df1010;
 }
 .report-normal .report-heading h3, .verdict.normal h3 { background: var(--pine); }
 .report-check_failed .report-heading h3, .verdict.check_failed h3 { background: #37424c; }
