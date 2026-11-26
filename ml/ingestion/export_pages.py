@@ -1,0 +1,153 @@
+"""Export one JSONL record per physical page of each PDF in the manifest."""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import unicodedata
+from collections import defaultdict
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+import pypdfium2
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MODULE_PAGE = re.compile(r"(?:(\d{4}-\d{2}-\d{2})\s+)?Страница\s+([1-9]\d*)", re.IGNORECASE)
+
+
+def read_manifest(manifest_path):
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    documents = manifest["documents"]
+    if not documents:
+        raise ValueError("В каталоге нет PDF.")
+
+    filenames = defaultdict(list)
+    for path in manifest_path.parent.iterdir():
+        filenames[unicodedata.normalize("NFC", path.name)].append(path)
+
+    seen = set()
+    for document in documents:
+        document_id = document["document_id"]
+        if document_id in seen:
+            raise ValueError(f"Повторяющийся document_id: {document_id}")
+        seen.add(document_id)
+
+        filename = document["file"]
+        matches = filenames[unicodedata.normalize("NFC", filename)]
+        if len(matches) != 1 or not matches[0].is_file():
+            raise ValueError(f"Не найден единственный файл для {document_id}: {filename}")
+        yield document, matches[0]
+
+
+def page_content(raw_text, pdf_page, offset):
+    lines = [line.rstrip() for line in raw_text.strip().splitlines()]
+    if not lines:
+        return None, ""
+
+    printed_page = None
+    if offset is None:
+        # Module numbering can restart, so read the explicit folio on this page.
+        markers = [MODULE_PAGE.fullmatch(line.strip()) for line in lines]
+        numbers = {marker[2] for marker in markers if marker}
+        if len(numbers) == 1:
+            printed_page = numbers.pop()
+            lines = [(marker[1] or "") if marker else line for line, marker in zip(lines, markers)]
+    else:
+        # A matching boundary line confirms the expected offset for this edition.
+        expected = str(pdf_page + offset)
+        if lines[0].strip() == expected:
+            printed_page = lines.pop(0).strip()
+        elif lines[-1].strip() == expected:
+            printed_page = lines.pop().strip()
+
+    return printed_page, "\n".join(lines).replace("\x02", "").strip()
+
+
+def export_document(document, source, stream):
+    digest = hashlib.sha256()
+    with source.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    if digest.hexdigest() != document["sha256"]:
+        raise ValueError(f"SHA-256 отличается от каталога: {source.name}")
+
+    sections = document.get("sections", [])
+    offset = document.get("printed_page_offset")
+    with pypdfium2.PdfDocument(source) as pdf:
+        page_count = len(pdf)
+        if page_count != document["expected_pages"]:
+            raise ValueError(
+                f"{source.name}: {page_count} страниц вместо {document['expected_pages']}"
+            )
+
+        for page_index in range(page_count):
+            pdf_page = page_index + 1
+            page = pdf[page_index]
+            try:
+                raw_text = page.get_textpage().get_text_bounded()
+            finally:
+                page.close()
+            printed_page, text = page_content(raw_text, pdf_page, offset)
+            section = next(
+                (item["title"] for item in sections if item["first_page"] <= pdf_page <= item["last_page"]),
+                None,
+            )
+            record = {
+                "document_id": document["document_id"],
+                "models": document["models"],
+                "pdf_page": pdf_page,
+                "printed_page": printed_page,
+                "section": section,
+                "text": text,
+            }
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    return page_count
+
+
+def export_pages(manifest_path, output):
+    documents = list(read_manifest(manifest_path))
+    input_paths = {manifest_path.resolve(), *(source.resolve() for _, source in documents)}
+    if output.resolve() in input_paths:
+        raise ValueError(f"Путь выгрузки совпадает с исходным файлом: {output}")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n", dir=output.parent,
+            prefix=f".{output.name}.", suffix=".tmp", delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            page_count = sum(export_document(document, source, stream) for document, source in documents)
+        temporary.replace(output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+    return len(documents), page_count
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Постраничная выгрузка текстового слоя PDF в JSONL.")
+    default_data = Path(os.environ.get("DATA_DIR", PROJECT_ROOT / "data"))
+    parser.add_argument("--manifest", type=Path, default=default_data / "manifest.json")
+    parser.add_argument("--output", type=Path, help="По умолчанию pages.jsonl рядом с каталогом PDF.")
+    args = parser.parse_args()
+    output = args.output if args.output is not None else args.manifest.with_name("pages.jsonl")
+
+    try:
+        documents, pages = export_pages(args.manifest, output)
+    except (OSError, ValueError, KeyError, TypeError, pypdfium2.PdfiumError) as error:
+        print(f"Ошибка выгрузки: {error}", file=sys.stderr)
+        return 1
+
+    print(f"{output}: {documents} PDF, {pages} страниц")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
