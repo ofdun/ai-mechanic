@@ -2,9 +2,10 @@
 
 ### Комплект заказчика
 
-Для проверки защиты соберите фронтенд, установите браузер и создайте индекс шести руководств по [инструкции запуска](../../README.md#стенд-с-комплектом-заказчика). Передайте путь к каталогу с PDF, к распакованным заглушкам и к готовому индексу.
+Для проверки защиты соберите фронтенд, установите браузер и создайте индекс шести руководств. Укажите в `DATA_DIR` папку с PDF и в `ARTIFACTS_DIR` папку для индекса. Передайте путь к каталогу с PDF, к распакованным заглушкам и к готовому индексу.
 
 ```bash
+uv run --extra api python -m ml.manual_corpus --data-dir "$DATA_DIR" --output "$ARTIFACTS_DIR/manuals.sqlite3"
 (cd app/backend && go build -o /tmp/mechanic-web .)
 PYTHONPATH=. .venv/bin/python tests/e2e/customer_smoke.py --backend /tmp/mechanic-web \
   --data-dir "$DATA_DIR" \

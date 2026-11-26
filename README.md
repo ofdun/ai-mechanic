@@ -140,6 +140,7 @@ SQLite открывается при первой операции с заявк
 ## Проверки
 
 ```bash
+(cd app/backend && go test ./...)
 uv run pytest -q
 uv run --extra api pytest -q
 ```
@@ -174,20 +175,7 @@ PLANNER_MODE=offline uv run uvicorn demo.app:create_app --factory --port 8080
 
 ### Стенд с комплектом заказчика
 
-Положите шесть PDF и архив `neurodvs_hackathon_mock_*.zip` в один каталог. Распакуйте архив и запустите Mock ML и Mock ТОиР по разделу «Запуск ядра». Из корня проекта выполните:
-
-```bash
-uv sync --locked --extra api
-npm --prefix app/frontend ci
-npm --prefix app/frontend run build
-export DATA_DIR="/путь/к/комплекту"
-export ARTIFACTS_DIR="$PWD/artifacts/fleet"
-export ML_API_URL=http://127.0.0.1:8001
-export MAINTENANCE_API_URL=http://127.0.0.1:8002
-export PLANNER_MODE=local AGENT_ARCHITECTURE=baseline ALLOW_EXTERNAL_EVIDENCE=false
-uv run python -m ml.manual_corpus --data-dir "$DATA_DIR" --output "$ARTIFACTS_DIR/manuals.sqlite3"
-docker compose --profile mocks up --build -d
-```
+Используйте [быстрый запуск через Docker](#быстрый-запуск-через-docker). Compose запускает индексатор, внутренний сервис агента, Go-бэкенд и выбранные моки.
 
 В этом профиле выбор инструмента, чтение страниц и проверка источников выполняются локально. Архив содержит 50 карточек ТС и 195 замеров. Список можно отфильтровать по двигателю. Поиск руководства использует модель двигателя из выбранной карточки. Ссылки в отчёте, чате и заявке открывают физическую страницу PDF внутри приложения. Индекс, контекст и квитанции хранятся в `ARTIFACTS_DIR`.
 
