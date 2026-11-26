@@ -8,14 +8,17 @@ from pydantic import ValidationError
 
 from ml.config import Settings
 from ml.contracts import AgentError, AgentRequest, TicketConfirmation
-from ml.pdf_baseline import build_pdf_pipeline
+from ml.pdf_baseline import build_pdf_pipeline, build_retrieval_pipeline
 from ml.pipeline import Pipeline
+from ml.retrieval import RetrievalConfig, RetrievalEngine
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description='Локальный запуск Digital Mechanic без веб-интерфейса')
     parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('--pdf-index', type=Path)
+    indexes = parser.add_mutually_exclusive_group()
+    indexes.add_argument('--pdf-index', type=Path)
+    indexes.add_argument('--retrieval-index', type=Path, help='Индекс из python -m ml.retrieval build')
     commands = parser.add_subparsers(dest='operation', required=True)
     run = commands.add_parser('run')
     confirm = commands.add_parser('confirm')
@@ -36,7 +39,13 @@ def main() -> int:
         settings = Settings()
         context = {'actor_id': args.actor, 'vehicle_id': args.vehicle, 'session_id': args.session}
         with httpx.Client(timeout=settings.http_timeout_seconds) as http:
-            pipeline = build_pdf_pipeline(settings, http, args.pdf_index) if args.pdf_index else Pipeline(settings, http)
+            if args.pdf_index:
+                pipeline = build_pdf_pipeline(settings, http, args.pdf_index)
+            elif args.retrieval_index:
+                pipeline = build_retrieval_pipeline(
+                    settings, http, RetrievalEngine.load(args.retrieval_index, RetrievalConfig.load()))
+            else:
+                pipeline = Pipeline(settings, http)
             if args.operation == 'run':
                 result = pipeline.run(AgentRequest(**context, command=args.command, message=args.message))
             else:

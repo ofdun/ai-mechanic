@@ -12,24 +12,52 @@ import httpx
 from ml.architectures import LLMEvidenceWorkflow
 from ml.config import Settings
 from ml.contracts import (
-    AgentError, DiagnosticResult, Evidence, EvidenceBundle, SearchPlan, TechnicalClaim, TechnicalDraft, VerifiedResponse,
+    AgentError, DiagnosticResult, Evidence, EvidenceBundle, Retriever, SearchPlan, TechnicalClaim, TechnicalDraft,
+    VerifiedResponse,
 )
 from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
 
 
 ENGINE = 'ЯМЗ-236М2'
-DOCUMENT_ID = 'yamz-236-operations-2010'
+DOCUMENT_ID = 'yamz-236-operations-2010'  # канонический document_id из data/manifest.json ingestion
 MANUAL = '236-3902150-Б РЭ'
 PDF_NAME = 'ЯМЗ_236_руководство по эксплуатации.pdf'
 PDF_SHA256 = '4268a9519e02a668a826fe6d154de0360f6767015868ca2de7410ba570d73dd1'
 FIRST_PAGE, LAST_PAGE = 52, 54
-INJECTOR_ROW = re.compile(
-    r'^[ \t]*(Нарушение регулировки[ \t]+или)[ \t]{2,}(Отрегулировать форсунку и, если)[ \t]*\n'
-    r'[ \t]*(засорение форсунки)[ \t]{2,}(необходимо, промыть и прочистить)[ \t]*\n'
-    r'[ \t]{2,}(е[её])[ \t]*$',
-    re.MULTILINE | re.IGNORECASE,
+
+
+def phrase(text: str) -> str:
+    """Words of a table cell line separated by any whitespace, so line breaks and column gaps do not matter."""
+    return r'\s+'.join(re.escape(word) for word in text.split())
+
+
+# The reviewed row of the troubleshooting table on physical page 52: cause | repair.
+CAUSE = (phrase('Нарушение регулировки или'), phrase('засорение форсунки'))
+REPAIR = (phrase('Отрегулировать форсунку и, если'), phrase('необходимо, промыть и прочистить'), r'(е[её])')
+END = r'(?!\w)'
+# pdftotext -layout interleaves the two columns line by line.
+LAYOUT_ROW = re.compile(
+    rf'(?<!\w){CAUSE[0]}\s+{REPAIR[0]}\s+{CAUSE[1]}\s+{REPAIR[1]}\s+{REPAIR[2]}{END}', re.IGNORECASE,
 )
+# pypdfium2 (ml/ingestion/export_pages.py) emits each cell as a whole.
+CAUSE_CELL = re.compile(rf'(?<!\w){CAUSE[0]}\s+{CAUSE[1]}{END}', re.IGNORECASE)
+REPAIR_CELL = re.compile(rf'(?<!\w){REPAIR[0]}\s+{REPAIR[1]}\s+{REPAIR[2]}{END}', re.IGNORECASE)
+
+
+def injector_row(text: str) -> str | None:
+    """Reviewed F08 operation if the page text keeps the row in either extraction layout."""
+    text = unicodedata.normalize('NFC', text)
+    if row := LAYOUT_ROW.search(text):
+        pronoun = row[1]
+    elif CAUSE_CELL.search(text) and (repair := REPAIR_CELL.search(text)):
+        pronoun = repair[1]
+    else:
+        return None
+    return ('Если подтверждено нарушение регулировки или засорение форсунки, '
+            f'отрегулировать форсунку и, если необходимо, промыть и прочистить {pronoun.lower()}.')
+
+
 QUERY_TERM = re.compile(r'[^\W_]{4,}', re.UNICODE)
 
 
@@ -54,7 +82,7 @@ def read_pages(data_dir: Path) -> list[str]:
 
 def build_index(data_dir: Path, output: Path) -> None:
     pages = read_pages(data_dir)
-    if not INJECTOR_ROW.search(pages[0]):
+    if not injector_row(pages[0]):
         raise AgentError('RAG_INDEX_UNAVAILABLE', 'Извлечение PDF не сохранило проверенную строку таблицы.')
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -104,12 +132,8 @@ class ReviewedOperations:
         for item in evidence.items:
             if (item.document_id, item.manual, item.pdf_page) != (DOCUMENT_ID, MANUAL, FIRST_PAGE) or ENGINE not in item.engine_models:
                 continue
-            if row := INJECTOR_ROW.search(item.text):
-                cause = ' '.join(f'{row[1]} {row[3]}'.split()).lower()
-                repair = ' '.join((row[2], row[4], row[5])).lower()
-                claims.append(TechnicalClaim(
-                    kind='operation', text=f'Если подтверждено {cause}, {repair}.', evidence_ids=[item.evidence_id],
-                ))
+            if operation := injector_row(item.text):
+                claims.append(TechnicalClaim(kind='operation', text=operation, evidence_ids=[item.evidence_id]))
         return claims
 
     def generate(self, plan: SearchPlan, evidence: EvidenceBundle, diagnostic: DiagnosticResult | None) -> TechnicalDraft:
@@ -123,8 +147,12 @@ class ReviewedOperations:
 
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:
+    return build_retrieval_pipeline(settings, http, PdfPageRetriever(index))
+
+
+def build_retrieval_pipeline(settings: Settings, http: httpx.Client, retriever: Retriever) -> Pipeline:
+    """Baseline or LLM architecture A/B over any retriever, e.g. ml.retrieval.RetrievalEngine."""
     operations = ReviewedOperations()
-    retriever = PdfPageRetriever(index)
     if settings.planner_mode == 'offline' or settings.agent_architecture == 'baseline':
         return Pipeline(settings, http, retriever=retriever, generator=operations, verifier=operations)
     workflow = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, operations)
