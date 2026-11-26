@@ -45,8 +45,8 @@ function App() {
     setSessionId(id)
   }
   return <>
-    <header className="mast"><div><span className="wordmark">Цифровой механик</span><span className="mast-note">Диагностический пост</span></div></header>
-    <main><div className="page-title"><h1>Диагностика двигателя</h1></div>
+    <header className="mast"><div><span className="wordmark">Цифровой механик</span></div></header>
+    <main><h1>Проверка двигателя</h1>
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
         : !vehicle ? <p role="status">В справочнике пока нет транспортных средств.</p>
@@ -146,28 +146,26 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
 
   return <div className="workspace">
     <aside className={'controls' + (folded ? ' folded' : '')} aria-labelledby="checking">
-      <h2 id="checking">Параметры замера</h2>
+      <h2 className="sr-only" id="checking">Выбор машины и проверки</h2>
       <button type="button" className="fold-toggle" aria-controls="selection" aria-expanded={!folded}
         onClick={() => { reopenSelection.current = true; setFolded(false) }}><span>{vehicle.vehicle_id} / {sessionId}</span><strong>Изменить</strong></button>
       <div id="selection">
-      <label htmlFor="vehicle">Транспортное средство</label>
+      <div><label htmlFor="vehicle">Транспортное средство</label>
       <select id="vehicle" value={vehicle.vehicle_id} disabled={pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
         {catalog.map(v => <option key={v.vehicle_id} value={v.vehicle_id}>{v.vehicle_id}</option>)}
       </select>
-      <dl className="engine"><dt>Двигатель</dt><dd>{vehicle.engine_model}</dd></dl>
-      <label htmlFor="session">Проверка</label>
+      </div><div><label htmlFor="session">Проверка</label>
       <select id="session" value={sessionId} disabled={!vehicle.sessions.length || pending === 'confirm'} onChange={e => changeSession(e.target.value)}>
         {!vehicle.sessions.length && <option>Нет проверок</option>}
         {vehicle.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
-      </select>
+      </select></div>
+      <dl className="engine"><dt>Двигатель</dt><dd>{vehicle.engine_model}</dd></dl>
       <button className="primary" disabled={!sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики</button>
       </div>
     </aside>
-    <section className="chat" aria-labelledby="chat-title"><div className="chat-head"><h2 id="chat-title">Протокол проверки</h2>
-      <span className="serial">{sessionId}</span></div>
+    <section className="chat" aria-label="Результаты и вопросы">
       <div className="thread" role="log" aria-label="Сообщения" aria-live="polite">
-        {!turns.length && <div className="empty"><h3>{sessionId ? 'Результат ещё не запрошен' : 'Проверок пока нет'}</h3>
-          <p>{sessionId ? 'Запустите диагностику или задайте вопрос по руководству для двигателя ' + vehicle.engine_model + '.' : 'Выберите другое транспортное средство.'}</p></div>}
+        {!sessionId && <p className="notice">У этой машины пока нет замеров. Выберите другую машину.</p>}
         {turns.map(({ result, question }, index) => <div className="turn" tabIndex={-1}
           ref={index === turns.length - 1 ? lastResponse : null} key={result.request_id}>
           {question && <div className="question"><strong>Вы</strong><p>{question}</p></div>}
@@ -183,7 +181,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
       </div>
       <form className="composer" onSubmit={e => { e.preventDefault(); if (question.trim()) run('chat') }}>
         <label htmlFor="question">Вопрос по двигателю</label>
-        <div className="compose-row"><input id="question" placeholder="Что проверить в первую очередь?" value={question}
+        <div className="compose-row"><input id="question" placeholder="Что проверить?" value={question}
           maxLength={8000} disabled={!sessionId || !!pending} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
           <button type="submit" className="submit" disabled={!question.trim() || !sessionId || !!pending}>Отправить</button></div>
       </form>

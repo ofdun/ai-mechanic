@@ -13,6 +13,11 @@ export function Source({ source }) {
     target="_blank" rel="noreferrer">{source.manual}, стр.{'\u00a0'}{source.pdf_page}</a>
 }
 
+function Entries({ items, render = item => item }) {
+  if (items.length === 1) return render(items[0])
+  return <ul>{items.map((item, index) => <li key={index}>{render(item)}</li>)}</ul>
+}
+
 export function Response({ result }) {
   const { diagnostic, message, claims, requires_remeasurement: repeat } = result
   const evidence = (result.evidence?.items || []).filter(item => item.engine_models.includes(result.engine_model))
@@ -37,12 +42,12 @@ export function Response({ result }) {
       const group = verified.filter(claim => claim.kind === kind)
       if (!group.length) return null
       return <section key={kind} className="claims"><h4>{title}</h4>
-        <ul>{group.map((claim, index) => <li key={index}>{claim.text}
+        <Entries items={group} render={claim => <>{claim.text}
           <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
-        </li>)}</ul></section>
+        </>} /></section>
     })}
     {limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
-      <ul>{limitations.map((text, index) => <li key={index}>{text}</li>)}</ul></section>}
+      <Entries items={limitations} /></section>}
     {insufficient && <p>Подтверждённых данных по этому двигателю недостаточно. Рекомендуется дефектовка.</p>}
     {!!result.history?.length && <section><h4>История проверок</h4><ul>{result.history.map(row =>
       <li key={row.session_id}>{formatDate(row.checked_at)} · {outcomes[row.status]}</li>)}</ul></section>}
@@ -58,7 +63,7 @@ export function Draft({ draft, evidence, disabled, onConfirm }) {
       <dt>ТС / проверка</dt><dd>{payload.vehicle_id} / {payload.session_id}</dd>
       <dt>Приоритет</dt><dd>{priorities[payload.urgency]}</dd>
       <dt>Заключение</dt><dd>{payload.conclusion}</dd>
-      <dt>Работы</dt><dd><ul>{payload.operations.map(op => <li key={op}>{op}</li>)}</ul></dd>
+      <dt>Работы</dt><dd><Entries items={payload.operations} /></dd>
       <dt>Запчасти</dt><dd>{payload.spare_parts.length ? payload.spare_parts.join(', ') : 'Нет подтверждённых позиций'}</dd>
       <dt>Источники</dt><dd>{payload.references.map((reference, index) => {
         const source = evidence.find(item => item.manual === reference.manual && item.pdf_page === reference.pdf_page)

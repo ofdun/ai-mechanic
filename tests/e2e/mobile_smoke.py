@@ -92,6 +92,9 @@ def exercise(context, base_url, pdf_path):
     draft.tap()
     preview = page.get_by_role('region', name='Черновик заявки')
     expect(preview).to_contain_text(OPERATION)
+    work_value = preview.locator('dt', has_text='Работы').locator('+ dd')
+    expect(work_value).to_have_text(OPERATION)
+    expect(work_value.get_by_role('list')).to_have_count(0)
     assert thread.inner_text() == previous_messages, 'Создание черновика изменило историю диагностики'
     expect(preview).to_have_count(1)
     expect(preview).to_contain_text('F08-DEMO')
