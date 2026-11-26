@@ -139,6 +139,26 @@ app.include_router(create_agent_router(pipeline, current_actor_id))
 uv run python -m evaluation.generation.verifier_benchmark --pages DATA/pages.jsonl --pdf-dir DATA --output run.json
 ```
 
+Метрики генерации на эталонном наборе считает Oracle Context. Генератор получает эталонные страницы вопроса из `evaluation/datasets/customer_questions.jsonl` и две отвлекающие страницы тех же руководств. Поиск в замере не участвует.
+
+| Метрика | Как считается |
+|---|---|
+| `answer_correctness` | Модель-судья сравнивает ответ с эталоном: верно — 1, частично — 0,5. Считается только с `--judge-model` |
+| `numeric_accuracy` | Доля чисел эталона, которые есть в ответе. Номера страниц, рисунков и приложений не учитываются |
+| `citation_accuracy` | Доля утверждений ответа со ссылкой на эталонную страницу, а не на отвлекающую |
+| `unsupported_claim_rate` | Доля черновых утверждений, отклонённых `EvidenceVerifier`. До механика они не доходят |
+| `abstention_accuracy` | Ответа нет ровно там, где эталон ожидает отказ |
+
+Также выводятся покрытие эталонных страниц, доля показанных расхождений источников, причины отказов verifier, задержка p50/p95 и стоимость цикла. `pages.jsonl` и `manifest.json` выпускает `ml/ingestion/export_pages.py`. Без `--allow-external-evidence` страницы руководств не уходят провайдеру. `--dry-run` проверяет данные без вызовов LLM:
+
+```bash
+uv run python -m evaluation.generation.oracle_context --pages DATA/pages.jsonl --dry-run
+LLM_API_KEY=... uv run python -m evaluation.generation.oracle_context --pages DATA/pages.jsonl --pipeline a \
+  --split dev --allow-external-evidence --judge-model z-ai/glm-5.3 --output oracle-a.json --run-file run-a.json
+```
+
+`--pipeline` принимает `generator`, `reasoner`, `a` или `b`. Файл `--run-file` готов для `context.py finish --run-file`. `--cases-output` сохраняет ответы по кейсам с цитатами руководств, поэтому храните его только локально.
+
 ### Черновик и подтверждение
 
 Вызов `Pipeline.run` с `command='draft_ticket'` сохраняет черновик только после пригодной аномалии и хотя бы одной подтверждённой операции. Для кнопки подтверждения используйте отдельный `Pipeline.confirm_ticket`. Передайте идентичность, пару ТС и сессии, `draft_id`, `draft_version` и явное `confirmed=True`. Ядро сверяет модель двигателя и свежую диагностику перед отправкой сохранённого payload. Черновик действует 30 минут. Черновик без сохранённой модели требуется сформировать заново.
