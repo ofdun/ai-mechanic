@@ -18,7 +18,7 @@ docker compose up --build -d
 
 Локальный запуск слушает `127.0.0.1`. Для показа жюри укажите публичный IP сервера и откройте входящие TCP-порты 80 и 443. Вариант для стенда публикует Caddy, который выпускает и обновляет сертификат, проверяет пароль и передаёт запрос приложению. Тот же вход защищает файлы руководств и отдельные страницы.
 
-На сервере в `/opt/ai-mechanic/compose` получите bcrypt-хеш командой `docker run --rm -it caddy:2-alpine caddy hash-password`. Введите отдельный пароль для демонстрации. Добавьте в серверный `.env` значения `COMPOSE_FILE=compose.yaml:compose.stand.yaml`, `STAND_HOST` (публичный IP или DNS-имя), `STAND_USER` и `STAND_PASSWORD_HASH`. Оберните значение хеша в одинарные кавычки для сохранения символов `$`.
+В серверном `.env` задайте `COMPOSE_FILE=compose.yaml:compose.stand.yaml`, `STAND_HOST`, `STAND_USER` и `STAND_PASSWORD`. В шаблоне приведён учебный пароль. Для стенда выберите свой и заключите его в одинарные кавычки. Шлюз вычислит bcrypt-хеш при запуске. Чтобы хранить в `.env` только хеш, используйте вместо `STAND_PASSWORD` переменную `STAND_PASSWORD_HASH` с результатом команды `docker run --rm -it caddy:2-alpine caddy hash-password` в одинарных кавычках.
 
 Выполните `docker compose up --build -d`. Проверьте `docker compose ps` и откройте `https://<STAND_HOST>`. Браузер запросит логин и пароль. Передайте их жюри отдельно от ссылки. Команда `docker compose logs -f gateway web agent` показывает состояние сервисов. Для хранения состояния в существующем каталоге задайте `STATE_DIR` и укажите в `FLEET_USER` числовые UID:GID пользователя с доступом на запись.
 

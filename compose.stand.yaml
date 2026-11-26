@@ -1,4 +1,10 @@
 services:
+  agent:
+    environment:
+      STAND_PASSWORD: ""
+  index:
+    environment:
+      STAND_PASSWORD: ""
   web:
     ports: !reset []
 
@@ -8,12 +14,15 @@ services:
     environment:
       STAND_HOST: ${STAND_HOST:?Set the public IP address or DNS hostname}
       STAND_USER: ${STAND_USER:?Set the stand username}
-      STAND_PASSWORD_HASH: ${STAND_PASSWORD_HASH:?Set a bcrypt password hash}
+      STAND_PASSWORD: ${STAND_PASSWORD:-}
+      STAND_PASSWORD_HASH: ${STAND_PASSWORD_HASH:-}
       WEB_LISTEN_PORT: ${WEB_LISTEN_PORT:-8080}
+    entrypoint: ["/bin/sh", "/etc/caddy/start-gateway.sh"]
     ports:
       - "80:80"
       - "443:443"
     volumes:
+      - ./deploy/start-gateway.sh:/etc/caddy/start-gateway.sh:ro
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - gateway_data:/data
       - gateway_config:/config
