@@ -16,8 +16,8 @@ from ml import pdf_baseline
 from ml.config import Settings
 from ml.contracts import AgentError, AgentRequest
 from ml.planner import OfflinePlanner
-from web.app import create_app
-from web.sessions import WebSessions
+from demo.host import create_app
+from demo.sessions import WebSessions
 
 
 @pytest.fixture

@@ -221,8 +221,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--channel', help='Например, chrome для установленного Google Chrome')
     args = parser.parse_args()
-    if not Path('frontend/dist/index.html').is_file():
-        parser.exit(1, 'Сначала соберите интерфейс командой npm --prefix frontend run build.\n')
+    if not Path('app/frontend/dist/index.html').is_file():
+        parser.exit(1, 'Сначала соберите интерфейс командой npm --prefix app/frontend run build.\n')
     with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
         data_dir = Path(directory)
         prepare(data_dir)

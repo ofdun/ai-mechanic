@@ -5,7 +5,8 @@
 Для проверки защиты соберите фронтенд, установите браузер и создайте индекс шести руководств по [инструкции запуска](../../README.md#стенд-с-комплектом-заказчика). Передайте путь к каталогу с PDF, к распакованным заглушкам и к готовому индексу.
 
 ```bash
-PYTHONPATH=. .venv/bin/python tests/e2e/customer_smoke.py \
+(cd app/backend && go build -o /tmp/mechanic-web .)
+PYTHONPATH=. .venv/bin/python tests/e2e/customer_smoke.py --backend /tmp/mechanic-web \
   --data-dir "$DATA_DIR" \
   --mock-dir "$DATA_DIR/neurodvs_hackathon_mock_2026-11-16" \
   --index "$ARTIFACTS_DIR/manuals.sqlite3"
@@ -21,8 +22,8 @@ PYTHONPATH=. .venv/bin/python tests/e2e/customer_smoke.py \
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[api]' 'playwright>=1.50,<2'
 .venv/bin/python -m playwright install chromium
-npm --prefix frontend ci
-npm --prefix frontend run build
+npm --prefix app/frontend ci
+npm --prefix app/frontend run build
 PYTHONPATH=. .venv/bin/python tests/e2e/mobile_smoke.py
 ```
 

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from demo.fixtures import DOCUMENT_ID, OPERATION, PAGES, training_fleet
 from demo.prepare import prepare
-from web.app import create_app
+from demo.host import create_app
 
 
 @pytest.mark.parametrize('override', [None, 'ML_API_URL', 'MAINTENANCE_API_URL'])

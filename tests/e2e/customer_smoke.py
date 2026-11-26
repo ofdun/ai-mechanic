@@ -10,7 +10,12 @@ from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
-from web.app import create_app
+from ml.worker import create_app
+import socket
+import subprocess
+import time
+from urllib.request import urlopen
+from urllib.error import URLError
 from mobile_smoke import serve
 
 
@@ -115,6 +120,7 @@ def main():
     parser.add_argument('--mock-dir', type=Path, required=True, help='Unpacked directory containing mock_ml and mock_toir')
     parser.add_argument('--index', type=Path, required=True)
     parser.add_argument('--channel')
+    parser.add_argument('--backend', type=Path, required=True, help='Compiled Go web server')
     args = parser.parse_args()
     sys.path.insert(0, str(args.mock_dir.resolve(strict=True)))
     from mock_ml.app import app as mock_ml
@@ -129,7 +135,26 @@ def main():
             'ALLOW_EXTERNAL_EVIDENCE': 'false', 'ML_API_URL': stack.enter_context(serve(mock_ml)),
             'MAINTENANCE_API_URL': stack.enter_context(serve(mock_toir)),
         }))
-        base_url = stack.enter_context(serve(create_app()))
+        agent_url = stack.enter_context(serve(create_app()))
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            address = f'127.0.0.1:{listener.getsockname()[1]}'
+        base_url = f'http://{address}'
+        process = subprocess.Popen([args.backend.resolve(strict=True)], env={
+            **os.environ, 'LISTEN_ADDR': address, 'AGENT_URL': agent_url,
+            'FRONTEND_DIST': str(Path('app/frontend/dist').resolve()),
+        })
+        stack.callback(process.wait, 10)
+        stack.callback(process.terminate)
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                with urlopen(base_url + '/health', timeout=1):
+                    break
+            except URLError:
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
         pw = stack.enter_context(sync_playwright())
         browser = pw.chromium.launch(channel=args.channel)
         stack.callback(browser.close)

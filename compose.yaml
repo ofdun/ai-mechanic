@@ -43,17 +43,37 @@ services:
     <<: *fleet
     command: ["python", "-m", "ml.manual_corpus"]
 
-  web:
+  agent:
     <<: *fleet
-    build: .
+    build:
+      context: .
+      target: agent
     restart: unless-stopped
     depends_on:
       index:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/fleet', timeout=3).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    stop_grace_period: 30s
+    build:
+      context: .
+      target: web
+    user: ${FLEET_USER:-mechanic}
+    volumes:
+      - ${STATE_DIR:-state}:/state
+    restart: unless-stopped
+    depends_on:
+      agent:
+        condition: service_healthy
     ports:
       - "${WEB_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
+      test: ["CMD", "mechanic", "health"]
       interval: 10s
       timeout: 5s
       retries: 5

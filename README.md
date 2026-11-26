@@ -14,7 +14,11 @@ docker compose up --build -d
 
 Для подключения двух внешних сервисов укажите их базовые URL в `.env`, очистите `COMPOSE_PROFILES` и выполните `docker compose up -d web`. При замене одного сервиса достаточно изменить соответствующий URL и выполнить ту же команду. На Docker Desktop сервис на вашем компьютере доступен контейнеру через `host.docker.internal`. Ранее запущенные локальные моки можно остановить командой `docker compose --profile mocks stop ml maintenance`, когда оба адреса переключены.
 
-На публичном стенде проект находится в `/opt/ai-mechanic/compose`. Из этого каталога используйте `docker compose ps` для проверки состояния и `docker compose logs -f web` для логов. После обновления исходников выполните `docker compose up --build -d`. Для хранения состояния в существующем каталоге задайте `STATE_DIR` и укажите в `FLEET_USER` числовые UID:GID пользователя с доступом на запись.
+На публичном стенде проект находится в `/opt/ai-mechanic/compose`. Из этого каталога используйте `docker compose ps` для проверки состояния и `docker compose logs -f web agent` для логов. После обновления исходников выполните `docker compose up --build -d`. Для хранения состояния в существующем каталоге задайте `STATE_DIR` и укажите в `FLEET_USER` числовые UID:GID пользователя с доступом на запись.
+
+## Устройство веб-приложения
+
+В `app/frontend` находится React, в `app/backend` — публичный сервер на Go. Пакет `internal/httpapi` обслуживает HTTP и cookie, `internal/mechanic` ведёт диалог и проверяет подтверждение механика, `internal/sqlite` хранит браузерные сессии и контекст. Адаптер `internal/agent` вызывает внутренний сервис из `ml/` для диагностики, поиска и операций с заявкой. Физические страницы обрабатывает тот же PDF-движок, которым построен индекс. Порт агента доступен внутри сети Compose.
 
 ## Разработка ядра без контейнеров
 
@@ -152,8 +156,8 @@ uv run --extra api pytest -q
 
 ```bash
 uv sync --locked --extra api
-npm --prefix frontend ci
-npm --prefix frontend run build
+npm --prefix app/frontend ci
+npm --prefix app/frontend run build
 uv run python -m demo.prepare --directory ./artifacts/training
 uv run uvicorn demo.upstream:app --host 127.0.0.1 --port 8001
 ```
@@ -174,15 +178,15 @@ PLANNER_MODE=offline uv run uvicorn demo.app:create_app --factory --port 8080
 
 ```bash
 uv sync --locked --extra api
-npm --prefix frontend ci
-npm --prefix frontend run build
+npm --prefix app/frontend ci
+npm --prefix app/frontend run build
 export DATA_DIR="/путь/к/комплекту"
 export ARTIFACTS_DIR="$PWD/artifacts/fleet"
 export ML_API_URL=http://127.0.0.1:8001
 export MAINTENANCE_API_URL=http://127.0.0.1:8002
 export PLANNER_MODE=local AGENT_ARCHITECTURE=baseline ALLOW_EXTERNAL_EVIDENCE=false
 uv run python -m ml.manual_corpus --data-dir "$DATA_DIR" --output "$ARTIFACTS_DIR/manuals.sqlite3"
-uv run uvicorn web.app:create_app --factory --port 8080
+docker compose --profile mocks up --build -d
 ```
 
 В этом профиле выбор инструмента, чтение страниц и проверка источников выполняются локально. Архив содержит 50 карточек ТС и 195 замеров. Список можно отфильтровать по двигателю. Поиск руководства использует модель двигателя из выбранной карточки. Ссылки в отчёте, чате и заявке открывают физическую страницу PDF внутри приложения. Индекс, контекст и квитанции хранятся в `ARTIFACTS_DIR`.

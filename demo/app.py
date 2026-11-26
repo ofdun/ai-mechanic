@@ -8,7 +8,7 @@ from ml.contracts import TechnicalClaim, TechnicalDraft, VerifiedResponse
 from ml.pdf_baseline import PdfPageRetriever
 from ml.pipeline import Pipeline
 from ml.tools.tickets import TicketStore
-from web.app import create_app as create_host
+from demo.host import create_app as create_host
 
 
 def words(text):
