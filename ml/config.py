@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     http_timeout_seconds: Annotated[float, Field(gt=0, le=90)] = 20
     min_diagnostic_confidence: Annotated[float, Field(ge=0, le=1)] = 0.70
     repeat_on_warning: bool = True
-    planner_mode: Literal['llm', 'offline'] = 'llm'
+    planner_mode: Literal['llm', 'local', 'offline'] = 'llm'
     agent_architecture: Literal['baseline', 'a', 'b'] = 'a'
     allow_external_evidence: bool = False
     llm_base_url: AnyHttpUrl = 'https://openrouter.ai/api/v1'

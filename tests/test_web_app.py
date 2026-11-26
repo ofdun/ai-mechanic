@@ -33,6 +33,7 @@ def host(tmp_path):
         }
         results.append({'vehicle_id': vehicle_id, 'engine_model': 'ДВС-1', 'fuel': 'дизель',
                         'sessions': [{**result, 'checked_at': '2026-01-01T10:00:00Z'}]})
+    results[0].update(make='Марка', model='Марка-1')
     (source / 'vehicles.json').write_text(json.dumps({'vehicles': results}))
     settings = Settings(_env_file=None, data_dir=source, vehicles_path=source / 'vehicles.json',
                         artifacts_dir=tmp_path, planner_mode='offline', agent_architecture='baseline')
@@ -68,7 +69,10 @@ def test_web_routes_and_conversation_isolation(host, monkeypatch):
             assert 'Test UI' in (await first.get('/')).text
             listing = await first.get('/api/vehicles')
             assert 'HttpOnly' in listing.headers['set-cookie']
-            assert set(listing.json()['vehicles'][0]['sessions'][0]) == {'session_id', 'checked_at'}
+            catalog = listing.json()['vehicles']
+            assert (catalog[0]['make'], catalog[0]['model']) == ('Марка', 'Марка-1')
+            assert (catalog[1]['make'], catalog[1]['model']) == (None, None)
+            assert set(catalog[0]['sessions'][0]) == {'session_id', 'checked_at'}
             target = {'vehicle_id': 'TRUCK-A', 'session_id': 'S1'}
             diagnosis = await first.post('/agent/run', json={**target, 'command': 'diagnose'})
             assert diagnosis.status_code == 200

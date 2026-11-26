@@ -56,18 +56,17 @@ main { flex: 1; display: flex; flex-direction: column; padding-block: clamp(.8re
 .controls h2 { font-size: 1.15rem; }
 .controls h2 svg { color: var(--pine); }
 #selection {
-  display: grid; grid-template-columns: minmax(0,1fr) minmax(0,.8fr) minmax(0,1.45fr) minmax(0,1.35fr);
+  display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,.85fr) minmax(0,1.2fr) minmax(0,1.35fr);
   align-items: end; gap: .5rem clamp(.75rem, 2vw, 2.25rem);
 }
 #selection > * { min-width: 0; }
-.controls label, .engine dt { display: block; margin-bottom: .25rem; color: var(--muted); font-size: .82rem; font-weight: 600; }
+.controls label { display: block; margin-bottom: .25rem; color: var(--muted); font-size: .82rem; font-weight: 600; }
 select, .compose-row input {
   width: 100%; border: 1px solid var(--outline); padding: .55rem .65rem; color: var(--ink); background: var(--paper);
 }
 .compose-row input::placeholder { color: var(--muted); opacity: 1; }
 select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pine); }
-#vehicle, .engine dd { font-weight: 650; }
-.engine dd { display: flex; align-items: center; min-height: 46px; }
+#vehicle { font-weight: 650; }
 .primary { background: var(--lime); border-color: var(--pine-dark); color: var(--ink); }
 .primary:hover:enabled { background: #b1e359; border-color: var(--ink); }
 .submit, .secondary { background: var(--pine); border-color: var(--pine); color: var(--paper); }
@@ -183,7 +182,7 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
 .question { padding: .65rem .9rem; background: var(--tint); border-inline-start: 3px solid var(--pine); }
 .question strong { font-size: .82rem; color: var(--pine-dark); }
 .reply { padding-top: .9rem; }
-.reply > * + *, .claims > :nth-child(2) { margin-top: .6rem; }
+.reply > * + *, .diagnostic-verdict > * + *, .claims > :nth-child(2) { margin-top: .6rem; }
 .verdict span { display: block; margin-top: .25rem; color: var(--muted); font-size: .85rem; }
 .claims { border-top: 1px solid var(--line); padding-top: .7rem; }
 h4 { font-size: 1rem; }
@@ -199,12 +198,7 @@ li + li { margin-top: .35rem; }
   .footer-actions svg { display: none; }
 }
 @media (max-width: 64rem) {
-  #selection { grid-template-columns: minmax(6rem, 1fr) minmax(9rem, 1.4fr) minmax(11rem, 1fr); }
-  #selection > div { grid-row: 1; }
-  #selection > .primary { grid-row: 1; grid-column: 3; }
-  .engine { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; grid-column: 1 / -1; }
-  .engine dt { margin: 0; }
-  .engine dd { min-height: 0; font-size: .9rem; }
+  #selection { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 42rem) {
   .manual-heading, .manual-tools { padding: .55rem .75rem; gap: .45rem; }
@@ -220,7 +214,8 @@ li + li { margin-top: .35rem; }
   .controls-heading time { display: inline; }
   .controls h2 { font-size: 1rem; }
   #selection { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: .35rem .6rem; }
-  #selection > .primary { grid-column: 1 / -1; grid-row: 3; margin-top: .2rem; }
+  #selection > .vehicle-picker, #selection > .primary { grid-column: 1 / -1; }
+  #selection > .primary { margin-top: .2rem; }
   .workspace { grid-template-rows: auto minmax(17rem, 1fr); }
   .view-switch button { padding-inline: .25rem; gap: .32rem; min-height: 46px; font-size: .92rem; }
   .empty > svg, .receipt > svg { width: 2rem; height: 2rem; }

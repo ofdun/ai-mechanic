@@ -93,24 +93,35 @@ export function DiagnosticReport({ result }) {
   </article>
 }
 
+export function DiagnosticVerdict({ result }) {
+  const { diagnostic, message, requires_remeasurement: repeat } = result
+  const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  return <div className="diagnostic-verdict">
+    <div className={'verdict ' + (repeat ? 'check_failed' : diagnostic.status)}>
+      <h3>{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[diagnostic.status]}</h3>
+      <span>Запись {qualities[diagnostic.signal_quality]}</span>
+    </div>
+    <p>{message}</p>
+    {diagnostic.status === 'normal' && !repeat && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
+    {!repeat && diagnostic.status === 'anomaly' && <p className="meta">
+      Код {diagnostic.anomaly_type}
+      {!message.includes(diagnostic.anomaly_title) && ' · ' + diagnostic.anomaly_title}
+      {confidence && !message.includes(confidence) && ' · Уверенность ИИ ' + confidence}
+    </p>}
+  </div>
+}
+
 export function Response({ result }) {
   const { diagnostic, message, requires_remeasurement: repeat } = result
   const { sources, verified } = verifiedClaims(result)
   const limitations = result.limitations || []
   const insufficient = result.action === 'search_manuals' && verified.length === 0
-  const confidence = diagnostic?.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  const candidatePages = new Map()
+  if (insufficient) {
+    for (const source of sources.values()) candidatePages.set(pageKey(source), source)
+  }
   return <article className="reply">
-    {diagnostic && <div className={'verdict ' + (repeat ? 'check_failed' : diagnostic.status)}>
-      <h3>{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[diagnostic.status]}</h3>
-      <span>Запись {qualities[diagnostic.signal_quality]}</span>
-    </div>}
-    <p>{message}</p>
-    {diagnostic?.status === 'normal' && !repeat && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
-    {!repeat && diagnostic?.status === 'anomaly' && <p className="meta">
-      Код {diagnostic.anomaly_type}
-      {!message.includes(diagnostic.anomaly_title) && ' · ' + diagnostic.anomaly_title}
-      {confidence && !message.includes(confidence) && ' · Уверенность ИИ ' + confidence}
-    </p>}
+    {diagnostic ? <DiagnosticVerdict result={result} /> : <p>{message}</p>}
     {!repeat && Object.entries(sections).map(([kind, title]) => {
       const group = verified.filter(claim => claim.kind === kind)
       if (!group.length) return null
@@ -122,6 +133,9 @@ export function Response({ result }) {
     {limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
       <Entries items={limitations} /></section>}
     {insufficient && <p>Подтверждённых данных по этому двигателю недостаточно. Рекомендуется дефектовка.</p>}
+    {candidatePages.size > 0 && <section className="claims"><h4>Проверить в руководстве</h4>
+      {Array.from(candidatePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
+    </section>}
     {!!result.history?.length && <section><h4>История проверок</h4><ul>{result.history.map(row =>
       <li key={row.session_id}>{formatDate(row.checked_at)} · {outcomes[row.status]}</li>)}</ul></section>}
   </article>

@@ -11,6 +11,7 @@ from ml.contracts import (
     TicketReference, Vehicle, Verifier,
 )
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
+from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.mocks import MockServices, VehicleDirectory
 from ml.tools.tickets import TicketStore
@@ -42,9 +43,11 @@ class Pipeline:
         self.generator = generator
         self.verifier = verifier
         self.search_workflow = search_workflow
-        self.planner = planner if planner is not None else (
-            OfflinePlanner() if settings.planner_mode == 'offline' else LLMPlanner(OpenRouterClient(http, settings))
-        )
+        self.planner = planner or {
+            'llm': lambda: LLMPlanner(OpenRouterClient(http, settings)),
+            'local': LocalPlanner,
+            'offline': OfflinePlanner,
+        }[settings.planner_mode]()
 
     @cached_property
     def tickets(self) -> TicketStore:
@@ -121,6 +124,12 @@ class Pipeline:
         response.diagnostic = result
         if problem := self.measurement_issue(result):
             response.message = problem
+            if result.status == 'anomaly' and result.signal_quality == 'warning':
+                response.message = (
+                    f'На записи с помехами получена гипотеза «{result.anomaly_title}». '
+                    + (f'Уверенность {result.confidence:.0%}. ' if result.confidence is not None else '')
+                    + 'Для вывода о состоянии двигателя нужен повторный замер.'
+                )
             response.requires_remeasurement = True
             return
         if result.status == 'normal':
@@ -132,6 +141,8 @@ class Pipeline:
         response.message = (f'Искусственный интеллект обнаружил признаки отклонения «{result.anomaly_title}». '
                             'Причину нужно уточнить при осмотре.')
         self.search(response, diagnostic_search(vehicle.engine_model, message, result), result)
+        if not any(claim.kind == 'risk' for claim in response.claims):
+            response.limitations.append('Риск для этого замера по руководству не подтверждён. Рекомендуется дефектовка.')
         operations = [claim for claim in response.claims if claim.kind == 'operation']
         response.can_create_ticket = bool(operations)
         if response.action == 'draft_ticket':

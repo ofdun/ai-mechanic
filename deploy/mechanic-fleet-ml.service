@@ -1,0 +1,16 @@
+[Unit]
+Description=Hackathon fleet diagnosis mock
+After=network.target
+
+[Service]
+User=mechanic-demo
+WorkingDirectory=/opt/ai-mechanic/fleet/mocks
+ExecStart=/opt/ai-mechanic/venv/bin/python -m uvicorn mock_ml.app:app --host 127.0.0.1 --port 8101 --no-access-log
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

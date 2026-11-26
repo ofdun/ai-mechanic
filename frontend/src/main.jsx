@@ -1,8 +1,8 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, MessageSquare, ScanLine, Send, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
-import { DiagnosticReport, Draft, Response } from './Response'
+import { DiagnosticReport, DiagnosticVerdict, Draft, Response } from './Response'
 import { ManualNavigation } from './ManualReader'
 import './style.css'
 
@@ -12,6 +12,15 @@ function App() {
   const [attempt, setAttempt] = useState(0)
   const [vehicleId, setVehicleId] = useState('')
   const [sessionId, setSessionId] = useState('')
+  const [engineFilter, setEngineFilter] = useState('')
+  const vehiclesByEngine = useMemo(() => {
+    const groups = new Map()
+    for (const vehicle of catalog || []) {
+      if (!groups.has(vehicle.engine_model)) groups.set(vehicle.engine_model, [])
+      groups.get(vehicle.engine_model).push(vehicle)
+    }
+    return groups
+  }, [catalog])
   const selectionControl = useRef(null)
   useLayoutEffect(() => {
     if (selectionControl.current) {
@@ -37,10 +46,14 @@ function App() {
     return () => controller.abort()
   }, [attempt])
   const vehicle = catalog?.find(item => item.vehicle_id === vehicleId)
-  function changeVehicle(id) {
-    selectionControl.current = 'vehicle'
+  function changeVehicle(id, control = 'vehicle') {
+    selectionControl.current = control
     setVehicleId(id)
     setSessionId(catalog.find(item => item.vehicle_id === id)?.sessions[0]?.session_id || '')
+  }
+  function changeEngine(engine) {
+    setEngineFilter(engine)
+    if (engine && vehicle.engine_model !== engine) changeVehicle(vehiclesByEngine.get(engine)[0].vehicle_id, 'engine')
   }
   function changeSession(id) {
     selectionControl.current = 'session'
@@ -55,7 +68,8 @@ function App() {
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
         : !vehicle ? <p role="status">В справочнике пока нет транспортных средств.</p>
-        : <Workspace key={JSON.stringify([vehicleId, sessionId])} {...{ catalog, vehicle, sessionId, changeVehicle, changeSession }} />}
+        : <Workspace key={JSON.stringify([vehicleId, sessionId])}
+          {...{ vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
     </main>
   </>
 }
@@ -71,7 +85,17 @@ function EmptyView({ icon: Icon, title, children }) {
   return <div className="empty"><Icon aria-hidden="true" /><h3>{title}</h3><p>{children}</p></div>
 }
 
-function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }) {
+function VehicleOptions({ vehiclesByEngine, engineFilter }) {
+  const shown = engineFilter ? [[engineFilter, vehiclesByEngine.get(engineFilter)]] : vehiclesByEngine
+  return Array.from(shown, ([engine, vehicles]) => <optgroup key={engine} label={engine}>
+    {vehicles.map(({ vehicle_id, make, model }) => {
+      const name = model?.startsWith(make || '') ? model : [make, model].filter(Boolean).join(' ')
+      return <option key={vehicle_id} value={vehicle_id}>{[vehicle_id, name, engine].filter(Boolean).join(' · ')}</option>
+    })}
+  </optgroup>)
+}
+
+function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
   const [id] = useState(conversationId)
   const [turns, setTurns] = useState([])
   const [question, setQuestion] = useState('')
@@ -94,7 +118,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
     const pane = chatBody.current
     const turn = pane?.querySelector('.turn:last-child')
     if (turn) pane.scrollTop += turn.getBoundingClientRect().top - pane.getBoundingClientRect().top
-  }, [turns])
+  }, [turns.length])
   function selectTab(next) {
     setView(next)
     document.getElementById('tab-' + next)?.focus()
@@ -114,7 +138,6 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
     if (running.current || !sessionId) return
     const controller = new AbortController()
     running.current = controller
-    if (kind === 'diagnose') setView('result')
     setPending(kind)
     setError('')
     const text = question.trim()
@@ -134,6 +157,14 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
       if (result.diagnostic) setDiagnosis(result)
+      if (kind === 'diagnose' && result.diagnostic) {
+        setTurns(old => {
+          const verdict = { kind: 'verdict', result }
+          return old.some(turn => turn.kind === 'verdict')
+            ? old.map(turn => turn.kind === 'verdict' ? verdict : turn)
+            : [...old, verdict]
+        })
+      }
       if (kind === 'chat') {
         setTurns(old => [...old, { result, question: text }])
         setQuestion('')
@@ -175,12 +206,16 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
         {selectedSession && <time dateTime={selectedSession.checked_at}>{formatDate(selectedSession.checked_at)}</time>}
       </div>
       <div id="selection">
-      <div><label htmlFor="vehicle">Транспортное средство</label>
+      <div className="vehicle-picker"><label htmlFor="vehicle">Транспортное средство</label>
       <select id="vehicle" value={vehicle.vehicle_id} disabled={pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
-        {catalog.map(v => <option key={v.vehicle_id} value={v.vehicle_id}>{v.vehicle_id}</option>)}
+        <VehicleOptions vehiclesByEngine={vehiclesByEngine} engineFilter={engineFilter} />
       </select>
       </div>
-      <dl className="engine"><dt>Двигатель</dt><dd>{vehicle.engine_model}</dd></dl>
+      <div><label htmlFor="engine">Двигатель</label>
+      <select id="engine" value={engineFilter} disabled={pending === 'confirm'} onChange={e => changeEngine(e.target.value)}>
+        <option value="">Все двигатели</option>
+        {Array.from(vehiclesByEngine.keys(), engine => <option key={engine} value={engine}>{engine}</option>)}
+      </select></div>
       <div><label htmlFor="session">Проверка</label>
       <select id="session" value={sessionId} disabled={!vehicle.sessions.length || pending === 'confirm'} onChange={e => changeSession(e.target.value)}>
         {!vehicle.sessions.length && <option>Нет проверок</option>}
@@ -208,7 +243,9 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
           Спросите о замере или нормативе из руководства для двигателя {vehicle.engine_model}.
         </EmptyView>}
         <div role="log" aria-label="Сообщения">
-        {turns.map(({ result, question }) => <div className="turn" key={result.request_id}>
+        {turns.map(({ kind, result, question }) => kind === 'verdict'
+          ? <div className="turn" key="verdict"><DiagnosticVerdict result={result} /></div>
+          : <div className="turn" key={result.request_id}>
           <div className="question"><strong>Вы</strong><p>{question}</p></div>
           {result.ticket_draft
             ? <p>Черновик подготовлен в разделе «Заявка».</p>

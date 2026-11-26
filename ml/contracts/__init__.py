@@ -48,6 +48,8 @@ class SessionRecord(DiagnosticResult):
 
 class Vehicle(BaseModel):
     vehicle_id: Text
+    make: str | None = None
+    model: str | None = None
     engine_model: Text
     fuel: str = ''
     sessions: list[SessionRecord] = Field(default_factory=list)

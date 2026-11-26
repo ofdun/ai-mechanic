@@ -1,0 +1,28 @@
+[Unit]
+Description=Digital mechanic hackathon fleet
+Requires=mechanic-fleet-ml.service mechanic-fleet-toir.service
+After=network.target mechanic-fleet-ml.service mechanic-fleet-toir.service
+
+[Service]
+User=mechanic-demo
+WorkingDirectory=/opt/ai-mechanic/fleet/app
+StateDirectory=mechanic-fleet
+Environment=DATA_DIR=/opt/ai-mechanic/fleet/data
+Environment=ARTIFACTS_DIR=/var/lib/mechanic-fleet
+Environment=ML_API_URL=http://127.0.0.1:8101
+Environment=MAINTENANCE_API_URL=http://127.0.0.1:8102
+Environment=PLANNER_MODE=local
+Environment=AGENT_ARCHITECTURE=baseline
+Environment=ALLOW_EXTERNAL_EVIDENCE=false
+EnvironmentFile=-/etc/ai-mechanic/fleet.env
+ExecStart=/opt/ai-mechanic/venv/bin/python -m uvicorn web.app:create_app --factory --host 0.0.0.0 --port 8080 --limit-concurrency 48 --no-access-log
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

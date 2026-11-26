@@ -14,7 +14,8 @@ def prepare(directory: Path) -> None:
     artifacts = directory / 'artifacts'
     artifacts.mkdir(exist_ok=True)
     fleet = directory / 'vehicles.json'
-    content = json.dumps({'vehicles': [v.model_dump(mode='json') for v in training_fleet()]}, ensure_ascii=False, indent=2)
+    vehicles = [v.model_dump(mode='json', exclude_unset=True) for v in training_fleet()]
+    content = json.dumps({'vehicles': vehicles}, ensure_ascii=False, indent=2)
     if fleet.exists() and fleet.read_text(encoding='utf-8') != content:
         raise ValueError('Каталог уже содержит другой справочник ТС. Выберите отдельный каталог для учебного стенда.')
     fleet.write_text(content, encoding='utf-8')

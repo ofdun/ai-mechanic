@@ -16,10 +16,12 @@ from ml.contracts import (
 )
 from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
+from ml.retrieval.expansion import fault_query
 
 
 ENGINE = 'ЯМЗ-236М2'
 DOCUMENT_ID = 'yamz-236-operations-2010'
+CORPUS_DOCUMENT_ID = 'yamz-236_re_2010'
 MANUAL = '236-3902150-Б РЭ'
 PDF_NAME = 'ЯМЗ_236_руководство по эксплуатации.pdf'
 PDF_SHA256 = '4268a9519e02a668a826fe6d154de0360f6767015868ca2de7410ba570d73dd1'
@@ -31,6 +33,21 @@ INJECTOR_ROW = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 QUERY_TERM = re.compile(r'[^\W_]{4,}', re.UNICODE)
+SEARCH_STOPWORDS = frozenset('''
+    какой какие какого каком каковы какая каким сколько можно нужно перед после если этого этом этой этим
+    моего двигателя двигатель двигателе двигателю дизеля руководство руководству руководстве руководства
+    руководствах чтобы перечислены предусмотрены описаны указаны каких описан указан каков есть надо должен
+    должна выполняют сделать делать значения номер найти покажи говорится согласно выполняется делают
+'''.split())
+
+
+def page_query(queries: list[str]) -> str:
+    words = dict.fromkeys(QUERY_TERM.findall(' '.join(queries).casefold()))
+    terms = [word for word in words if word not in SEARCH_STOPWORDS][:24]
+    exact = [f'"{word}"' for word in terms]
+    # Boost the original spelling while matching inflected technical terms in the existing FTS index.
+    prefixes = dict.fromkeys(word[:5] for word in terms if len(word) > 5 and re.fullmatch('[а-яё]+', word))
+    return ' OR '.join([*exact, *(f'"{prefix}"*' for prefix in prefixes)])
 
 
 def read_pages(data_dir: Path) -> list[str]:
@@ -74,25 +91,37 @@ class PdfPageRetriever:
     def __init__(self, index: Path):
         self.index = index
 
+    @staticmethod
+    def evidence(row) -> Evidence:
+        document, manual, engine, page, text = row
+        return Evidence(evidence_id=f'{document}:{page}', document_id=document, manual=manual,
+                        engine_models=[engine], pdf_page=page, text=text)
+
+    def page(self, engine_model: str, document_id: str, pdf_page: int) -> Evidence | None:
+        try:
+            with closing(sqlite3.connect(self.index.resolve().as_uri() + '?mode=ro', uri=True)) as db:
+                row = db.execute('SELECT document_id, manual, engine, pdf_page, text FROM manual_pages '
+                                 'WHERE engine=? AND document_id=? AND pdf_page=? AND text != ?', (
+                                     unicodedata.normalize('NFC', engine_model), document_id, pdf_page, '',
+                                 )).fetchone()
+        except sqlite3.Error as error:
+            raise AgentError('RAG_INDEX_UNAVAILABLE', 'Индекс PDF недоступен. Запустите сборку индекса.') from error
+        return self.evidence(row) if row else None
+
     def search(self, plan: SearchPlan) -> EvidenceBundle:
-        fault_terms = ['форсунки', 'впрыскивания', 'топливной'] if plan.anomaly_type == 'F08' else []
-        queries = [*fault_terms, plan.rewritten_query, plan.original_query, *plan.subqueries]
-        terms = dict.fromkeys(QUERY_TERM.findall(' '.join(queries).casefold()))
-        if not terms:
+        queries = [fault_query(plan.anomaly_type) or '', plan.rewritten_query, plan.original_query, *plan.subqueries]
+        query = page_query(queries)
+        if not query:
             return EvidenceBundle()
-        query = ' OR '.join(f'"{term}"' for term in list(terms)[:24])
         try:
             with closing(sqlite3.connect(self.index.resolve().as_uri() + '?mode=ro', uri=True)) as db:
                 rows = db.execute('''SELECT document_id, manual, engine, pdf_page, text FROM manual_pages
                                      WHERE manual_pages MATCH ? AND engine = ?
                                      ORDER BY bm25(manual_pages), pdf_page LIMIT 5''',
-                                  (query, plan.engine_model)).fetchall()
+                                  (query, unicodedata.normalize('NFC', plan.engine_model))).fetchall()
         except sqlite3.Error as error:
             raise AgentError('RAG_INDEX_UNAVAILABLE', 'Индекс PDF недоступен. Запустите сборку индекса.') from error
-        return EvidenceBundle(items=[Evidence(
-            evidence_id=f'{document}:{page}', document_id=document, manual=manual, engine_models=[engine],
-            pdf_page=page, text=text,
-        ) for document, manual, engine, page, text in rows])
+        return EvidenceBundle(items=[self.evidence(row) for row in rows])
 
 
 class ReviewedOperations:
@@ -102,7 +131,8 @@ class ReviewedOperations:
     def operations(evidence: EvidenceBundle) -> list[TechnicalClaim]:
         claims = []
         for item in evidence.items:
-            if (item.document_id, item.manual, item.pdf_page) != (DOCUMENT_ID, MANUAL, FIRST_PAGE) or ENGINE not in item.engine_models:
+            if (item.document_id not in (DOCUMENT_ID, CORPUS_DOCUMENT_ID) or item.manual != MANUAL
+                    or item.pdf_page != FIRST_PAGE or ENGINE not in item.engine_models):
                 continue
             if row := INJECTOR_ROW.search(item.text):
                 cause = ' '.join(f'{row[1]} {row[3]}'.split()).lower()
@@ -125,6 +155,9 @@ class ReviewedOperations:
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:
     operations = ReviewedOperations()
     retriever = PdfPageRetriever(index)
+    if settings.planner_mode == 'local':
+        from ml.local_evidence import LocalEvidence
+        return Pipeline(settings, http, search_workflow=LocalEvidence(retriever))
     if settings.planner_mode == 'offline' or settings.agent_architecture == 'baseline':
         return Pipeline(settings, http, retriever=retriever, generator=operations, verifier=operations)
     workflow = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, operations)
