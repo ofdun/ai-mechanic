@@ -30,11 +30,6 @@ from ml.generation.text import has_condition, has_negation, numbers
 from ml.generation.verifier import EvidenceVerifier
 
 
-ENGINES = {
-    'yamz-236_re_2010': ['ЯМЗ-236М2'], 'yamz-236_rk_2014': ['ЯМЗ-236М2'], 'yamz-536_re_2016': ['ЯМЗ-536'],
-    'yamz-536_rk_2013': ['ЯМЗ-536'], 'zmz-5234_rk_2025': ['ЗМЗ-5234.10'],
-    'zmz-40904-40905_rk_2025': ['ЗМЗ-40904.10', 'ЗМЗ-40905.10'],
-}
 SENTENCE = re.compile(r'[А-ЯЁA-Z][^.!?;]{30,260}[.!?;]')
 
 
@@ -107,7 +102,7 @@ def mutations(sentence: str) -> list[tuple[str, str]]:
 
 def evidence(record: dict, text: str, key: str) -> Evidence:
     return Evidence(evidence_id=key, document_id=record['document_id'], manual=record['document_id'],
-                    engine_models=ENGINES[record['document_id']], pdf_page=record['pdf_page'], text=text or '—')
+                    engine_models=record['models'], pdf_page=record['pdf_page'], text=text or '—')
 
 
 def run(pages_path: Path, pdf_dir: Path, *, sample: int, seed: int, layout: bool) -> dict:
@@ -116,6 +111,7 @@ def run(pages_path: Path, pdf_dir: Path, *, sample: int, seed: int, layout: bool
     manifest = json.loads((pages_path.parent / 'manifest.json').read_text(encoding='utf-8'))['documents']
     pdf_of = {item['document_id']: files[unicodedata.normalize('NFC', item['file'])] for item in manifest}
     by_page = {(record['document_id'], record['pdf_page']): record for record in records}
+    engines = list({tuple(record['models']): record['models'] for record in records}.values())
     rng = random.Random(seed)
     candidates = [record for record in records if len(record['text']) > 400]
     rng.shuffle(candidates)
@@ -134,12 +130,12 @@ def run(pages_path: Path, pdf_dir: Path, *, sample: int, seed: int, layout: bool
         if not own_sentences:
             continue
         used += 1
-        engine = ENGINES[record['document_id']][0]
+        engine = record['models'][0]
         own = evidence(record, page_text, 'own')
         neighbour_record = by_page.get((record['document_id'], record['pdf_page'] + 1))
         neighbour = evidence(neighbour_record, neighbour_record['text'], 'next') if neighbour_record else None
-        foreign_id = next(doc for doc in ENGINES if ENGINES[doc][0] != engine)
-        foreign = Evidence(**{**own.model_dump(), 'evidence_id': 'foreign', 'engine_models': ENGINES[foreign_id]})
+        foreign_models = next(models for models in engines if engine not in models)
+        foreign = Evidence(**{**own.model_dump(), 'evidence_id': 'foreign', 'engine_models': foreign_models})
         bundle = EvidenceBundle(items=[item for item in (own, neighbour, foreign) if item])
         verifier = EvidenceVerifier(engine)
 
