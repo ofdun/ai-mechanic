@@ -60,7 +60,7 @@ function App() {
   </>
 }
 
-const pendingLabels = { diagnose: 'Получаем результат…', chat: 'Ищем ответ…', draft_ticket: 'Готовим черновик…', confirm: 'Отправляем заявку…' }
+const pendingLabels = { diagnose: 'Получаем результат', chat: 'Ищем ответ', draft_ticket: 'Готовим черновик', confirm: 'Отправляем заявку' }
 const views = [
   { id: 'result', label: 'Результат', icon: FileText },
   { id: 'chat', label: 'Чат', icon: MessageSquare },
@@ -190,7 +190,8 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
       </div>
     </aside>
     <section className="chat" aria-label="Протокол проверки">
-      <div className="view-switch" role="tablist" aria-label="Разделы проверки">
+      <div className="view-switch" role="tablist" aria-label="Разделы проверки"
+        style={{ '--tab-count': views.length, '--active-tab': views.findIndex(tab => tab.id === view) }}>
         {views.map(({ id, label, icon: Icon }, index) =>
           <button key={id} type="button" role="tab" id={'tab-' + id} aria-controls={'panel-' + id}
             aria-selected={view === id} tabIndex={view === id ? 0 : -1}
@@ -237,7 +238,8 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
           onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? 'Отправлено в ТОиР' : 'Отправка заблокирована'
             : draft ? 'Подтвердить заявку' : 'Создать заявку'}</button>}
       </div>
-      <div className="panel-status" role="status">{error || pendingLabels[pending]}</div>
+      <div className="panel-status" role="status">{error || (pending &&
+        <>{pendingLabels[pending]}<span className="pending-dots">…</span></>)}</div>
     </section>
   </div></ManualNavigation>
 }

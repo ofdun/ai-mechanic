@@ -77,16 +77,19 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
   container-type: inline-size;
 }
 .view-switch {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--line);
+  position: relative; display: grid; grid-template-columns: repeat(var(--tab-count), minmax(0, 1fr)); border-bottom: 1px solid var(--line);
   border-radius: 10px 10px 0 0; background: #e9ede8; overflow: hidden;
 }
+.view-switch::after {
+  content: ""; position: absolute; left: 0; bottom: 0; width: calc(100% / var(--tab-count)); height: 3px;
+  transform: translateX(calc(100% * var(--active-tab))); background: var(--lime); pointer-events: none;
+}
 .view-switch button {
-  position: relative; border: 0; border-radius: 0; min-height: 3.35rem;
+  border: 0; border-radius: 0; min-height: 3.35rem;
   font-weight: 600; color: var(--muted); background: transparent;
 }
 .view-switch button:hover:enabled { background: #d4e2d4; }
 .view-switch button[aria-selected="true"], .view-switch button[aria-selected="true"]:hover { color: var(--paper); background: var(--pine-dark); }
-.view-switch button[aria-selected="true"]::after { position: absolute; content: ""; inset: auto 0 0; height: 3px; background: var(--lime); }
 .view-switch button[aria-selected="true"]:focus-visible { outline-color: var(--lime); }
 .view-switch button:focus-visible, .pane:focus-visible { outline-offset: -4px; }
 .pane { padding-inline: var(--inset); min-width: 0; height: 0; min-height: 100%; overflow: auto; overscroll-behavior-y: contain; }
@@ -153,8 +156,19 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
 .manual-body { height: 0; min-height: 100%; min-width: 0; padding: var(--inset); overflow: auto; background: #dde3de; }
 .manual-body img { display: block; width: min(100%, 56rem); height: auto; margin: auto; border: 1px solid var(--line); }
 .manual-text { white-space: pre-wrap; overflow-wrap: anywhere; background: white; padding: var(--inset); max-width: 76ch; margin-inline: auto; }
+@media (prefers-reduced-motion: no-preference) {
+  .view-switch::after { transition: transform 160ms ease-out; }
+  button:enabled { transition: box-shadow 120ms ease-out; }
+  button:active:enabled { transition-duration: 60ms; }
+  .pending-dots { display: inline-block; animation: waiting-dots 1.2s steps(1, end) 350ms infinite; }
+  @keyframes waiting-dots {
+    0% { clip-path: inset(0 66.67% 0 0); }
+    33% { clip-path: inset(0 33.33% 0 0); }
+    66%, 100% { clip-path: inset(0); }
+  }
+}
 @media (forced-colors: active) {
-  .view-switch button[aria-selected="true"]::after { background: Highlight; forced-color-adjust: none; }
+  .view-switch::after { background: Highlight; forced-color-adjust: none; transition: none; }
   .manual-mode button[aria-pressed="true"] { outline: 2px solid Highlight; outline-offset: -4px; }
   .report-action { border-inline-start: 3px solid CanvasText; }
 }
