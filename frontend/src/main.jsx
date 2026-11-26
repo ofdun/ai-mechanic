@@ -112,7 +112,9 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
         setFolded(true)
         revealResult.current = true
       }
-      setTurns(old => [...old, { result, question: kind === 'chat' ? text : '' }])
+      if (!result.ticket_draft || kind === 'chat') {
+        setTurns(old => [...old, { result, question: kind === 'chat' ? text : '' }])
+      }
       if (kind === 'chat') setQuestion('')
       if (result.diagnostic || result.action === 'draft_ticket') {
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
@@ -169,7 +171,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
         {turns.map(({ result, question }, index) => <div className="turn" tabIndex={-1}
           ref={index === turns.length - 1 ? lastResponse : null} key={result.request_id}>
           {question && <div className="question"><strong>Вы</strong><p>{question}</p></div>}
-          <Response result={result} />
+          {!result.ticket_draft && <Response result={result} />}
         </div>)}
       </div>
       <div className="actions">

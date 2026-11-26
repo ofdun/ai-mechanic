@@ -87,9 +87,13 @@ def exercise(context, base_url, pdf_path):
     expect(page.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()
     print('PASS — C2, уточнение без применимого источника')
 
+    thread = page.get_by_role('log', name='Сообщения')
+    previous_messages = thread.inner_text()
     draft.tap()
     preview = page.get_by_role('region', name='Черновик заявки')
     expect(preview).to_contain_text(OPERATION)
+    assert thread.inner_text() == previous_messages, 'Создание черновика изменило историю диагностики'
+    expect(preview).to_have_count(1)
     expect(preview).to_contain_text('F08-DEMO')
     expect(preview.get_by_role('link')).to_have_attribute('href', href)
     with page.expect_response(lambda res: res.url.endswith('/agent/tickets/confirm')) as completed:
