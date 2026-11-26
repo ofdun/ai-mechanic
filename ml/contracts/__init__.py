@@ -144,15 +144,18 @@ class TicketDraft(BaseModel):
     engine_model: Text | None = None
 
 
-class TicketConfirmation(BaseModel):
+class TicketDecision(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    actor_id: Text
     vehicle_id: Text
     session_id: Text
     draft_id: Text
     draft_version: Literal[1]
     confirmed: StrictBool
+
+
+class TicketConfirmation(TicketDecision):
+    actor_id: Text
 
 
 class TicketReceipt(BaseModel):
@@ -164,13 +167,18 @@ class AudioInput(BaseModel):
     content: Annotated[bytes, Field(min_length=1, max_length=MAX_AUDIO_BYTES)]
 
 
-class AgentRequest(BaseModel):
-    actor_id: Text
+class AgentTurn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     vehicle_id: Text
     session_id: Text
     conversation_id: Text | None = None
     command: Literal['auto', 'diagnose', 'draft_ticket'] = 'auto'
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)] | None = None
+
+
+class AgentRequest(AgentTurn):
+    actor_id: Text
     audio: AudioInput | None = None
 
     @model_validator(mode='after')

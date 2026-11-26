@@ -8,12 +8,14 @@ from pydantic import ValidationError
 
 from ml.config import Settings
 from ml.contracts import AgentError, AgentRequest, AudioInput, MAX_AUDIO_BYTES, TicketConfirmation
+from ml.pdf_baseline import build_pdf_pipeline
 from ml.pipeline import Pipeline
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description='Локальный запуск Digital Mechanic без веб-интерфейса')
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--pdf-index', type=Path)
     commands = parser.add_subparsers(dest='operation', required=True)
     run = commands.add_parser('run')
     confirm = commands.add_parser('confirm')
@@ -36,7 +38,7 @@ def main() -> int:
         settings = Settings()
         context = {'actor_id': args.actor, 'vehicle_id': args.vehicle, 'session_id': args.session}
         with httpx.Client(timeout=settings.http_timeout_seconds) as http:
-            pipeline = Pipeline(settings, http)
+            pipeline = build_pdf_pipeline(settings, http, args.pdf_index) if args.pdf_index else Pipeline(settings, http)
             if args.operation == 'run':
                 audio = None
                 if args.audio:
