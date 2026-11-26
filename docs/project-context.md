@@ -1,6 +1,6 @@
 # Подключение агентов команды
 
-[Общий контекст проекта](https://github.com/ofdun/ai-mechanic/issues/1) ведётся в GitHub Issues. Задачи, архитектура, контракты и блокеры доступны [по метке project-context](https://github.com/ofdun/ai-mechanic/issues?q=label%3Aproject-context). Эксперименты записывайте в комментариях к [общему журналу](https://github.com/ofdun/ai-mechanic/issues/9). Один комментарий на прогон.
+[Общий контекст проекта](shared-project-context.md) содержит требования, роли, архитектуру, контракты и гипотезы. Задачи, текущие статусы и блокеры доступны в [индексе GitHub](https://github.com/ofdun/ai-mechanic/issues/1) и [по метке project-context](https://github.com/ofdun/ai-mechanic/issues?q=label%3Aproject-context). Эксперименты записывайте в комментариях к [общему журналу](https://github.com/ofdun/ai-mechanic/issues/9). Один комментарий на прогон.
 
 ## Быстрый старт
 
@@ -37,4 +37,4 @@ python3 "$ctx" finish 3 --status review --body-file /tmp/ai-mechanic-update.md \
 | `latency_p50_ms`, `latency_p95_ms`, `cost_per_cycle`, `currency` | Задержка в миллисекундах и стоимость полного цикла |
 | `result`, `notes` | Итог измерения, ошибки и интерпретация |
 
-Для измеренного прогона обязательны `run_id`, `status`, `hypothesis`, `configuration`, `models`, `dataset`, `commit` и `result`. Доли передавайте от 0 до 1, с `recall_at_k` указывайте `k`, со стоимостью указывайте валюту. Начальные гипотезы перечислены в шапке журнала.
+Для измеренного прогона обязательны `run_id`, `status`, `hypothesis`, `configuration`, `models`, `dataset`, `commit` и `result`. Доли передавайте от 0 до 1, с `recall_at_k` указывайте `k`, со стоимостью указывайте валюту. Связывайте прогон с ID из [каталога гипотез](shared-project-context.md#11-гипотезы-и-владельцы-экспериментов) или указывайте собственную гипотезу. В шапке журнала перечислены первые сквозные эксперименты.
