@@ -55,7 +55,7 @@ export function Response({ result }) {
 }
 
 const priorities = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }
-export function Draft({ draft, evidence, disabled, onConfirm }) {
+export function Draft({ draft, evidence }) {
   const { payload } = draft
   return <section className="draft" aria-label="Черновик заявки">
     <h3>Черновик заявки на дефектовку</h3>
@@ -70,6 +70,5 @@ export function Draft({ draft, evidence, disabled, onConfirm }) {
         return source ? <Source key={index} source={source} /> : <p key={index}>{reference.manual}, стр. {reference.pdf_page}</p>
       })}</dd>
     </dl>
-    <button className="primary" disabled={disabled} onClick={onConfirm}>Подтвердить заявку</button>
   </section>
 }

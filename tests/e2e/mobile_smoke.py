@@ -51,11 +51,16 @@ def exercise(context, base_url, pdf_path):
     confirm = page.get_by_role('button', name='Подтвердить заявку', exact=True)
     vehicle.select_option('ДЕМО-01')
     measurement.select_option('F08-DEMO')
+    chat_view = page.get_by_role('button', name='Чат', exact=True)
+    ticket_view = page.get_by_role('button', name='Заявка', exact=True)
+    footer = page.locator('.panel-footer')
+    def footer_offset():
+        return footer.evaluate('(node) => node.getBoundingClientRect().top + window.scrollY')
+    initial_offset = footer_offset()
     diagnose.tap()
     expect(page.get_by_role('heading', name='Отклонение', exact=True)).to_be_visible()
-    edit_selection = page.get_by_role('button', name=re.compile('Изменить'))
-    expect(edit_selection).to_have_attribute('aria-expanded', 'false')
-    expect(vehicle).to_be_hidden()
+    expect(vehicle).to_be_visible()
+    assert abs(footer_offset() - initial_offset) < 2
     expect(page.get_by_text(RISK, exact=False).first).to_be_visible()
     expect(page.get_by_text(OPERATION, exact=False).first).to_be_visible()
 
@@ -72,12 +77,13 @@ def exercise(context, base_url, pdf_path):
     source.close()
     print('PASS — отклонение, риск, работа, ссылка и PDF на физической странице 2')
 
+    chat_view.tap()
     question = page.get_by_label('Вопрос по двигателю')
     send = page.get_by_role('button', name='Отправить', exact=True)
     question.fill('Почему это опасно?')
     send.tap()
-    expect(page.get_by_role('article')).to_have_count(2)
-    answer = page.get_by_role('article').nth(1)
+    expect(page.get_by_role('article')).to_have_count(1)
+    answer = page.get_by_role('article').first
     expect(answer).to_contain_text(RISK)
     expect(answer.get_by_role('link')).to_have_attribute('href', href)
     print('PASS — F4, уточнение по предыдущей диагностике с подтверждённым риском и ссылкой')
@@ -89,13 +95,17 @@ def exercise(context, base_url, pdf_path):
 
     thread = page.get_by_role('log', name='Сообщения')
     previous_messages = thread.inner_text()
+    ticket_view.tap()
     draft.tap()
     preview = page.get_by_role('region', name='Черновик заявки')
     expect(preview).to_contain_text(OPERATION)
     work_value = preview.locator('dt', has_text='Работы').locator('+ dd')
     expect(work_value).to_have_text(OPERATION)
     expect(work_value.get_by_role('list')).to_have_count(0)
-    assert thread.inner_text() == previous_messages, 'Создание черновика изменило историю диагностики'
+    assert abs(footer_offset() - initial_offset) < 2
+    chat_view.tap()
+    assert thread.inner_text() == previous_messages, 'Создание черновика изменило историю'
+    ticket_view.tap()
     expect(preview).to_have_count(1)
     expect(preview).to_contain_text('F08-DEMO')
     expect(preview.get_by_role('link')).to_have_attribute('href', href)
@@ -111,8 +121,6 @@ def exercise(context, base_url, pdf_path):
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     print('PASS — C1, черновик, явное подтверждение и повтор с тем же ticket_id')
 
-    edit_selection.tap()
-    expect(vehicle).to_be_focused()
     vehicle.select_option('ДЕМО-02')
     measurement.select_option('NORMAL-DEMO')
     expect(page.get_by_text(re.compile(re.escape(ticket_id)))).to_have_count(0)
@@ -121,18 +129,18 @@ def exercise(context, base_url, pdf_path):
     expect(page.get_by_role('heading', name='Норма', exact=True)).to_be_visible()
     expect(page.get_by_text(re.compile('можно продолжить эксплуатацию'))).to_be_visible()
     expect(draft).to_have_count(0)
+    chat_view.tap()
     question.fill('Почему это опасно?')
     send.tap()
     expect(page.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()
     expect(page.get_by_text(RISK, exact=False)).to_have_count(0)
     print('PASS — норма, смена ТС очищает предыдущую заявку, ответ и источник')
 
-    edit_selection.tap()
     measurement.select_option('REPEAT-DEMO')
     expect(page.get_by_role('heading', name='Норма', exact=True)).to_have_count(0)
     diagnose.tap()
     expect(page.get_by_role('heading', name='Сбой проверки', exact=True)).to_be_visible()
-    expect(page.get_by_text(re.compile('Повторите замер'))).to_be_visible()
+    expect(page.get_by_role('region', name='Результат проверки').get_by_text(re.compile('Повторите замер'))).to_be_visible()
     expect(draft).to_have_count(0)
     expect(page.get_by_role('link', name=re.compile('стр\\.'))).to_have_count(0)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -180,6 +188,7 @@ def main():
         guest_page.goto(base_url)
         guest_page.get_by_label('Транспортное средство').select_option('ДЕМО-01')
         guest_page.get_by_role('button', name='Получить результат диагностики').click()
+        guest_page.get_by_role('button', name='Заявка', exact=True).click()
         guest_page.get_by_role('button', name='Создать заявку', exact=True).click()
         with guest_page.expect_response(lambda r: r.url.endswith('/agent/tickets/confirm')) as confirmation:
             guest_page.get_by_role('button', name='Подтвердить заявку').click()

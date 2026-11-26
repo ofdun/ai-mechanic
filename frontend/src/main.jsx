@@ -45,8 +45,8 @@ function App() {
     setSessionId(id)
   }
   return <>
-    <header className="mast"><div><span className="wordmark">Цифровой механик</span></div></header>
-    <main><h1>Проверка двигателя</h1>
+    <header className="mast"><div><span className="wordmark">Цифровой механик</span><span className="mast-note">Диагностический пост</span></div></header>
+    <main><div className="page-title"><h1>Диагностика двигателя</h1></div>
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
         : !vehicle ? <p role="status">В справочнике пока нет транспортных средств.</p>
@@ -66,22 +66,12 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
   const [canDraft, setCanDraft] = useState(false)
   const [draft, setDraft] = useState(null)
   const [ticketStatus, setTicketStatus] = useState('')
-  const [folded, setFolded] = useState(false)
-  const lastResponse = useRef(null)
-  const revealResult = useRef(false)
-  const reopenSelection = useRef(false)
+  const [view, setView] = useState('Результат')
+  const [diagnosis, setDiagnosis] = useState(null)
+  const [ticketHint, setTicketHint] = useState('')
+  const chatBody = useRef(null)
   useLayoutEffect(() => {
-    if (reopenSelection.current) {
-      document.getElementById('vehicle')?.focus()
-      reopenSelection.current = false
-    }
-  }, [folded])
-  useLayoutEffect(() => {
-    if (revealResult.current) {
-      lastResponse.current?.focus()
-      lastResponse.current?.scrollIntoView({ block: 'nearest' })
-      revealResult.current = false
-    }
+    if (chatBody.current) chatBody.current.scrollTop = chatBody.current.scrollHeight
   }, [turns])
   const running = useRef(null)
   useEffect(() => () => running.current?.abort(), [])
@@ -90,6 +80,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
     if (running.current || !sessionId) return
     const controller = new AbortController()
     running.current = controller
+    if (kind === 'diagnose') setView('Результат')
     setPending(kind)
     setError('')
     const text = question.trim()
@@ -108,15 +99,14 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
-      if (kind === 'diagnose' && window.matchMedia('(max-width: 47rem)').matches) {
-        setFolded(true)
-        revealResult.current = true
+      if (result.diagnostic) setDiagnosis(result)
+      if (kind === 'chat') {
+        setTurns(old => [...old, { result, question: text }])
+        setQuestion('')
       }
-      if (!result.ticket_draft || kind === 'chat') {
-        setTurns(old => [...old, { result, question: kind === 'chat' ? text : '' }])
-      }
-      if (kind === 'chat') setQuestion('')
       if (result.diagnostic || result.action === 'draft_ticket') {
+        setTicketHint(result.ticket_draft || result.can_create_ticket ? ''
+          : result.limitations?.join(' ') || result.message)
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
         setDraft(result.ticket_draft && !ticketStatus ? { value: result.ticket_draft, evidence: result.evidence.items } : null)
       }
@@ -145,46 +135,64 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
   }
 
   return <div className="workspace">
-    <aside className={'controls' + (folded ? ' folded' : '')} aria-labelledby="checking">
-      <h2 className="sr-only" id="checking">Выбор машины и проверки</h2>
-      <button type="button" className="fold-toggle" aria-controls="selection" aria-expanded={!folded}
-        onClick={() => { reopenSelection.current = true; setFolded(false) }}><span>{vehicle.vehicle_id} / {sessionId}</span><strong>Изменить</strong></button>
+    <aside className="controls" aria-labelledby="checking">
+      <h2 id="checking">Параметры замера</h2>
       <div id="selection">
       <div><label htmlFor="vehicle">Транспортное средство</label>
       <select id="vehicle" value={vehicle.vehicle_id} disabled={pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
         {catalog.map(v => <option key={v.vehicle_id} value={v.vehicle_id}>{v.vehicle_id}</option>)}
       </select>
-      </div><div><label htmlFor="session">Проверка</label>
+      </div>
+      <dl className="engine"><dt>Двигатель</dt><dd>{vehicle.engine_model}</dd></dl>
+      <div><label htmlFor="session">Проверка</label>
       <select id="session" value={sessionId} disabled={!vehicle.sessions.length || pending === 'confirm'} onChange={e => changeSession(e.target.value)}>
         {!vehicle.sessions.length && <option>Нет проверок</option>}
         {vehicle.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
       </select></div>
-      <dl className="engine"><dt>Двигатель</dt><dd>{vehicle.engine_model}</dd></dl>
       <button className="primary" disabled={!sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики</button>
       </div>
     </aside>
-    <section className="chat" aria-label="Результаты и вопросы">
-      <div className="thread" role="log" aria-label="Сообщения" aria-live="polite">
-        {!sessionId && <p className="notice">У этой машины пока нет замеров. Выберите другую машину.</p>}
-        {turns.map(({ result, question }, index) => <div className="turn" tabIndex={-1}
-          ref={index === turns.length - 1 ? lastResponse : null} key={result.request_id}>
-          {question && <div className="question"><strong>Вы</strong><p>{question}</p></div>}
-          {!result.ticket_draft && <Response result={result} />}
+    <section className="chat" aria-label="Протокол проверки">
+      <nav className="view-switch" aria-label="Разделы проверки">
+        {['Результат', 'Чат', 'Заявка'].map(name =>
+          <button key={name} type="button" aria-pressed={view === name} onClick={() => setView(name)}>{name}</button>)}
+      </nav>
+      <div className="pane" hidden={view !== 'Результат'} aria-label="Результат проверки" role="region" tabIndex={0}>
+        {diagnosis ? <Response result={diagnosis} /> : <div className="empty">
+          <h3>{sessionId ? 'Результат ещё не запрошен' : 'Проверок пока нет'}</h3>
+          <p>{sessionId ? 'Получите результат выбранного замера.' : 'Выберите другую машину.'}</p></div>}
+      </div>
+      <div className="pane" hidden={view !== 'Чат'} ref={chatBody} role="log" aria-label="Сообщения" tabIndex={0}>
+        {!turns.length && <div className="empty"><h3>Вопрос по двигателю</h3>
+          <p>{diagnosis ? diagnosis.message : `Спросите о замере или о руководстве для двигателя ${vehicle.engine_model}.`}</p></div>}
+        {turns.map(({ result, question }) => <div className="turn" key={result.request_id}>
+          <div className="question"><strong>Вы</strong><p>{question}</p></div>
+          {result.ticket_draft
+            ? <p>Черновик подготовлен в разделе «Заявка».</p>
+            : <Response result={result} />}
         </div>)}
       </div>
-      <div className="actions">
-        {!!ticketStatus && <p className="notice" role="status">{ticketStatus}</p>}
-        {draft && !ticketStatus && <Draft draft={draft.value} evidence={draft.evidence} disabled={!!pending} onConfirm={() => run('confirm')} />}
-        {canDraft && !draft && !ticketStatus && <button className="secondary" disabled={!!pending} onClick={() => run('draft_ticket')}>Создать заявку</button>}
-        {error && <p className="error" role="alert">{error}</p>}
-        <div className="progress" role="status">{pendingLabels[pending] || ''}</div>
+      <div className="pane ticket-pane" hidden={view !== 'Заявка'} role="region" aria-label="Заявка на дефектовку" tabIndex={0}>
+        {ticketStatus ? <p className="notice">{ticketStatus}</p>
+          : draft ? <Draft draft={draft.value} evidence={draft.evidence} />
+          : <div className="empty"><h3>Заявка на дефектовку</h3>
+            <p>{canDraft ? 'Подготовьте черновик и проверьте состав работ перед отправкой.'
+              : ticketHint || 'Сначала получите результат диагностики.'}</p></div>}
       </div>
-      <form className="composer" onSubmit={e => { e.preventDefault(); if (question.trim()) run('chat') }}>
-        <label htmlFor="question">Вопрос по двигателю</label>
-        <div className="compose-row"><input id="question" placeholder="Что проверить?" value={question}
-          maxLength={8000} disabled={!sessionId || !!pending} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
-          <button type="submit" className="submit" disabled={!question.trim() || !sessionId || !!pending}>Отправить</button></div>
-      </form>
+      <div className="panel-footer">
+        {view === 'Результат' && <div className="footer-actions">
+          <button className="secondary" onClick={() => setView('Чат')}>Задать вопрос</button>
+          <button disabled={!canDraft && !draft && !ticketStatus} onClick={() => setView('Заявка')}>К заявке</button>
+        </div>}
+        {view === 'Чат' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) run('chat') }}>
+          <div className="compose-row"><input aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю" value={question}
+            maxLength={8000} disabled={!sessionId || !!pending} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
+            <button type="submit" className="submit" disabled={!question.trim() || !!pending || !sessionId}>Отправить</button></div>
+        </form>}
+        {view === 'Заявка' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
+          onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{draft ? 'Подтвердить заявку' : 'Создать заявку'}</button>}
+      </div>
+      <div className="panel-status" role="status">{error || pendingLabels[pending]}</div>
     </section>
   </div>
 }
