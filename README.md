@@ -4,7 +4,7 @@ ML-ядро для диагностики, поиска по техническ�
 
 ## Быстрый запуск через Docker
 
-Нужен Docker с Compose 2.24+. Для нового checkout скопируйте `.env.compose.example` в `.env`. Если `.env` уже есть, перенесите нужные настройки вручную. Укажите в `FLEET_DIR` папку с шестью PDF и исходным ZIP заказчика, в `MOCK_DIR` — распакованную папку, в которой лежат `mock_ml/`, `mock_toir/` и `data/`.
+Нужен Docker с Compose 2.24+. Для нового checkout скопируйте `.env.example` в `.env`. Если `.env` уже есть, перенесите нужные настройки вручную. Укажите в `FLEET_DIR` папку с шестью PDF и исходным ZIP заказчика, в `MOCK_DIR` — распакованную папку, в которой лежат `mock_ml/`, `mock_toir/` и `data/`.
 
 ```bash
 docker compose up --build -d
@@ -14,7 +14,9 @@ docker compose up --build -d
 
 Для подключения двух внешних сервисов укажите их базовые URL в `.env`, очистите `COMPOSE_PROFILES` и выполните `docker compose up -d web`. При замене одного сервиса достаточно изменить соответствующий URL и выполнить ту же команду. На Docker Desktop сервис на вашем компьютере доступен контейнеру через `host.docker.internal`. Ранее запущенные локальные моки можно остановить командой `docker compose --profile mocks stop ml maintenance`, когда оба адреса переключены.
 
-## Запуск ядра
+На публичном стенде проект находится в `/opt/ai-mechanic/compose`. Из этого каталога используйте `docker compose ps` для проверки состояния и `docker compose logs -f web` для логов. После обновления исходников выполните `docker compose up --build -d`. Для хранения состояния в существующем каталоге задайте `STATE_DIR` и укажите в `FLEET_USER` числовые UID:GID пользователя с доступом на запись.
+
+## Разработка ядра без контейнеров
 
 Нужен Python 3.10+ и `uv`. Пакет моков заказчика уже содержит приложения и свои зависимости. Из распакованной папки `neurodvs_hackathon_mock_2026-11-16` запустите команды в разных терминалах.
 
@@ -28,6 +30,7 @@ uv run --no-project --with-requirements requirements.txt uvicorn mock_toir.app:a
 ```bash
 uv sync
 cp .env.example .env
+export ML_API_URL=http://127.0.0.1:8001 MAINTENANCE_API_URL=http://127.0.0.1:8002
 ```
 
 Задайте `DATA_DIR` с `vehicles.json` или архивом `neurodvs_hackathon_mock_*.zip`. Можно передать конкретный путь к распакованному JSON через `VEHICLES_PATH`. Клиент использует `ML_API_URL` и `MAINTENANCE_API_URL`.
@@ -190,30 +193,10 @@ uv run uvicorn web.app:create_app --factory --port 8080
 
 ### Переключение диагностики и ТОиР (F6)
 
-В локальном запуске задайте базовые адреса в `.env` в рабочем каталоге процесса. На стенде systemd читает `/etc/ai-mechanic/fleet.env`. Так выглядит файл при размещении сервисов за разными прокси.
-
-```dotenv
-ML_API_URL=https://diagnostics.example.org/api/v2
-MAINTENANCE_API_URL=https://maintenance.example.org/workshop
-```
-
-В этой конфигурации агент запрашивает `POST /api/v2/diagnose` у сервиса диагностики и отправляет подтверждённый черновик в `POST /workshop/tickets` сервиса ТОиР. Оба сервиса должны принимать и возвращать JSON по контракту заказчика. Можно поменять любой адрес отдельно. Перезапустите процесс приложения, на стенде — `systemctl restart mechanic-fleet.service`. Сборка фронтенда и переиндексация PDF для смены адреса не требуются.
-
-Юниты из [deploy](deploy) ожидают приложение и собранный `frontend/dist` в `/opt/ai-mechanic/fleet/app`, комплект в соседнем `data`, индекс и квитанции в `/var/lib/mechanic-fleet`. Веб-сервис занимает порт 8080. При установке с внешними сервисами достаточно включить `mechanic-fleet.service`. Для демо распакуйте заглушки в `/opt/ai-mechanic/fleet/mocks` и включите три юнита.
-
-```bash
-systemctl daemon-reload
-systemctl enable --now mechanic-fleet-ml.service mechanic-fleet-toir.service mechanic-fleet.service
-```
-
-Без переопределения серверный профиль обращается к заглушкам на loopback-портах 8101 и 8102. Приоритет новых заявок задаёт `DEFAULT_TICKET_URGENCY` (по умолчанию `medium`). Через `TICKET_URGENCY_BY_FAULT` можно передать JSON-объект с согласованным приоритетом по коду неисправности. Контракт принимает `low`, `medium` и `high`.
+На стенде настройки находятся в `.env` рядом с `compose.yaml`. После смены базового адреса примените конфигурацию командой `docker compose up -d web`. Встроенные сервисы доступны по именам `ml` и `maintenance`. В адресах внешних сервисов допускается префикс пути. Приложение добавляет к нему `/diagnose` или `/tickets`.
 
 ### Руководства в локальном профиле
 
 `MANUAL_MANIFEST_PATH` задаёт каталог руководств для сборки индекса и просмотра PDF, `REVIEWED_EVIDENCE_PATH` — каталог проверенных выводов для локального агента. По умолчанию используются [редакции руководств](ml/ingestion/manifest.json) и [проверенные выводы](ml/ingestion/reviewed_evidence.json) из репозитория. Для новой редакции обновите каталог руководств и пересоберите индекс.
 
 В каталоге выводов каждая запись связывает код неисправности или тему вопроса с утверждениями и физическими страницами. Для каждой страницы указан SHA-256 её текста после нормализации пробелов (`' '.join(text.split())`, UTF-8). Поля в фигурных скобках получают значения из первой захватывающей группы соответствующего выражения на этой странице. Если изменился текст или отсутствует часть многостраничной процедуры, локальный агент пропускает всю запись. Полнотекстовый поиск по выбранной модели остаётся доступен и для тем без проверенного норматива.
-
-### Учебное размещение под systemd
-
-Разместите исходники и `frontend/dist` в `/opt/ai-mechanic/current`. Создайте виртуальное окружение в `/opt/ai-mechanic/venv` и установите туда проект с зависимостями `.[api]`. Под системным пользователем `mechanic-demo` работают два юнита из [deploy](deploy). Скопируйте их в `/etc/systemd/system/`, выполните `systemctl daemon-reload` и `systemctl enable --now mechanic-demo-upstream.service mechanic-demo.service`. Приложение слушает порт 8080, учебный upstream — loopback-порт 8001. SQLite и учебный каталог сохраняются в `/var/lib/mechanic-demo`. Для проверки состояния используйте `systemctl status mechanic-demo` и `curl -fsS http://127.0.0.1:8080/health`.

@@ -1,9 +1,10 @@
 x-image: &image
   image: ai-mechanic-fleet:local
-  build: .
+  pull_policy: never
 
 x-fleet: &fleet
   <<: *image
+  user: ${FLEET_USER:-mechanic}
   env_file:
     - path: .env
       required: false
@@ -21,11 +22,13 @@ x-fleet: &fleet
       read_only: true
       bind:
         create_host_path: false
-    - state:/state
+    - ${STATE_DIR:-state}:/state
 
 x-mock: &mock
   <<: *image
   profiles: [mocks]
+  restart: unless-stopped
+  user: ${FLEET_USER:-mechanic}
   working_dir: /mocks
   volumes:
     - type: bind
@@ -42,6 +45,8 @@ services:
 
   web:
     <<: *fleet
+    build: .
+    restart: unless-stopped
     depends_on:
       index:
         condition: service_completed_successfully
