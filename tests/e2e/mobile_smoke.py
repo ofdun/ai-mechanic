@@ -53,6 +53,9 @@ def exercise(context, base_url, pdf_path):
     measurement.select_option('F08-DEMO')
     diagnose.tap()
     expect(page.get_by_role('heading', name='Отклонение', exact=True)).to_be_visible()
+    edit_selection = page.get_by_role('button', name=re.compile('Изменить'))
+    expect(edit_selection).to_have_attribute('aria-expanded', 'false')
+    expect(vehicle).to_be_hidden()
     expect(page.get_by_text(RISK, exact=False).first).to_be_visible()
     expect(page.get_by_text(OPERATION, exact=False).first).to_be_visible()
 
@@ -101,6 +104,8 @@ def exercise(context, base_url, pdf_path):
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     print('PASS — C1, черновик, явное подтверждение и повтор с тем же ticket_id')
 
+    edit_selection.tap()
+    expect(vehicle).to_be_focused()
     vehicle.select_option('ДЕМО-02')
     measurement.select_option('NORMAL-DEMO')
     expect(page.get_by_text(re.compile(re.escape(ticket_id)))).to_have_count(0)
@@ -115,6 +120,7 @@ def exercise(context, base_url, pdf_path):
     expect(page.get_by_text(RISK, exact=False)).to_have_count(0)
     print('PASS — норма, смена ТС очищает предыдущую заявку, ответ и источник')
 
+    edit_selection.tap()
     measurement.select_option('REPEAT-DEMO')
     expect(page.get_by_role('heading', name='Норма', exact=True)).to_have_count(0)
     diagnose.tap()

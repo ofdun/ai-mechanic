@@ -45,8 +45,8 @@ function App() {
     setSessionId(id)
   }
   return <>
-    <header className="mast"><div><span className="wordmark">Цифровой механик</span><span className="mast-note">Рабочее место механика</span></div></header>
-    <main><h1>Диагностика двигателя</h1>
+    <header className="mast"><div><span className="wordmark">Цифровой механик</span><span className="mast-note">Диагностический пост</span></div></header>
+    <main><div className="page-title"><h1>Диагностика двигателя</h1></div>
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
         : !vehicle ? <p role="status">В справочнике пока нет транспортных средств.</p>
@@ -66,6 +66,23 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
   const [canDraft, setCanDraft] = useState(false)
   const [draft, setDraft] = useState(null)
   const [ticketStatus, setTicketStatus] = useState('')
+  const [folded, setFolded] = useState(false)
+  const lastResponse = useRef(null)
+  const revealResult = useRef(false)
+  const reopenSelection = useRef(false)
+  useLayoutEffect(() => {
+    if (reopenSelection.current) {
+      document.getElementById('vehicle')?.focus()
+      reopenSelection.current = false
+    }
+  }, [folded])
+  useLayoutEffect(() => {
+    if (revealResult.current) {
+      lastResponse.current?.focus()
+      lastResponse.current?.scrollIntoView({ block: 'nearest' })
+      revealResult.current = false
+    }
+  }, [turns])
   const running = useRef(null)
   useEffect(() => () => running.current?.abort(), [])
   const pair = { vehicle_id: vehicle.vehicle_id, session_id: sessionId }
@@ -81,7 +98,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
         const { draft_id, draft_version } = draft.value
         const receipt = await request('/agent/tickets/confirm', { ...pair, draft_id, draft_version, confirmed: true }, controller.signal)
         if (controller.signal.aborted) return
-        setTicketStatus('Заявка создана. Номер в ТОиР — ' + receipt.ticket_id)
+        setTicketStatus('Заявка создана. Номер в ТОиР: ' + receipt.ticket_id)
         setDraft(null)
         setCanDraft(false)
         return
@@ -91,6 +108,10 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
+      if (kind === 'diagnose' && window.matchMedia('(max-width: 47rem)').matches) {
+        setFolded(true)
+        revealResult.current = true
+      }
       setTurns(old => [...old, { result, question: kind === 'chat' ? text : '' }])
       if (kind === 'chat') setQuestion('')
       if (result.diagnostic || result.action === 'draft_ticket') {
@@ -122,7 +143,11 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
   }
 
   return <div className="workspace">
-    <aside className="controls" aria-labelledby="checking"><h2 id="checking">Карточка проверки</h2>
+    <aside className={'controls' + (folded ? ' folded' : '')} aria-labelledby="checking">
+      <h2 id="checking">Параметры замера</h2>
+      <button type="button" className="fold-toggle" aria-controls="selection" aria-expanded={!folded}
+        onClick={() => { reopenSelection.current = true; setFolded(false) }}><span>{vehicle.vehicle_id} / {sessionId}</span><strong>Изменить</strong></button>
+      <div id="selection">
       <label htmlFor="vehicle">Транспортное средство</label>
       <select id="vehicle" value={vehicle.vehicle_id} disabled={pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
         {catalog.map(v => <option key={v.vehicle_id} value={v.vehicle_id}>{v.vehicle_id}</option>)}
@@ -134,13 +159,15 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
         {vehicle.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
       </select>
       <button className="primary" disabled={!sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики</button>
+      </div>
     </aside>
-    <section className="chat" aria-labelledby="chat-title"><div className="chat-head"><h2 id="chat-title">Чат с механиком</h2>
-      <span className="serial">{vehicle.vehicle_id}</span></div>
+    <section className="chat" aria-labelledby="chat-title"><div className="chat-head"><h2 id="chat-title">Протокол проверки</h2>
+      <span className="serial">{sessionId}</span></div>
       <div className="thread" role="log" aria-label="Сообщения" aria-live="polite">
-        {!turns.length && <div className="empty"><h3>{sessionId ? 'Начните с результата проверки' : 'Проверок пока нет'}</h3>
-          <p>{sessionId ? 'Получите результат диагностики или задайте вопрос по руководству для двигателя ' + vehicle.engine_model + '.' : 'Выберите другое транспортное средство.'}</p></div>}
-        {turns.map(({ result, question }) => <div className="turn" key={result.request_id}>
+        {!turns.length && <div className="empty"><h3>{sessionId ? 'Результат ещё не запрошен' : 'Проверок пока нет'}</h3>
+          <p>{sessionId ? 'Запустите диагностику или задайте вопрос по руководству для двигателя ' + vehicle.engine_model + '.' : 'Выберите другое транспортное средство.'}</p></div>}
+        {turns.map(({ result, question }, index) => <div className="turn" tabIndex={-1}
+          ref={index === turns.length - 1 ? lastResponse : null} key={result.request_id}>
           {question && <div className="question"><strong>Вы</strong><p>{question}</p></div>}
           <Response result={result} />
         </div>)}

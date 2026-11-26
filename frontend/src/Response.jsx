@@ -10,7 +10,7 @@ const sections = {
 
 export function Source({ source }) {
   return <a className="source" href={'/api/documents/' + encodeURIComponent(source.document_id) + '#page=' + source.pdf_page}
-    target="_blank" rel="noreferrer">{source.manual}, стр. {source.pdf_page}</a>
+    target="_blank" rel="noreferrer">{source.manual}, стр.{'\u00a0'}{source.pdf_page}</a>
 }
 
 export function Response({ result }) {
@@ -20,6 +20,7 @@ export function Response({ result }) {
   const verified = (claims || []).filter(claim => claim.evidence_ids.length && claim.evidence_ids.every(id => sources.has(id)))
   const limitations = result.limitations || []
   const insufficient = result.action === 'search_manuals' && verified.length === 0
+  const confidence = diagnostic?.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
   return <article className="reply">
     {diagnostic && <div className={'verdict ' + (repeat ? 'check_failed' : diagnostic.status)}>
       <h3>{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[diagnostic.status]}</h3>
@@ -28,8 +29,9 @@ export function Response({ result }) {
     <p>{message}</p>
     {diagnostic?.status === 'normal' && !repeat && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
     {!repeat && diagnostic?.status === 'anomaly' && <p className="meta">
-      {diagnostic.anomaly_type} · {diagnostic.anomaly_title}
-      {diagnostic.confidence != null && ' · Уверенность ' + Math.round(diagnostic.confidence * 100) + '%'}
+      Код {diagnostic.anomaly_type}
+      {!message.includes(diagnostic.anomaly_title) && ' · ' + diagnostic.anomaly_title}
+      {confidence && !message.includes(confidence) && ' · Уверенность ' + confidence}
     </p>}
     {!repeat && Object.entries(sections).map(([kind, title]) => {
       const group = verified.filter(claim => claim.kind === kind)
