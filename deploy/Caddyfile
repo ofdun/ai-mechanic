@@ -1,4 +1,13 @@
+{
+	default_sni {$STAND_HOST}
+}
+
 https://{$STAND_HOST} {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
 	basic_auth {
 		{$STAND_USER} {$STAND_PASSWORD_HASH}
 	}

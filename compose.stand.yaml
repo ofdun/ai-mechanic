@@ -6,7 +6,7 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     environment:
-      STAND_HOST: ${STAND_HOST:?Set the stand DNS hostname}
+      STAND_HOST: ${STAND_HOST:?Set the public IP address or DNS hostname}
       STAND_USER: ${STAND_USER:?Set the stand username}
       STAND_PASSWORD_HASH: ${STAND_PASSWORD_HASH:?Set a bcrypt password hash}
       WEB_LISTEN_PORT: ${WEB_LISTEN_PORT:-8080}
