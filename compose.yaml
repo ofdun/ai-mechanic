@@ -59,6 +59,10 @@ services:
       retries: 10
 
   web:
+    environment:
+      AGENT_URL: ${AGENT_URL:-}
+      WEB_AGENT_TIMEOUT: ${WEB_AGENT_TIMEOUT:-}
+      LISTEN_ADDR: ":${WEB_LISTEN_PORT:-8080}"
     stop_grace_period: 30s
     build:
       context: .
@@ -71,7 +75,7 @@ services:
       agent:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-8080}:8080"
+      - "${WEB_PORT:-8080}:${WEB_LISTEN_PORT:-8080}"
     healthcheck:
       test: ["CMD", "mechanic", "health"]
       interval: 10s

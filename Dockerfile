@@ -10,7 +10,7 @@ WORKDIR /src
 COPY app/backend/go.* ./
 RUN go mod download
 COPY app/backend/ ./
-RUN go test ./... && go build -trimpath -o /out/mechanic .
+RUN --mount=type=cache,target=/root/.cache/go-build go test -trimpath ./... && go build -trimpath -o /out/mechanic .
 
 FROM python:3.12-slim-bookworm AS agent
 WORKDIR /app

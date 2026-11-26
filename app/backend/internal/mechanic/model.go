@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+const TurnLease = 30 * time.Minute
 const SessionLifetime = 7 * 24 * time.Hour
 
 var ErrBusy = errors.New("conversation busy")
