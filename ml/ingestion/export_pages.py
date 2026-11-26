@@ -1,4 +1,4 @@
-"""Export one JSONL record per physical page of each PDF in the manifest."""
+"""Export physical PDF pages as JSONL or one ParsedDocument JSON per manual."""
 
 import argparse
 import hashlib
@@ -9,7 +9,7 @@ import sys
 import unicodedata
 from collections import defaultdict
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 import pypdfium2
 
@@ -66,7 +66,7 @@ def page_content(raw_text, pdf_page, offset):
     return printed_page, "\n".join(lines).replace("\x02", "").strip()
 
 
-def export_document(document, source, stream):
+def read_document_pages(document, source):
     digest = hashlib.sha256()
     with source.open("rb") as file:
         for block in iter(lambda: file.read(1024 * 1024), b""):
@@ -95,17 +95,12 @@ def export_document(document, source, stream):
                 (item["title"] for item in sections if item["first_page"] <= pdf_page <= item["last_page"]),
                 None,
             )
-            record = {
-                "document_id": document["document_id"],
-                "models": document["models"],
+            yield {
                 "pdf_page": pdf_page,
                 "printed_page": printed_page,
                 "section": section,
                 "text": text,
             }
-            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-    return page_count
 
 
 def export_pages(manifest_path, output):
@@ -122,7 +117,16 @@ def export_pages(manifest_path, output):
             prefix=f".{output.name}.", suffix=".tmp", delete=False,
         ) as stream:
             temporary = Path(stream.name)
-            page_count = sum(export_document(document, source, stream) for document, source in documents)
+            page_count = 0
+            for document, source in documents:
+                for page in read_document_pages(document, source):
+                    record = {
+                        "document_id": document["document_id"],
+                        "models": document["models"],
+                        **page,
+                    }
+                    stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    page_count += 1
         temporary.replace(output)
     finally:
         if temporary is not None:
@@ -131,16 +135,67 @@ def export_pages(manifest_path, output):
     return len(documents), page_count
 
 
+def export_parsed_documents(manifest_path, output):
+    documents = list(read_manifest(manifest_path))
+    input_paths = {manifest_path.resolve(), *(source.resolve() for _, source in documents)}
+    filenames = []
+    for document, _ in documents:
+        document_id = document["document_id"]
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", document_id):
+            raise ValueError(f"document_id непригоден для имени файла: {document_id}")
+        filename = f"{document_id}.json"
+        target = output / filename
+        if target.resolve() in input_paths or target.is_dir():
+            raise ValueError(f"Нельзя записать выгрузку по пути: {target}")
+        filenames.append(filename)
+    if len({name.casefold() for name in filenames}) != len(filenames):
+        raise ValueError("Имена файлов документов различаются только регистром.")
+
+    output.mkdir(parents=True, exist_ok=True)
+    page_count = 0
+    # Prepare the whole corpus before replacing any previously exported JSON.
+    with TemporaryDirectory(dir=output, prefix=".parsed-") as temp:
+        staging = Path(temp)
+        for (document, source), filename in zip(documents, filenames):
+            pages = [
+                {key: value for key, value in page.items() if value is not None}
+                for page in read_document_pages(document, source)
+            ]
+            parsed_document = {
+                "document_id": document["document_id"],
+                "manual": document.get("designation") or document["title"],
+                "engine_models": document["models"],
+                "pages": pages,
+            }
+            with (staging / filename).open("w", encoding="utf-8", newline="\n") as stream:
+                json.dump(parsed_document, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            page_count += len(pages)
+        for filename in filenames:
+            (staging / filename).replace(output / filename)
+
+    return len(documents), page_count
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Постраничная выгрузка текстового слоя PDF в JSONL.")
+    parser = argparse.ArgumentParser(description="Выгрузка текстового слоя PDF по страницам или руководствам.")
     default_data = Path(os.environ.get("DATA_DIR", PROJECT_ROOT / "data"))
     parser.add_argument("--manifest", type=Path, default=default_data / "manifest.json")
-    parser.add_argument("--output", type=Path, help="По умолчанию pages.jsonl рядом с каталогом PDF.")
+    parser.add_argument("--format", choices=("pages", "parsed"), default="pages")
+    parser.add_argument(
+        "--output", type=Path,
+        help="Файл pages.jsonl для pages или каталог artifacts/parsed для parsed.",
+    )
     args = parser.parse_args()
-    output = args.output if args.output is not None else args.manifest.with_name("pages.jsonl")
 
     try:
-        documents, pages = export_pages(args.manifest, output)
+        if args.format == "parsed":
+            artifacts = Path(os.environ.get("ARTIFACTS_DIR", PROJECT_ROOT / "artifacts"))
+            output = args.output or artifacts / "parsed"
+            documents, pages = export_parsed_documents(args.manifest, output)
+        else:
+            output = args.output or args.manifest.with_name("pages.jsonl")
+            documents, pages = export_pages(args.manifest, output)
     except (OSError, ValueError, KeyError, TypeError, pypdfium2.PdfiumError) as error:
         print(f"Ошибка выгрузки: {error}", file=sys.stderr)
         return 1
