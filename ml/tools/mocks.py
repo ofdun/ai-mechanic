@@ -55,8 +55,8 @@ class VehicleDirectory:
 class MockServices:
     def __init__(self, http: httpx.Client, settings: Settings):
         self.http = http
-        self.ml_url = f'{settings.ml_api_url.rstrip("/")}/diagnose'
-        self.toir_url = f'{settings.maintenance_api_url.rstrip("/")}/tickets'
+        self.ml_url = f'{str(settings.ml_api_url).rstrip("/")}/diagnose'
+        self.toir_url = f'{str(settings.maintenance_api_url).rstrip("/")}/tickets'
 
     def diagnose(self, vehicle_id: str, session_id: str) -> DiagnosticResult:
         try:

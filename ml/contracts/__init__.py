@@ -59,6 +59,7 @@ class DocumentPage(BaseModel):
     printed_page: str | None = None
     section: str | None = None
     text: str
+    engine_models: list[Text] | None = Field(default=None, min_length=1)
 
 
 class ParsedDocument(BaseModel):
@@ -84,6 +85,21 @@ class Evidence(BaseModel):
     pdf_page: PageNumber
     section: str | None = None
     text: Text
+
+    @classmethod
+    def from_page(
+        cls, document: ParsedDocument, page: DocumentPage, *, evidence_id: str,
+        excerpt: str | None = None, engine_models: list[str] | None = None,
+    ) -> 'Evidence':
+        page_models = document.engine_models if page.engine_models is None else page.engine_models
+        models = page_models if engine_models is None else engine_models
+        if not set(page_models).issubset(document.engine_models) or not set(models).issubset(page_models):
+            raise ValueError('Page or fragment applicability cannot broaden its source scope')
+        return cls(
+            evidence_id=evidence_id, document_id=document.document_id, manual=document.manual,
+            engine_models=models, pdf_page=page.pdf_page, section=page.section,
+            text=page.text if excerpt is None else excerpt,
+        )
 
 
 class EvidenceBundle(BaseModel):
@@ -125,6 +141,7 @@ class TicketDraft(BaseModel):
     draft_version: Literal[1] = 1
     expires_at: datetime
     payload: TicketPayload
+    engine_model: Text | None = None
 
 
 class TicketConfirmation(BaseModel):
@@ -151,6 +168,7 @@ class AgentRequest(BaseModel):
     actor_id: Text
     vehicle_id: Text
     session_id: Text
+    conversation_id: Text | None = None
     command: Literal['auto', 'diagnose', 'draft_ticket'] = 'auto'
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)] | None = None
     audio: AudioInput | None = None
@@ -164,10 +182,27 @@ class AgentRequest(BaseModel):
         return self
 
 
+class ConversationContext(BaseModel):
+    actor_id: Text
+    vehicle_id: Text
+    session_id: Text
+    conversation_id: Text
+    engine_model: Text
+    diagnostic: DiagnosticResult | None = None
+    recent_messages: list[Annotated[Text, StringConstraints(max_length=1500)]] = Field(default_factory=list, max_length=4)
+
+    @model_validator(mode='after')
+    def match_diagnostic(self):
+        if self.diagnostic and (self.diagnostic.vehicle_id, self.diagnostic.session_id) != (self.vehicle_id, self.session_id):
+            raise ValueError('Diagnostic context must match the vehicle and session')
+        return self
+
+
 class AgentResponse(BaseModel):
     request_id: str
     vehicle_id: str
     session_id: str
+    conversation_id: str | None = None
     engine_model: str
     action: Action
     message: str

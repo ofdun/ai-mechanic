@@ -20,7 +20,13 @@ dependencies = [
 
 [package.optional-dependencies]
 asr = [
+    { name = "av", version = "17.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "av", version = "18.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "av", version = "19.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "faster-whisper" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 
 [package.dev-dependencies]
@@ -30,8 +36,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "av", marker = "extra == 'asr'", specifier = ">=11" },
     { name = "faster-whisper", marker = "extra == 'asr'", specifier = ">=1.1,<2" },
     { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "numpy", marker = "extra == 'asr'", specifier = ">=1.24" },
     { name = "pydantic", specifier = ">=2.8,<3" },
     { name = "pydantic-settings", specifier = ">=2.5,<3" },
 ]

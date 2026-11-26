@@ -1,5 +1,5 @@
-import sqlite3
 from datetime import datetime, timedelta, timezone
+from functools import cached_property
 from uuid import uuid4
 
 import httpx
@@ -7,7 +7,7 @@ import httpx
 from ml.audio import WhisperASR
 from ml.config import Settings
 from ml.contracts import (
-    AgentError, AgentRequest, AgentResponse, DiagnosticResult, EvidenceBundle, Generator, Retriever,
+    AgentError, AgentRequest, AgentResponse, ConversationContext, DiagnosticResult, EvidenceBundle, Generator, Retriever,
     SearchPlan, TechnicalClaim, TicketConfirmation, TicketDraft, TicketPayload, TicketReceipt,
     TicketReference, Transcriber, Vehicle, Verifier,
 )
@@ -32,7 +32,6 @@ class Pipeline:
         self.settings = settings
         self.vehicles = VehicleDirectory.load(settings)
         self.services = MockServices(http, settings)
-        self.tickets = TicketStore(settings.artifacts_dir / 'agent-tickets.sqlite3', settings.http_timeout_seconds * 4 + 10)
         self.retriever = retriever
         self.generator = generator
         self.verifier = verifier
@@ -43,8 +42,18 @@ class Pipeline:
             settings.asr_model, settings.asr_language, settings.artifacts_dir / 'asr',
         )
 
-    def run(self, request: AgentRequest) -> AgentResponse:
-        vehicle, last_check = self.vehicles.get(request.vehicle_id, request.session_id)
+    @cached_property
+    def tickets(self) -> TicketStore:
+        return TicketStore(
+            self.settings.artifacts_dir / 'agent-tickets.sqlite3', self.settings.http_timeout_seconds * 4 + 10,
+        )
+
+    def run(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
+        vehicle, _ = self.vehicles.get(request.vehicle_id, request.session_id)
+        if context is not None and (
+            context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
+        ) != (request.actor_id, request.vehicle_id, request.session_id, request.conversation_id, vehicle.engine_model):
+            raise AgentError('CONTEXT_MISMATCH', 'Контекст не соответствует пользователю, диалогу или выбранной сессии ТС.')
         transcript = self.transcriber.transcribe(request.audio).strip() if request.audio is not None else None
         if transcript is not None and not 0 < len(transcript) <= 8000:
             raise AgentError('INVALID_TRANSCRIPT', 'Распознанный запрос пуст или слишком длинный.')
@@ -53,11 +62,22 @@ class Pipeline:
             'draft_ticket': 'Подготовь черновик заявки на дефектовку.',
         }[request.command]
 
-        usable_context = last_check if not (self.measurement_issue(last_check) or self.ticket_mismatch(vehicle, last_check)) else None
-        decision = self.planner.plan(message, vehicle.engine_model, usable_context) if request.command == 'auto' else Decision(request.command)
+        diagnostic = context.diagnostic if context is not None else None
+        recent_messages = context.recent_messages if context is not None else ()
+        if diagnostic and (self.measurement_issue(diagnostic) or self.ticket_mismatch(vehicle, diagnostic)):
+            diagnostic = None
+            recent_messages = ()
+        if request.command == 'auto':
+            if recent_messages:
+                decision = self.planner.plan(message, vehicle.engine_model, diagnostic, recent_messages=recent_messages)
+            else:
+                decision = self.planner.plan(message, vehicle.engine_model, diagnostic)
+        else:
+            decision = Decision(request.command)
         response = AgentResponse(
             request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
-            engine_model=vehicle.engine_model, action=decision.action, transcript=transcript,
+            engine_model=vehicle.engine_model, conversation_id=request.conversation_id,
+            action=decision.action, transcript=transcript,
             message='Уточните, что проверить или какой норматив найти.',
         )
 
@@ -68,7 +88,7 @@ class Pipeline:
             self.search(response, SearchPlan(
                 engine_model=vehicle.engine_model, original_query=message,
                 rewritten_query=decision.rewritten_query or message, subqueries=decision.subqueries,
-            ), usable_context)
+            ), diagnostic)
         elif decision.action == 'get_diagnostic_history':
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
@@ -130,23 +150,15 @@ class Pipeline:
         if not items:
             response.limitations.append('Применимых доказательств для выбранного двигателя не найдено.')
             return
-        if self.generator is None:
-            response.limitations.append('Generation ещё не подключён. Возвращены найденные фрагменты.')
+        if self.generator is None or self.verifier is None:
+            response.limitations.append('Для технических рекомендаций нужны Generator и Verifier. Возвращены фрагменты.')
             return
 
         draft = self.generator.generate(plan, response.evidence, diagnostic)
-        if self.verifier is None:
-            candidates = draft.claims
-        else:
-            candidates = [claim for claim in self.verifier.verify(draft, response.evidence).claims if claim in draft.claims]
-        for claim in candidates:
-            if not all(key in sources for key in claim.evidence_ids):
-                continue
-            if self.verifier is None:
-                quote = ' '.join(claim.text.split())
-                if not any(quote in ' '.join(sources[key].text.split()) for key in claim.evidence_ids):
-                    continue
-            response.claims.append(claim)
+        response.claims = [
+            claim for claim in self.verifier.verify(draft, response.evidence).claims
+            if claim in draft.claims and all(key in sources for key in claim.evidence_ids)
+        ]
         if not response.claims:
             response.limitations.append('По найденным фрагментам не удалось подтвердить технические утверждения.')
 
@@ -157,7 +169,8 @@ class Pipeline:
         cited = {key for claim in operations + parts for key in claim.evidence_ids}
         references = dict.fromkeys((item.manual, item.pdf_page) for item in response.evidence.items if item.evidence_id in cited)
         draft = TicketDraft(
-            draft_id=uuid4().hex, expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+            draft_id=uuid4().hex, engine_model=response.engine_model,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             payload=TicketPayload(
                 vehicle_id=result.vehicle_id, session_id=result.session_id, anomaly_type=result.anomaly_type,
                 conclusion=f'Предполагаемое отклонение {result.anomaly_type} · {result.anomaly_title}. Требуется дефектовка.',
@@ -176,6 +189,8 @@ class Pipeline:
         if previous_receipt:
             return previous_receipt
         vehicle, _ = self.vehicles.get(confirmation.vehicle_id, confirmation.session_id)
+        if draft.engine_model != vehicle.engine_model:
+            raise AgentError('DRAFT_STALE', 'Модель двигателя не совпадает с черновиком. Подготовьте новый.')
         result = self.services.diagnose(confirmation.vehicle_id, confirmation.session_id)
         if self.measurement_issue(result):
             raise AgentError('REMEASUREMENT_REQUIRED', 'Сначала повторите замер.')
@@ -189,11 +204,11 @@ class Pipeline:
         except AgentError as error:
             try:
                 self.tickets.finish(draft.draft_id, rejected=error.code in {'TICKET_REJECTED', 'TOIR_UNAVAILABLE'})
-            except sqlite3.Error as store_error:
+            except AgentError as store_error:
                 raise AgentError('TICKET_OUTCOME_UNKNOWN', 'Не удалось сохранить статус отправки. Нужна сверка.') from store_error
             raise
         try:
             self.tickets.finish(draft.draft_id, receipt=receipt)
-        except sqlite3.Error as error:
+        except AgentError as error:
             raise AgentError('TICKET_OUTCOME_UNKNOWN', 'ТОиР ответил, но квитанцию не удалось сохранить. Нужна сверка.') from error
         return receipt

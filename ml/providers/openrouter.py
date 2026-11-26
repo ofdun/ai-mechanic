@@ -15,7 +15,7 @@ class OpenRouterClient:
     def __init__(self, http: httpx.Client, settings: Settings):
         self.http = http
         self.model = settings.llm_model
-        self.url = f'{settings.llm_base_url.rstrip("/")}/chat/completions'
+        self.url = f'{str(settings.llm_base_url).rstrip("/")}/chat/completions'
         self.api_key = settings.llm_api_key
 
     def select_tool(self, messages: list[dict[str, str]], tools: list[dict[str, Any]]) -> tuple[str, str]:

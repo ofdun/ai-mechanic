@@ -11,7 +11,10 @@ class TicketStore:
     def __init__(self, path: Path, pending_timeout: float):
         self.path = path
         self.pending_timeout = pending_timeout
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise AgentError('TICKET_STORAGE_UNAVAILABLE', 'Каталог для хранения заявок недоступен.') from error
         with self.connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS drafts (
@@ -33,9 +36,12 @@ class TicketStore:
 
     @contextmanager
     def connect(self):
-        with closing(sqlite3.connect(self.path)) as db, db:
-            db.row_factory = sqlite3.Row
-            yield db
+        try:
+            with closing(sqlite3.connect(self.path)) as db, db:
+                db.row_factory = sqlite3.Row
+                yield db
+        except sqlite3.Error as error:
+            raise AgentError('TICKET_STORAGE_UNAVAILABLE', 'Хранилище заявок недоступно.') from error
 
     def save(self, actor_id: str, draft: TicketDraft, result: DiagnosticResult) -> None:
         with self.connect() as db:
