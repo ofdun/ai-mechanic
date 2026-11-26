@@ -52,6 +52,9 @@ class Pipeline:
             self.settings.artifacts_dir / 'agent-tickets.sqlite3', self.settings.http_timeout_seconds * 4 + 10,
         )
 
+    def ticket_store_for(self, actor_id: str) -> TicketStore:
+        return self.tickets
+
     def run(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
         vehicle, _ = self.vehicles.get(request.vehicle_id, request.session_id)
         if context is not None and (
@@ -188,13 +191,14 @@ class Pipeline:
                 references=[TicketReference(manual=manual, pdf_page=page) for manual, page in references],
             ),
         )
-        self.tickets.save(actor_id, draft, result)
+        self.ticket_store_for(actor_id).save(actor_id, draft, result)
         return draft
 
     def confirm_ticket(self, confirmation: TicketConfirmation) -> TicketReceipt:
         if not confirmation.confirmed:
             raise AgentError('CONFIRMATION_REQUIRED', 'Нужно явное подтверждение механика.')
-        draft, original, previous_receipt = self.tickets.load(confirmation)
+        tickets = self.ticket_store_for(confirmation.actor_id)
+        draft, original, previous_receipt = tickets.load(confirmation)
         if previous_receipt:
             return previous_receipt
         vehicle, _ = self.vehicles.get(confirmation.vehicle_id, confirmation.session_id)
@@ -206,18 +210,18 @@ class Pipeline:
         if result != original or result.status != 'anomaly' or self.ticket_mismatch(vehicle, result):
             raise AgentError('DRAFT_STALE', 'Диагностика изменилась. Подготовьте новый черновик.')
 
-        if receipt := self.tickets.reserve(confirmation, draft):
+        if receipt := tickets.reserve(confirmation, draft):
             return receipt
         try:
             receipt = self.services.create_ticket(draft.payload)
         except AgentError as error:
             try:
-                self.tickets.finish(draft.draft_id, rejected=error.code in {'TICKET_REJECTED', 'TOIR_UNAVAILABLE'})
+                tickets.finish(draft.draft_id, rejected=error.code in {'TICKET_REJECTED', 'TOIR_UNAVAILABLE'})
             except AgentError as store_error:
                 raise AgentError('TICKET_OUTCOME_UNKNOWN', 'Не удалось сохранить статус отправки. Нужна сверка.') from store_error
             raise
         try:
-            self.tickets.finish(draft.draft_id, receipt=receipt)
+            tickets.finish(draft.draft_id, receipt=receipt)
         except AgentError as error:
             raise AgentError('TICKET_OUTCOME_UNKNOWN', 'ТОиР ответил, но квитанцию не удалось сохранить. Нужна сверка.') from error
         return receipt
