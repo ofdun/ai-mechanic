@@ -15,6 +15,7 @@ ERROR_HTTP_STATUS = {
     'VEHICLE_OR_SESSION_NOT_FOUND': 404,
     'DRAFT_NOT_FOUND': 404,
     'CONTEXT_MISMATCH': 409,
+    'CONVERSATION_BUSY': 409,
     'DRAFT_STALE': 409,
     'DRAFT_EXPIRED': 409,
     'DUPLICATE_TICKET': 409,
@@ -45,6 +46,7 @@ def create_agent_router(
     resolve_actor: Callable[..., str],
     *,
     load_context: Callable[[str, str], ConversationContext | None] | None = None,
+    run_turn: Callable[[AgentRequest], AgentResponse] | None = None,
 ) -> APIRouter:
     """Mount under a host backend with an authenticated actor dependency."""
     router = APIRouter(prefix='/agent', tags=['agent'])
@@ -57,6 +59,8 @@ def create_agent_router(
         except ValidationError as error:
             raise HTTPException(422, detail={'code': 'INVALID_INPUT', 'message': 'Нужен текст или явная команда.'}) from error
         with api_errors():
+            if run_turn is not None:
+                return run_turn(request)
             context = load_context(actor_id, request.conversation_id) if load_context and request.conversation_id else None
             return pipeline.run(request, context=context)
 
