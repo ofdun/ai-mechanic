@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { conversationId, formatDate, request } from './api'
-import { Draft, Response } from './Response'
+import { DiagnosticReport, Draft, Response } from './Response'
 import './style.css'
 
 function App() {
@@ -158,7 +158,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
           <button key={name} type="button" aria-pressed={view === name} onClick={() => setView(name)}>{name}</button>)}
       </nav>
       <div className="pane" hidden={view !== 'Результат'} aria-label="Результат проверки" role="region" tabIndex={0}>
-        {diagnosis ? <Response result={diagnosis} /> : <div className="empty">
+        {diagnosis ? <DiagnosticReport result={diagnosis} /> : <div className="empty">
           <h3>{sessionId ? 'Результат ещё не запрошен' : 'Проверок пока нет'}</h3>
           <p>{sessionId ? 'Получите результат выбранного замера.' : 'Выберите другую машину.'}</p></div>}
       </div>

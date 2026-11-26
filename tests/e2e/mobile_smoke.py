@@ -64,7 +64,10 @@ def exercise(context, base_url, pdf_path):
     expect(page.get_by_text(RISK, exact=False).first).to_be_visible()
     expect(page.get_by_text(OPERATION, exact=False).first).to_be_visible()
 
-    link = page.get_by_role('link', name=f'{MANUAL}, стр. 2').first
+    report = page.get_by_role('region', name='Результат проверки')
+    expect(report.get_by_role('heading', name='Что делать дальше')).to_be_visible()
+    link = report.get_by_role('link', name=f'{MANUAL}, стр. 2', exact=True)
+    expect(link).to_have_count(1)
     href = f'/api/documents/{DOCUMENT_ID}#page=2'
     expect(link).to_have_attribute('href', href)
     with context.expect_page() as opened:

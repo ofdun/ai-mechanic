@@ -8,8 +8,12 @@ const sections = {
   check: 'Что проверить', reference_value: 'Нормативы', operation: 'Работы', spare_part: 'Запчасти',
 }
 
+function pageLink(source) {
+  return '/api/documents/' + encodeURIComponent(source.document_id) + '#page=' + source.pdf_page
+}
+
 export function Source({ source }) {
-  return <a className="source" href={'/api/documents/' + encodeURIComponent(source.document_id) + '#page=' + source.pdf_page}
+  return <a className="source" href={pageLink(source)}
     target="_blank" rel="noreferrer">{source.manual}, стр.{'\u00a0'}{source.pdf_page}</a>
 }
 
@@ -18,11 +22,75 @@ function Entries({ items, render = item => item }) {
   return <ul>{items.map((item, index) => <li key={index}>{render(item)}</li>)}</ul>
 }
 
-export function Response({ result }) {
-  const { diagnostic, message, claims, requires_remeasurement: repeat } = result
+function verifiedClaims(result) {
   const evidence = (result.evidence?.items || []).filter(item => item.engine_models.includes(result.engine_model))
   const sources = new Map(evidence.map(item => [item.evidence_id, item]))
-  const verified = (claims || []).filter(claim => claim.evidence_ids.length && claim.evidence_ids.every(id => sources.has(id)))
+  const verified = (result.claims || []).filter(claim => claim.evidence_ids.length && claim.evidence_ids.every(id => sources.has(id)))
+  return { sources, verified }
+}
+
+export function DiagnosticReport({ result }) {
+  const { diagnostic, requires_remeasurement: repeat } = result
+  const { sources, verified } = verifiedClaims(result)
+  const status = repeat ? 'check_failed' : diagnostic.status
+  const claims = status === 'anomaly' ? verified : []
+  const narrative = claims.filter(c => ['observation', 'cause', 'risk'].includes(c.kind))
+  const actions = ['check', 'reference_value', 'operation', 'spare_part'].flatMap(kind =>
+    claims.filter(c => c.kind === kind))
+  const references = []
+  const referenceNumbers = new Map()
+  for (const claim of [...narrative, ...actions]) {
+    for (const id of claim.evidence_ids) {
+      const source = sources.get(id)
+      const key = pageLink(source)
+      if (!referenceNumbers.has(key)) {
+        referenceNumbers.set(key, references.push(source))
+      }
+    }
+  }
+  function citedClaim(claim) {
+    const numbers = new Set(claim.evidence_ids.map(id => {
+      const source = sources.get(id)
+      return referenceNumbers.get(pageLink(source))
+    }))
+    return <p key={claim.kind + claim.text}>
+      {claim.kind === 'cause' && 'Возможная причина: '}
+      {claim.kind === 'risk' && 'Риск: '}
+      {claim.kind === 'reference_value' && 'Норматив: '}
+      {claim.kind === 'spare_part' && 'Запчасти: '}
+      {claim.text}{[...numbers].map(number => {
+        const source = references[number - 1]
+        return <sup key={number}><a href={pageLink(source)} target="_blank" rel="noreferrer"
+          aria-label={`Источник ${number}, ${source.manual}, страница ${source.pdf_page}`}>[{number}]</a></sup>
+      })}
+    </p>
+  }
+  const quality = qualities[diagnostic.signal_quality]
+  const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  return <article className={'report report-' + status}>
+    <header><h3>{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[status]}</h3>
+      <p className="report-lead">{status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.'
+        : result.message}</p>
+      {status === 'normal' && <p>{result.message}</p>}
+      <p className="report-reading">{[
+        quality && 'Запись ' + quality,
+        status === 'anomaly' && diagnostic.anomaly_type,
+        status === 'anomaly' && !result.message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
+        status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность модели ' + confidence,
+      ].filter(Boolean).join(' · ')}</p>
+    </header>
+    {narrative.map(citedClaim)}
+    {!!actions.length && <section className="report-action"><h4>Что делать дальше</h4>{actions.map(citedClaim)}</section>}
+    {!!result.limitations?.length && <section className="report-limits"><h4>Что осталось уточнить</h4><Entries items={result.limitations} /></section>}
+    {!!references.length && <footer className="report-sources"><h4>По руководству</h4>
+      <ol>{references.map(source => <li key={pageLink(source)}><Source source={source} /></li>)}</ol>
+    </footer>}
+  </article>
+}
+
+export function Response({ result }) {
+  const { diagnostic, message, requires_remeasurement: repeat } = result
+  const { sources, verified } = verifiedClaims(result)
   const limitations = result.limitations || []
   const insufficient = result.action === 'search_manuals' && verified.length === 0
   const confidence = diagnostic?.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
