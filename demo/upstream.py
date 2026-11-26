@@ -1,5 +1,5 @@
 """Two contract-compatible HTTP mocks containing synthetic measurements only."""
-from itertools import count
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -9,7 +9,6 @@ from ml.contracts import DiagnosticResult, TicketPayload, TicketReceipt
 
 app = FastAPI(title='Учебные сервисы диагностики и ТОиР')
 measurements = {(v.vehicle_id, s.session_id): s for v in training_fleet() for s in v.sessions}
-sequence = count(1)
 
 
 class MeasurementId(BaseModel):
@@ -29,4 +28,4 @@ def diagnose(ids: MeasurementId):
 def ticket(payload: TicketPayload):
     if (payload.vehicle_id, payload.session_id) not in measurements:
         raise HTTPException(422, 'Неизвестная учебная проверка.')
-    return TicketReceipt(ticket_id=f'DEMO-{next(sequence):04d}', status='created')
+    return TicketReceipt(ticket_id=f'DEMO-{uuid4().hex}', status='created')
