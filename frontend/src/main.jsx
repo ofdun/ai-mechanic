@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, MessageSquare, ScanLine, Send, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, Draft, Response } from './Response'
 import './style.css'
@@ -45,8 +46,11 @@ function App() {
     setSessionId(id)
   }
   return <>
-    <header className="mast"><div><span className="wordmark">Цифровой механик</span><span className="mast-note">Диагностический пост</span></div></header>
-    <main><div className="page-title"><h1>Диагностика двигателя</h1></div>
+    <header className="mast"><div className="mast-inner">
+      <span className="wordmark"><span className="brand-mark"><Wrench aria-hidden="true" /></span>Цифровой механик</span>
+      <h1>Диагностика двигателя</h1>
+    </div></header>
+    <main>
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
         : !vehicle ? <p role="status">В справочнике пока нет транспортных средств.</p>
@@ -56,6 +60,15 @@ function App() {
 }
 
 const pendingLabels = { diagnose: 'Получаем результат…', chat: 'Ищем ответ…', draft_ticket: 'Готовим черновик…', confirm: 'Отправляем заявку…' }
+const views = [
+  { id: 'result', label: 'Результат', icon: FileText },
+  { id: 'chat', label: 'Чат', icon: MessageSquare },
+  { id: 'ticket', label: 'Заявка', icon: ClipboardList },
+]
+
+function EmptyView({ icon: Icon, title, children }) {
+  return <div className="empty"><Icon aria-hidden="true" /><h3>{title}</h3><p>{children}</p></div>
+}
 
 function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }) {
   const [id] = useState(conversationId)
@@ -65,22 +78,42 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
   const [error, setError] = useState('')
   const [canDraft, setCanDraft] = useState(false)
   const [draft, setDraft] = useState(null)
-  const [ticketStatus, setTicketStatus] = useState('')
-  const [view, setView] = useState('Результат')
+  const [ticketStatus, setTicketStatus] = useState(null)
+  const [view, setView] = useState('result')
   const [diagnosis, setDiagnosis] = useState(null)
   const [ticketHint, setTicketHint] = useState('')
   const chatBody = useRef(null)
+  const composer = useRef(null)
+  const focusQuestion = useRef(false)
   useLayoutEffect(() => {
-    if (chatBody.current) chatBody.current.scrollTop = chatBody.current.scrollHeight
+    if (view === 'chat' && focusQuestion.current) composer.current?.focus()
+    focusQuestion.current = false
+  }, [view])
+  useLayoutEffect(() => {
+    const pane = chatBody.current
+    const turn = pane?.querySelector('.turn:last-child')
+    if (turn) pane.scrollTop += turn.getBoundingClientRect().top - pane.getBoundingClientRect().top
   }, [turns])
+  function selectTab(next) {
+    setView(next)
+    document.getElementById('tab-' + next)?.focus()
+  }
+  function navigateTabs(event, index) {
+    const last = views.length - 1
+    const next = { ArrowRight: (index + 1) % views.length, ArrowLeft: (index + last) % views.length, Home: 0, End: last }[event.key]
+    if (next === undefined) return
+    event.preventDefault()
+    selectTab(views[next].id)
+  }
   const running = useRef(null)
   useEffect(() => () => running.current?.abort(), [])
   const pair = { vehicle_id: vehicle.vehicle_id, session_id: sessionId }
+  const selectedSession = vehicle.sessions.find(session => session.session_id === sessionId)
   async function run(kind) {
     if (running.current || !sessionId) return
     const controller = new AbortController()
     running.current = controller
-    if (kind === 'diagnose') setView('Результат')
+    if (kind === 'diagnose') setView('result')
     setPending(kind)
     setError('')
     const text = question.trim()
@@ -89,7 +122,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
         const { draft_id, draft_version } = draft.value
         const receipt = await request('/agent/tickets/confirm', { ...pair, draft_id, draft_version, confirmed: true }, controller.signal)
         if (controller.signal.aborted) return
-        setTicketStatus('Заявка создана. Номер в ТОиР: ' + receipt.ticket_id)
+        setTicketStatus({ ticketId: receipt.ticket_id })
         setDraft(null)
         setCanDraft(false)
         return
@@ -114,8 +147,8 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
       if (controller.signal.aborted) return
       if (kind === 'confirm') {
         if (!err.code || ['TICKET_OUTCOME_UNKNOWN', 'DUPLICATE_TICKET', 'TICKET_IN_PROGRESS'].includes(err.code)) {
-          setTicketStatus(err.code === 'DUPLICATE_TICKET' ? 'Для этой проверки уже есть заявка или попытка отправки. Сверьте её статус в ТОиР.'
-            : 'Статус отправки требует сверки с ТОиР. Повторная отправка заблокирована.')
+          setTicketStatus({ message: err.code === 'DUPLICATE_TICKET' ? 'Для этой проверки уже есть заявка или попытка отправки. Сверьте её статус в ТОиР.'
+            : 'Статус отправки требует сверки с ТОиР. Повторная отправка заблокирована.' })
           setCanDraft(false)
           setDraft(null)
           return
@@ -136,7 +169,9 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
 
   return <div className="workspace">
     <aside className="controls" aria-labelledby="checking">
-      <h2 id="checking">Параметры замера</h2>
+      <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />Параметры замера</h2>
+        {selectedSession && <time dateTime={selectedSession.checked_at}>{formatDate(selectedSession.checked_at)}</time>}
+      </div>
       <div id="selection">
       <div><label htmlFor="vehicle">Транспортное средство</label>
       <select id="vehicle" value={vehicle.vehicle_id} disabled={pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
@@ -149,48 +184,56 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
         {!vehicle.sessions.length && <option>Нет проверок</option>}
         {vehicle.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
       </select></div>
-      <button className="primary" disabled={!sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики</button>
+      <button className="primary" disabled={!sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики<ArrowRight aria-hidden="true" /></button>
       </div>
     </aside>
     <section className="chat" aria-label="Протокол проверки">
-      <nav className="view-switch" aria-label="Разделы проверки">
-        {['Результат', 'Чат', 'Заявка'].map(name =>
-          <button key={name} type="button" aria-pressed={view === name} onClick={() => setView(name)}>{name}</button>)}
-      </nav>
-      <div className="pane" hidden={view !== 'Результат'} aria-label="Результат проверки" role="region" tabIndex={0}>
-        {diagnosis ? <DiagnosticReport result={diagnosis} /> : <div className="empty">
-          <h3>{sessionId ? 'Результат ещё не запрошен' : 'Проверок пока нет'}</h3>
-          <p>{sessionId ? 'Получите результат выбранного замера.' : 'Выберите другую машину.'}</p></div>}
+      <div className="view-switch" role="tablist" aria-label="Разделы проверки">
+        {views.map(({ id, label, icon: Icon }, index) =>
+          <button key={id} type="button" role="tab" id={'tab-' + id} aria-controls={'panel-' + id}
+            aria-selected={view === id} tabIndex={view === id ? 0 : -1}
+            onKeyDown={e => navigateTabs(e, index)} onClick={() => setView(id)}><Icon aria-hidden="true" />{label}</button>)}
       </div>
-      <div className="pane" hidden={view !== 'Чат'} ref={chatBody} role="log" aria-label="Сообщения" tabIndex={0}>
-        {!turns.length && <div className="empty"><h3>Вопрос по двигателю</h3>
-          <p>{diagnosis ? diagnosis.message : `Спросите о замере или о руководстве для двигателя ${vehicle.engine_model}.`}</p></div>}
+      <div className="pane" hidden={view !== 'result'} id="panel-result" aria-labelledby="tab-result" role="tabpanel" tabIndex={0}>
+        {diagnosis ? <DiagnosticReport result={diagnosis} /> : <EmptyView icon={ScanLine}
+          title={sessionId ? 'Результат ещё не запрошен' : 'У этой машины пока нет проверок'}>
+          {sessionId ? 'Проверьте параметры замера и нажмите «Получить результат диагностики».' : 'Выберите другую машину в списке транспорта.'}
+        </EmptyView>}
+      </div>
+      <div className="pane" hidden={view !== 'chat'} ref={chatBody} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
+        {!turns.length && <EmptyView icon={MessageSquare} title="Что хотите уточнить?">
+          Спросите о замере или нормативе из руководства для двигателя {vehicle.engine_model}.
+        </EmptyView>}
+        <div role="log" aria-label="Сообщения">
         {turns.map(({ result, question }) => <div className="turn" key={result.request_id}>
           <div className="question"><strong>Вы</strong><p>{question}</p></div>
           {result.ticket_draft
             ? <p>Черновик подготовлен в разделе «Заявка».</p>
             : <Response result={result} />}
-        </div>)}
+        </div>)}</div>
       </div>
-      <div className="pane ticket-pane" hidden={view !== 'Заявка'} role="region" aria-label="Заявка на дефектовку" tabIndex={0}>
-        {ticketStatus ? <p className="notice">{ticketStatus}</p>
+      <div className="pane" hidden={view !== 'ticket'} id="panel-ticket" aria-labelledby="tab-ticket" role="tabpanel" tabIndex={0}>
+        {ticketStatus ? ticketStatus.ticketId
+          ? <div className="receipt" role="status"><CheckCheck aria-hidden="true" /><h3>Заявка создана</h3><p>Номер в ТОиР <strong>{ticketStatus.ticketId}</strong></p></div>
+          : <p className="limitations" role="status">{ticketStatus.message}</p>
           : draft ? <Draft draft={draft.value} evidence={draft.evidence} />
-          : <div className="empty"><h3>Заявка на дефектовку</h3>
-            <p>{canDraft ? 'Подготовьте черновик и проверьте состав работ перед отправкой.'
-              : ticketHint || 'Сначала получите результат диагностики.'}</p></div>}
+          : <EmptyView icon={ClipboardList} title="Заявка на дефектовку">
+            {canDraft ? 'Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.'
+              : ticketHint || 'Сначала получите результат диагностики.'}</EmptyView>}
       </div>
       <div className="panel-footer">
-        {view === 'Результат' && <div className="footer-actions">
-          <button className="secondary" onClick={() => setView('Чат')}>Задать вопрос</button>
-          <button disabled={!canDraft && !draft && !ticketStatus} onClick={() => setView('Заявка')}>К заявке</button>
+        {view === 'result' && <div className="footer-actions">
+          <button className="secondary" onClick={() => { focusQuestion.current = true; setView('chat') }}><MessageSquare aria-hidden="true" />Задать вопрос</button>
+          <button disabled={!canDraft && !draft && !ticketStatus} onClick={() => selectTab('ticket')}>К заявке<ArrowRight aria-hidden="true" /></button>
         </div>}
-        {view === 'Чат' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) run('chat') }}>
-          <div className="compose-row"><input aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю" value={question}
-            maxLength={8000} disabled={!sessionId || !!pending} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
-            <button type="submit" className="submit" disabled={!question.trim() || !!pending || !sessionId}>Отправить</button></div>
+        {view === 'chat' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) { composer.current?.focus(); run('chat') } }}>
+          <div className="compose-row"><input ref={composer} aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю…" value={question}
+            maxLength={8000} disabled={!sessionId} readOnly={!!pending} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
+            <button type="submit" className="submit" disabled={!question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>Отправить</span></button></div>
         </form>}
-        {view === 'Заявка' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
-          onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{draft ? 'Подтвердить заявку' : 'Создать заявку'}</button>}
+        {view === 'ticket' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
+          onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? 'Отправлено в ТОиР' : 'Отправка заблокирована'
+            : draft ? 'Подтвердить заявку' : 'Создать заявку'}</button>}
       </div>
       <div className="panel-status" role="status">{error || pendingLabels[pending]}</div>
     </section>

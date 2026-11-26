@@ -1,4 +1,5 @@
 import React from 'react'
+import { ArrowUpRight, BookOpen, CheckCircle2, CircleAlert, ListChecks, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки' }
@@ -14,7 +15,7 @@ function pageLink(source) {
 
 export function Source({ source }) {
   return <a className="source" href={pageLink(source)}
-    target="_blank" rel="noreferrer">{source.manual}, стр.{'\u00a0'}{source.pdf_page}</a>
+    target="_blank" rel="noreferrer">{source.manual}, стр.{'\u00a0'}{source.pdf_page}<ArrowUpRight aria-hidden="true" /></a>
 }
 
 function Entries({ items, render = item => item }) {
@@ -53,25 +54,27 @@ export function DiagnosticReport({ result }) {
       const source = sources.get(id)
       return referenceNumbers.get(pageLink(source))
     }))
+    const lastSpace = claim.text.trimEnd().lastIndexOf(' ')
     return <p key={claim.kind + claim.text}>
       {claim.kind === 'cause' && 'Возможная причина: '}
       {claim.kind === 'risk' && 'Риск: '}
       {claim.kind === 'reference_value' && 'Норматив: '}
       {claim.kind === 'spare_part' && 'Запчасти: '}
-      {claim.text}{[...numbers].map(number => {
+      {claim.text.slice(0, lastSpace + 1)}<span className="cited-end">{claim.text.slice(lastSpace + 1)}{[...numbers].map(number => {
         const source = references[number - 1]
         return <sup key={number}><a href={pageLink(source)} target="_blank" rel="noreferrer"
           aria-label={`Источник ${number}, ${source.manual}, страница ${source.pdf_page}`}>[{number}]</a></sup>
-      })}
+      })}</span>
     </p>
   }
   const quality = qualities[diagnostic.signal_quality]
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  const OutcomeIcon = { anomaly: CircleAlert, check_failed: RotateCcw, normal: CheckCircle2 }[status]
+  const lead = status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.' : result.message
+  const title = status === 'anomaly' && diagnostic.anomaly_title
+  const titleAt = title ? lead.indexOf(title) : -1
   return <article className={'report report-' + status}>
-    <header><h3>{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[status]}</h3>
-      <p className="report-lead">{status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.'
-        : result.message}</p>
-      {status === 'normal' && <p>{result.message}</p>}
+    <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[status]}</h3>
       <p className="report-reading">{[
         quality && 'Запись ' + quality,
         status === 'anomaly' && diagnostic.anomaly_type,
@@ -79,10 +82,16 @@ export function DiagnosticReport({ result }) {
         status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность модели ' + confidence,
       ].filter(Boolean).join(' · ')}</p>
     </header>
-    {narrative.map(citedClaim)}
-    {!!actions.length && <section className="report-action"><h4>Что делать дальше</h4>{actions.map(citedClaim)}</section>}
+    <p className="report-lead">{titleAt < 0 ? lead : <>
+      {lead.slice(0, titleAt)}<strong>{title}</strong>{lead.slice(titleAt + title.length)}
+    </>}</p>
+    {status === 'normal' && <p>{result.message}</p>}
+    <div className="report-body">
+      {!!narrative.length && <div className="report-findings">{narrative.map(citedClaim)}</div>}
+      {!!actions.length && <section className="report-action"><h4><ListChecks aria-hidden="true" />Что делать дальше</h4>{actions.map(citedClaim)}</section>}
+    </div>
     {!!result.limitations?.length && <section className="report-limits"><h4>Что осталось уточнить</h4><Entries items={result.limitations} /></section>}
-    {!!references.length && <footer className="report-sources"><h4>По руководству</h4>
+    {!!references.length && <footer className="report-sources"><h4><BookOpen aria-hidden="true" />По руководству</h4>
       <ol>{references.map(source => <li key={pageLink(source)}><Source source={source} /></li>)}</ol>
     </footer>}
   </article>
