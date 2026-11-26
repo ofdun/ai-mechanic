@@ -3,6 +3,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 
@@ -88,7 +89,7 @@ def test_web_routes_and_conversation_isolation(host, monkeypatch):
 def test_documents_only_indexed_known_bytes(host, monkeypatch):
     app, settings = host
     pdf = settings.data_dir / pdf_baseline.PDF_NAME
-    pdf.write_bytes(b'%PDF-1.4\nfixture')
+    pdf.write_bytes((Path(__file__).resolve().parents[1] / 'demo' / 'training-stand.pdf').read_bytes())
     monkeypatch.setattr(pdf_baseline, 'PDF_SHA256', hashlib.sha256(pdf.read_bytes()).hexdigest())
     index = settings.artifacts_dir / 'manuals.sqlite3'
     with closing(sqlite3.connect(index)) as db, db:
@@ -99,12 +100,21 @@ def test_documents_only_indexed_known_bytes(host, monkeypatch):
             assert (await client.get('/api/documents/vehicles.json')).status_code == 404
             url = f'/api/documents/{pdf_baseline.DOCUMENT_ID}'
             assert (await client.get(url)).status_code == 404
+            assert (await client.get(url + '/pages/2')).status_code == 404
             with closing(sqlite3.connect(index)) as db, db:
                 db.execute('INSERT INTO manual_pages VALUES (?)', (pdf_baseline.DOCUMENT_ID,))
             result = await client.get(url)
             assert result.headers['content-type'] == 'application/pdf' and result.content == pdf.read_bytes()
+            page = (await client.get(url + '/pages/2')).json()
+            assert page['page'] == page['total'] == 2
+            assert 'Сверить маркировку' in page['text']
+            image = await client.get(url + '/pages/2?view=image')
+            assert image.headers['content-type'] == 'image/png' and image.content.startswith(b'\x89PNG')
+            assert (await client.get(url + '/pages/0')).status_code == 404
+            assert (await client.get(url + '/pages/3')).status_code == 404
             pdf.write_bytes(b'%PDF-1.4\nother')
             assert (await client.get(url)).status_code == 404
+            assert (await client.get(url + '/pages/2?view=image')).status_code == 404
 
     asyncio.run(check())
 

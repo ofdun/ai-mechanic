@@ -100,9 +100,9 @@ class Pipeline:
 
     def measurement_issue(self, result: DiagnosticResult) -> str | None:
         if result.status == 'check_failed' or result.signal_quality == 'bad':
-            return 'Запись непригодна для заключения. Повторите замер.'
+            return 'По этой записи нельзя оценить работу двигателя. Повторите замер.'
         if result.confidence is None or result.confidence < self.settings.min_diagnostic_confidence:
-            return 'Уверенность модели ниже установленного порога. Повторите замер.'
+            return 'Искусственный интеллект не смог уверенно распознать звук двигателя. Повторите замер.'
         if result.signal_quality == 'warning' and self.settings.repeat_on_warning:
             return 'В записи есть помехи. Повторите замер.'
         return None
@@ -113,7 +113,7 @@ class Pipeline:
         if (result.anomaly_type == 'F08' and fuel == 'бензин') or (
             result.anomaly_type in {'F12', 'F13'} and fuel == 'дизель'
         ):
-            return 'Гипотеза ML несовместима с типом топлива в карточке ТС. Уточните исходные данные.'
+            return 'Предполагаемая неисправность не соответствует типу топлива этой машины. Проверьте карточку машины и выбранный замер.'
         return None
 
     def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse) -> None:
@@ -124,13 +124,13 @@ class Pipeline:
             response.requires_remeasurement = True
             return
         if result.status == 'normal':
-            response.message = 'Значимых отклонений в этой акустической проверке не обнаружено.'
+            response.message = 'На записи звук двигателя в пределах нормы.'
             return
         if mismatch := self.ticket_mismatch(vehicle, result):
             response.message = mismatch
             return
-        response.message = (f'Внешний ML-сервис обнаружил отклонение «{result.anomaly_title}». '
-                            f'Уверенность модели {result.confidence:.0%}. Причину нужно проверить.')
+        response.message = (f'Искусственный интеллект обнаружил признаки отклонения «{result.anomaly_title}». '
+                            'Причину нужно уточнить при осмотре.')
         self.search(response, diagnostic_search(vehicle.engine_model, message, result), result)
         operations = [claim for claim in response.claims if claim.kind == 'operation']
         response.can_create_ticket = bool(operations)
@@ -151,19 +151,19 @@ class Pipeline:
             source_ids = {item.evidence_id for item in response.evidence.items}
             response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
             if not response.claims:
-                response.limitations.append('Недостаточно доказательств для технических выводов.')
+                response.limitations.append('В руководстве по этому двигателю недостаточно сведений для вывода.')
             return
         if self.retriever is None:
-            response.limitations.append('Retriever ещё не подключён. Доступен поисковый план.')
+            response.limitations.append('Сейчас поиск по руководствам недоступен.')
             return
 
         response.evidence = scope_evidence(self.retriever.search(plan), plan.engine_model)
         sources = {item.evidence_id for item in response.evidence.items}
         if not response.evidence.items:
-            response.limitations.append('Применимых доказательств для выбранного двигателя не найдено.')
+            response.limitations.append('В руководстве по этому двигателю ответ не найден.')
             return
         if self.generator is None or self.verifier is None:
-            response.limitations.append('Для технических рекомендаций нужны Generator и Verifier. Возвращены фрагменты.')
+            response.limitations.append('Найдены страницы руководства, но подтвердить по ним порядок работ пока не удалось.')
             return
 
         draft = self.generator.generate(plan, response.evidence, diagnostic)
@@ -172,7 +172,7 @@ class Pipeline:
             if claim in draft.claims and all(key in sources for key in claim.evidence_ids)
         ]
         if not response.claims:
-            response.limitations.append('По найденным фрагментам не удалось подтвердить технические утверждения.')
+            response.limitations.append('На найденных страницах руководства нет подтверждения для ответа.')
 
     def save_draft(
         self, actor_id: str, response: AgentResponse, result: DiagnosticResult, operations: list[TechnicalClaim],

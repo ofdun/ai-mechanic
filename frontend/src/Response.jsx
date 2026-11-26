@@ -1,6 +1,7 @@
 import React from 'react'
-import { ArrowUpRight, BookOpen, CheckCircle2, CircleAlert, ListChecks, RotateCcw } from 'lucide-react'
+import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
+import { Source } from './ManualReader'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки' }
 const qualities = { good: 'хорошая', warning: 'с помехами', bad: 'непригодная' }
@@ -9,13 +10,8 @@ const sections = {
   check: 'Что проверить', reference_value: 'Нормативы', operation: 'Работы', spare_part: 'Запчасти',
 }
 
-function pageLink(source) {
-  return '/api/documents/' + encodeURIComponent(source.document_id) + '#page=' + source.pdf_page
-}
-
-export function Source({ source }) {
-  return <a className="source" href={pageLink(source)}
-    target="_blank" rel="noreferrer">{source.manual}, стр.{'\u00a0'}{source.pdf_page}<ArrowUpRight aria-hidden="true" /></a>
+function pageKey(source) {
+  return JSON.stringify([source.document_id, source.pdf_page])
 }
 
 function Entries({ items, render = item => item }) {
@@ -43,7 +39,7 @@ export function DiagnosticReport({ result }) {
   for (const claim of [...narrative, ...actions]) {
     for (const id of claim.evidence_ids) {
       const source = sources.get(id)
-      const key = pageLink(source)
+      const key = pageKey(source)
       if (!referenceNumbers.has(key)) {
         referenceNumbers.set(key, references.push(source))
       }
@@ -52,18 +48,15 @@ export function DiagnosticReport({ result }) {
   function citedClaim(claim) {
     const numbers = new Set(claim.evidence_ids.map(id => {
       const source = sources.get(id)
-      return referenceNumbers.get(pageLink(source))
+      return referenceNumbers.get(pageKey(source))
     }))
     const lastSpace = claim.text.trimEnd().lastIndexOf(' ')
     return <p key={claim.kind + claim.text}>
-      {claim.kind === 'cause' && 'Возможная причина: '}
-      {claim.kind === 'risk' && 'Риск: '}
       {claim.kind === 'reference_value' && 'Норматив: '}
       {claim.kind === 'spare_part' && 'Запчасти: '}
       {claim.text.slice(0, lastSpace + 1)}<span className="cited-end">{claim.text.slice(lastSpace + 1)}{[...numbers].map(number => {
         const source = references[number - 1]
-        return <sup key={number}><a href={pageLink(source)} target="_blank" rel="noreferrer"
-          aria-label={`Источник ${number}, ${source.manual}, страница ${source.pdf_page}`}>[{number}]</a></sup>
+        return <sup key={number}><Source source={source} number={number} /></sup>
       })}</span>
     </p>
   }
@@ -77,22 +70,25 @@ export function DiagnosticReport({ result }) {
     <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{repeat && diagnostic.status !== 'check_failed' ? 'Требуется повторный замер' : outcomes[status]}</h3>
       <p className="report-reading">{[
         quality && 'Запись ' + quality,
-        status === 'anomaly' && diagnostic.anomaly_type,
+        status === 'anomaly' && diagnostic.anomaly_type && 'Код ' + diagnostic.anomaly_type,
         status === 'anomaly' && !result.message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
-        status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность модели ' + confidence,
+        status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность ИИ ' + confidence,
       ].filter(Boolean).join(' · ')}</p>
     </header>
     <p className="report-lead">{titleAt < 0 ? lead : <>
       {lead.slice(0, titleAt)}<strong>{title}</strong>{lead.slice(titleAt + title.length)}
     </>}</p>
     {status === 'normal' && <p>{result.message}</p>}
-    <div className="report-body">
-      {!!narrative.length && <div className="report-findings">{narrative.map(citedClaim)}</div>}
-      {!!actions.length && <section className="report-action"><h4><ListChecks aria-hidden="true" />Что делать дальше</h4>{actions.map(citedClaim)}</section>}
-    </div>
-    {!!result.limitations?.length && <section className="report-limits"><h4>Что осталось уточнить</h4><Entries items={result.limitations} /></section>}
-    {!!references.length && <footer className="report-sources"><h4><BookOpen aria-hidden="true" />По руководству</h4>
-      <ol>{references.map(source => <li key={pageLink(source)}><Source source={source} /></li>)}</ol>
+    {[['observation', 'Что заметили'], ['cause', 'Возможная причина'], ['risk', 'Чем это грозит']].map(([kind, label]) => {
+      const group = narrative.filter(claim => claim.kind === kind)
+      return group.length ? <section key={kind} className="report-row"><h4>{label}</h4><div>{group.map(citedClaim)}</div></section> : null
+    })}
+    {!!actions.length && <section className="report-row report-action"><h4>Что делать дальше</h4><div>{actions.map(citedClaim)}</div></section>}
+    {!!result.limitations?.length && <section className="report-row"><h4>Что осталось уточнить</h4><div><Entries items={result.limitations} /></div></section>}
+    {!!references.length && <footer className="report-row report-sources"><h4>Руководство</h4>
+      <div>{references.map((source, index) => <div key={pageKey(source)}>
+        {references.length > 1 && <span>[{index + 1}] </span>}<Source source={source} />
+      </div>)}</div>
     </footer>}
   </article>
 }
@@ -113,7 +109,7 @@ export function Response({ result }) {
     {!repeat && diagnostic?.status === 'anomaly' && <p className="meta">
       Код {diagnostic.anomaly_type}
       {!message.includes(diagnostic.anomaly_title) && ' · ' + diagnostic.anomaly_title}
-      {confidence && !message.includes(confidence) && ' · Уверенность ' + confidence}
+      {confidence && !message.includes(confidence) && ' · Уверенность ИИ ' + confidence}
     </p>}
     {!repeat && Object.entries(sections).map(([kind, title]) => {
       const group = verified.filter(claim => claim.kind === kind)

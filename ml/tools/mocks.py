@@ -64,15 +64,15 @@ class MockServices:
         except httpx.RequestError as error:
             raise AgentError('ML_UPSTREAM_ERROR', 'Сервис диагностики недоступен.', retryable=True) from error
         if response.status_code == 404:
-            raise AgentError('VEHICLE_OR_SESSION_NOT_FOUND', 'Mock ML не нашёл сессию ТС.')
+            raise AgentError('VEHICLE_OR_SESSION_NOT_FOUND', 'Выбранный замер этой машины не найден.')
         if response.status_code != 200:
             raise AgentError('ML_UPSTREAM_ERROR', 'Сервис диагностики отклонил запрос.', retryable=response.status_code >= 500)
         try:
             result = DiagnosticResult.model_validate_json(response.content)
         except ValidationError as error:
-            raise AgentError('ML_SCHEMA_ERROR', 'Mock ML прислал результат в неверном формате.') from error
+            raise AgentError('ML_SCHEMA_ERROR', 'Не удалось прочитать результат замера. Повторите запрос.') from error
         if (result.vehicle_id, result.session_id) != (vehicle_id, session_id):
-            raise AgentError('ML_SCHEMA_ERROR', 'Mock ML прислал результат другой сессии.')
+            raise AgentError('ML_SCHEMA_ERROR', 'Получен результат другого замера. Запросите выбранную проверку ещё раз.')
         return result
 
     def create_ticket(self, payload: TicketPayload) -> TicketReceipt:

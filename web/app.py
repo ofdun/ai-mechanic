@@ -4,7 +4,7 @@ import unicodedata
 from contextlib import asynccontextmanager, closing
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -16,6 +16,7 @@ from ml import pdf_baseline
 from ml.api import create_agent_router
 from ml.config import Settings
 from ml.pipeline import Pipeline
+from web.manuals import read_manual_page
 from web.sessions import SESSION_SECONDS, WebSessions
 
 
@@ -79,8 +80,7 @@ def create_app(
             for vehicle in pipeline.vehicles.vehicles.values()
         ])
 
-    @app.get('/api/documents/{document_id}', response_class=FileResponse)
-    def document(document_id: str):
+    def checked_document(document_id: str) -> Path:
         sources = documents if documents is not None else {
             pdf_baseline.DOCUMENT_ID: (pdf_baseline.PDF_NAME, pdf_baseline.PDF_SHA256),
         }
@@ -98,7 +98,16 @@ def create_app(
                    and not p.is_symlink() and p.is_file()]
         if len(matches) != 1 or hashlib.sha256(matches[0].read_bytes()).hexdigest() != digest:
             raise HTTPException(404, 'Проверенная версия руководства недоступна.')
-        return FileResponse(matches[0], media_type='application/pdf', headers={'Cache-Control': 'private'})
+        return matches[0]
+
+    @app.get('/api/documents/{document_id}', response_class=FileResponse)
+    def document(path: Path = Depends(checked_document)):
+        return FileResponse(path, media_type='application/pdf', headers={'Cache-Control': 'private'})
+
+    @app.get('/api/documents/{document_id}/pages/{page_number}')
+    def manual_page(page_number: int, view: Literal['text', 'image'] = 'text',
+                    path: Path = Depends(checked_document)):
+        return read_manual_page(path, page_number, view)
 
     dist = frontend_dist or Path(__file__).resolve().parents[1] / 'frontend' / 'dist'
     if dist.is_dir():

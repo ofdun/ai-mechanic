@@ -15,7 +15,7 @@ from playwright.sync_api import expect, sync_playwright
 
 from demo import upstream
 from demo.app import create_app
-from demo.fixtures import DOCUMENT_ID, MANUAL, OPERATION, PDF_NAME, RISK
+from demo.fixtures import DOCUMENT_ID, MANUAL, OPERATION, RISK
 from demo.prepare import prepare
 
 
@@ -39,7 +39,7 @@ def serve(app):
             worker.join(timeout=10)
 
 
-def exercise(context, base_url, pdf_path):
+def exercise(context, base_url):
     page = context.new_page()
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -66,19 +66,32 @@ def exercise(context, base_url, pdf_path):
 
     report = page.get_by_role('tabpanel', name='Результат', exact=True)
     expect(report.get_by_role('heading', name='Что делать дальше')).to_be_visible()
-    link = report.get_by_role('link', name=f'{MANUAL}, стр. 2', exact=True)
-    expect(link).to_have_count(1)
-    href = f'/api/documents/{DOCUMENT_ID}#page=2'
-    expect(link).to_have_attribute('href', href)
-    with context.expect_page() as opened:
-        link.tap()
-    source = opened.value
-    source.wait_for_url(base_url + href)
-    document = context.request.get(source.url)
-    assert document.ok and document.headers['content-type'] == 'application/pdf'
-    assert document.body() == pdf_path.read_bytes()
-    source.close()
-    print('PASS — отклонение, риск, работа, ссылка и PDF на физической странице 2')
+    source_name = f'{MANUAL}, стр. 2'
+    source = report.get_by_role('button', name=source_name, exact=True)
+    doc_requests, downloads, popups = [], [], []
+    page.on('request', lambda req: doc_requests.append(req.url) if '/api/documents/' in req.url else None)
+    page.on('download', lambda download: downloads.append(download))
+    page.on('popup', lambda popup: popups.append(popup))
+    expect(report).to_contain_text('Искусственный интеллект')
+    expect(report).to_contain_text('91%')
+    expect(report).not_to_contain_text('ML')
+    source.scroll_into_view_if_needed()
+    old_scroll = report.evaluate('el => el.scrollTop')
+    source.tap()
+    expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
+    page.get_by_role('button', name='Текст', exact=True).tap()
+    expect(page.locator('.manual-text')).to_contain_text('Сверить маркировку')
+    page.get_by_role('button', name='Предыдущая страница').tap()
+    expect(page.locator('.manual-text')).to_contain_text('Демонстрационные данные')
+    expect(page.get_by_role('button', name='Предыдущая страница')).to_be_disabled()
+    page.go_back()
+    expect(source).to_be_focused()
+    assert abs(report.evaluate('el => el.scrollTop') - old_scroll) < 2
+    report.get_by_role('button', name=re.compile('^Источник 1')).first.tap()
+    expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='К результату').tap()
+    print('PASS — физическая страница 2 в приложении, оригинал и текст, перелистывание и возврат к той же строке')
 
     page.get_by_role('button', name='Задать вопрос').tap()
     question = page.get_by_label('Вопрос по двигателю')
@@ -89,7 +102,10 @@ def exercise(context, base_url, pdf_path):
     expect(page.get_by_role('article')).to_have_count(1)
     answer = page.get_by_role('article').first
     expect(answer).to_contain_text(RISK)
-    expect(answer.get_by_role('link')).to_have_attribute('href', href)
+    answer.get_by_role('button', name=source_name).tap()
+    expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='К чату').tap()
+    expect(answer.get_by_role('button', name=source_name)).to_be_focused()
     print('PASS — F4, уточнение по предыдущей диагностике с подтверждённым риском и ссылкой')
 
     question.fill('Можно ли перегнать машину на базу?')
@@ -112,7 +128,12 @@ def exercise(context, base_url, pdf_path):
     ticket_view.tap()
     expect(preview).to_have_count(1)
     expect(preview).to_contain_text('F08-DEMO')
-    expect(preview.get_by_role('link')).to_have_attribute('href', href)
+    preview.get_by_role('button', name=source_name).tap()
+    expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='К заявке').tap()
+    expect(preview.get_by_role('button', name=source_name)).to_be_focused()
+    assert not popups and not downloads
+    assert doc_requests and all(f'/api/documents/{DOCUMENT_ID}/pages/' in url for url in doc_requests)
     with page.expect_response(lambda res: res.url.endswith('/agent/tickets/confirm')) as completed:
         confirm.tap()
     receipt_response = completed.value
@@ -146,7 +167,7 @@ def exercise(context, base_url, pdf_path):
     expect(page.get_by_role('heading', name='Сбой проверки', exact=True)).to_be_visible()
     expect(report.get_by_text(re.compile('Повторите замер'))).to_be_visible()
     expect(draft).to_have_count(0)
-    expect(page.get_by_role('link', name=re.compile('стр\\.'))).to_have_count(0)
+    expect(page.get_by_role('button', name=re.compile('стр\\.'))).to_have_count(0)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert not errors, errors
     print('PASS — C3, смена проверки, просьба повторить замер, заявки и рекомендации отсутствуют')
@@ -182,7 +203,7 @@ def main():
         context = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
         stack.callback(context.close)
         print(f'Chromium {browser.version} · 390×844 · учебные HTTP-сервисы')
-        first_ticket = exercise(context, base_url, data_dir / PDF_NAME)
+        first_ticket = exercise(context, base_url)
         assert len(ticket_posts) == 1, f'Ожидалась одна запись в ТОиР, отправлено {len(ticket_posts)}'
 
         # The public training stand gives each visitor their own copy of the exercise.

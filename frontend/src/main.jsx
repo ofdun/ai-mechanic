@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, MessageSquare, ScanLine, Send, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, Draft, Response } from './Response'
+import { ManualNavigation } from './ManualReader'
 import './style.css'
 
 function App() {
@@ -167,7 +168,8 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
     }
   }
 
-  return <div className="workspace">
+  const returnLabels = { result: 'К результату', chat: 'К чату', ticket: 'К заявке' }
+  return <ManualNavigation sessionKey={id} returnLabel={returnLabels[view]}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
       <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />Параметры замера</h2>
         {selectedSession && <time dateTime={selectedSession.checked_at}>{formatDate(selectedSession.checked_at)}</time>}
@@ -237,7 +239,7 @@ function Workspace({ catalog, vehicle, sessionId, changeVehicle, changeSession }
       </div>
       <div className="panel-status" role="status">{error || pendingLabels[pending]}</div>
     </section>
-  </div>
+  </div></ManualNavigation>
 }
 
 createRoot(document.getElementById('root')).render(<App />)

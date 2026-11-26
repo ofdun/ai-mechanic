@@ -3,6 +3,16 @@ export function conversationId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
+const serviceMessages = {
+  LLM_NOT_CONFIGURED: 'Помощник сейчас недоступен. Сообщите администратору.',
+  LLM_UPSTREAM_ERROR: 'Помощник сейчас не отвечает. Попробуйте ещё раз.',
+  LLM_OUTPUT_INCOMPLETE: 'Не удалось получить полный ответ. Попробуйте уточнить вопрос.',
+  LLM_SCHEMA_ERROR: 'Помощнику не удалось подготовить ответ. Попробуйте уточнить вопрос.',
+  LLM_EVIDENCE_NOT_ALLOWED: 'Для ответа по этому руководству требуется доступ. Обратитесь к администратору.',
+  RAG_INDEX_UNAVAILABLE: 'Поиск по руководствам сейчас недоступен. Попробуйте позже.',
+  RAG_SCHEMA_ERROR: 'Не удалось подтвердить ответ по руководству выбранного двигателя.',
+}
+
 export async function request(path, body, signal) {
   const response = await fetch(path, {
     method: body ? 'POST' : 'GET',
@@ -17,7 +27,8 @@ export async function request(path, body, signal) {
   const data = await response.json().catch(() => null)
   if (!response.ok || !data) {
     const detail = data?.detail
-    const error = new Error(detail?.message || 'Не удалось получить ответ сервера. Проверьте соединение.')
+    const message = typeof detail === 'string' ? detail : serviceMessages[detail?.code] || detail?.message
+    const error = new Error(message || 'Не удалось получить ответ сервера. Проверьте соединение.')
     error.code = detail?.code
     error.retryable = detail?.retryable
     throw error
