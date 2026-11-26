@@ -14,21 +14,24 @@
 | Hybrid BM25 + dense через RRF (RET-06, RET-07) | Готово |
 | Cross-encoder reranker (RET-08) | Код готов, с реальной моделью не запускался |
 | Родительские страницы и соседи (RET-09), бюджет контекста (RET-10) | Готово |
-| Чтение выгрузки ingestion (`pages.jsonl` и `manifest.json`) | Готово, на реальной выгрузке не проверено |
+| Чтение выгрузки ingestion (`pages.jsonl`, `manifest.json`, каталог ParsedDocument) | Готово. Вадим собрал BM25 по актуальному ParsedDocument Романа: 6 руководств, 1743 страницы |
 | Подключение к агенту, baseline и архитектуры A/B | Готово через `build_retrieval_pipeline`. Сквозной прогон на моках оргов пройден (раздел 5) |
 | Совпадение моделей с `vehicles.json` | Проверено: 5 моделей в 50 ТС, все есть в каталоге ingestion, расхождений нет |
 | Оценка Hit@K, Recall@K, MRR, nDCG@K, latency и JSON прогона | Готово |
-| Golden set | Есть у Вадима: `evaluation/datasets/customer_questions.jsonl`, 241 вход, 202 со страницами `passage` или `module`. `evaluation.retrieval` пока читает только упрощённый формат |
+| Golden set | `evaluation.retrieval` читает `customer_questions.jsonl` напрямую: 204 кейса поиска, 202 со страницами (dev 140, holdout 62), 2 `abstain`. Три режима запроса на одном индексе: `original`, `rewritten`, `combined` |
+| Расширение запроса по коду неисправности F01–F14 (plan-expansion) | Готово, включено по умолчанию (`expand_anomaly`). На реальном корпусе C1 не перепроверен |
+| Защита сборки | `build` не заменяет каталог с входными данными и каталог, который не является индексом |
 | Прогоны на корпусе заказчика | Не выполнялись: нет комплекта PDF на машине владельца |
 
-Тесты: `uv run pytest -q`, 49 passed, 1 skipped. Retrieval-тесты используют вымышленные руководства, материалы заказчика в репозиторий не попадают.
+Тесты: `uv run pytest -q`, 60 passed, 1 skipped. Retrieval-тесты используют вымышленные руководства, материалы заказчика в репозиторий не попадают.
 
 ## 2. Путь запроса
 
 ```text
 SearchPlan
   → фильтр модели двигателя (до любого top-k)
-  → BM25 и exact dense на каждый запрос плана: original, rewritten, subqueries
+  → запросы плана: original, rewritten, subqueries; при диагнозе F01–F14 — словарь узла в rewritten и отдельным запросом
+  → BM25 и exact dense на каждый запрос
   → Reciprocal Rank Fusion
   → опциональный cross-encoder
   → родительские страницы, соседние страницы того же руководства
@@ -44,6 +47,7 @@ SearchPlan
 | `dense.py` | Точный косинус на NumPy. Векторы `dense/<model>.npy` привязаны к фрагментам индекса хешем их ID, устаревшие отклоняются |
 | `fusion.py` | RRF, `k=60` по умолчанию |
 | `reranker.py` | Cross-encoder, например `BAAI/bge-reranker-v2-m3`. Qwen3-Reranker требует отдельного адаптера |
+| `expansion.py` | Запросы по кодам Mock ML F01–F14 словами руководств: узел, детали, «неисправности, причины и методы устранения» |
 | `engine.py` | `RetrievalConfig`, сборка и чтение индекса, `RetrievalEngine` |
 
 Оценка лежит в `evaluation/retrieval`, параметры — в `configs/retrieval.yaml`, наборы и их формат — в `evaluation/datasets/README.md`.
@@ -76,6 +80,7 @@ Retrieval читает выгрузку `ml/ingestion/export_pages.py` из ве
 | `mode` | `sparse` | RET-06, RET-07: `sparse`, `dense`, `hybrid` |
 | `chunker`, `chunk_words`, `chunk_overlap` | `page`, 300, 50 | RET-01–RET-03. Размер в словах, на русское слово приходится ~1.5–2 токена |
 | `embedder`, `embed_max_seq_length` | `BAAI/bge-m3`, 512 | RET-04, RET-05 |
+| `expand_anomaly` | `true` | plan-expansion: словарь узла по коду F01–F14 для диагностических планов |
 | `per_query_k`, `rrf_k` | 30, 60 | RET-07 |
 | `reranker`, `rerank_candidates` | `null`, 30 | RET-08 |
 | `context`, `neighbor_pages` | `page`, 0 | RET-09 |
@@ -92,10 +97,15 @@ uv run --extra dense python -m ml.retrieval embed                # BGE-M3 для
 uv run python -m ml.retrieval search --engine ЯМЗ-536 --query 'момент затяжки болтов головки цилиндров'
 uv run python -m ml --retrieval-index artifacts/indexes/manuals run --vehicle M333YK47 --session S-0005 \
   --message 'Как проверить форсунки?'
-uv run python -m evaluation.retrieval --golden evaluation/datasets/retrieval.jsonl --split dev \
+# переформулировки Planner: один вызов LLM на вопрос, файл переиспользуется всеми прогонами
+LLM_API_KEY=... uv run python -m evaluation.retrieval.rewrite --split dev --output evaluation/results/rewrites-dev.jsonl
+uv run python -m evaluation.retrieval --golden evaluation/datasets/customer_questions.jsonl \
+  --manifest ../data/manifest.json --rewrites evaluation/results/rewrites-dev.jsonl --split dev --query-mode all \
   --output evaluation/results/ret-01.json --run-file evaluation/results/ret-01-run.json \
-  --run-id ret-01-bm25-page-<commit> --commit <commit> --dataset 'golden v1, dev'
+  --run-id ret-01-bm25-page-<commit> --commit <commit> --dataset 'customer_questions 8e7a6e6, dev'
 ```
+
+Режимы запроса: `original` — только вопрос, `rewritten` — переформулировка Planner и подзапросы, `combined` — всё вместе через RRF, `all` — три прогона на одном индексе (`run-<mode>.json`). Без файла переформулировок `rewritten` берёт `reference_rewrite` из набора, иначе исходный вопрос; число переформулировок пишется в отчёт. Коды документов набора (`y236re`, …) сопоставляются с каноническими `document_id` через имя PDF в манифесте, как в Oracle Context Алексея. Страницы `context` в релевантные не входят.
 
 `--run-file` готовит JSON в формате журнала #9. Релевантность считается по физическим страницам, фрагменты одной страницы схлопываются. Вопросы без ответа в корпусе в метрики ранжирования не входят.
 
@@ -108,7 +118,7 @@ uv run python -m evaluation.retrieval --golden evaluation/datasets/retrieval.jso
 - Векторы для 1743 страниц на CPU — по оценке 15–30 минут. Не измерено.
 - Модели скачиваются в кеш Hugging Face, веса BGE-M3 весят около 2.3 ГБ.
 - **Сквозной прогон на моках оргов** (`neurodvs_hackathon_mock_2026-11-16`: Mock ML, Mock ТОиР, `vehicles.json`). Индекс собран из синтетической выгрузки в формате ingestion, но с реальными `document_id` и моделями, планировщик офлайн, архитектура baseline:
-  - C1, M333YK47 / S-0005: Mock ML вернул `anomaly` F08 с уверенностью 0.73. Retrieval выдал только страницы ЯМЗ-236М2 (`yamz-236_re_2010:52`, `:53`), страница ЯМЗ-536 отсечена фильтром. Правило F08 дало операцию, черновик ссылается на «236-3902150-Б РЭ», стр. 52. Подтверждение создало `TKT-0001`, повторное вернуло ту же заявку;
+  - C1, M333YK47 / S-0005: Mock ML вернул `anomaly` F08 с уверенностью 0.73. Retrieval выдал только страницы ЯМЗ-236М2 (`yamz-236_re_2010:52`, `:53`, тогда ещё старый ID), страница ЯМЗ-536 отсечена фильтром. Правило F08 дало операцию, черновик ссылается на «236-3902150-Б РЭ», стр. 52. Подтверждение создало `TKT-0001`, повторное вернуло ту же заявку;
   - C3, P456AT178 / S-0003: `check_failed` → `requires_remeasurement: true`, без черновика и заявки;
   - `build` предупредил о трёх моделях ЗМЗ без руководств в синтетическом индексе: проверка покрытия работает.
   Это проверка связки, а не качества поиска: текст страниц выдуманный.
@@ -132,7 +142,9 @@ uv run python -m evaluation.retrieval --golden evaluation/datasets/retrieval.jso
   - в `pyproject.toml` добавлены `numpy`, `pyyaml`, `snowballstemmer`, extra `dense` (sentence-transformers и torch) и `pythonpath = ["."]` для pytest;
   - `ml/__main__.py` получил флаг `--retrieval-index`;
   - в `ml/pdf_baseline.py` выделен `build_retrieval_pipeline(settings, http, retriever)`, и `build_pdf_pipeline` вызывает его.
-- **`DOCUMENT_ID` в `ml/pdf_baseline.py` заменён на `yamz-236_re_2010`** из каталога ingestion. Правило F08 ищет строку таблицы регулярным выражением под `pdftotext -layout`. Ingestion извлекает текст через pypdfium2, поэтому раскладка может не совпасть и C1 не дойдёт до заявки. Проверяется только на реальном PDF.
+- **`DOCUMENT_ID` в `ml/pdf_baseline.py` — канонический `yamz-236-operations-2010`** из актуального `data/manifest.json`, тот же ID использует SQLite-индекс веба.
+- **Правило F08 не зависит от раскладки.** Оно находит строку «Нарушение регулировки или засорение форсунки → Отрегулировать форсунку и, если необходимо, промыть и прочистить её» в двух формах: колонки построчно (`pdftotext -layout`) и ячейки целиком (pypdfium2). Пробелы и переносы строк не важны. `ml.retrieval build` предупреждает, если на стр. 52 строка не найдена.
+- **Диагностический план F08 находит стр. 52.** Переформулировка «<название неисправности>. Возможные причины…» одинаково похожа на все таблицы неисправностей, поэтому retrieval добавляет словарь узла по коду F01–F14 к `rewritten_query` и отдельным запросом.
 - **Planner влияет на поиск напрямую.** Retrieval объединяет `original_query`, `rewritten_query` и `subqueries` через RRF. Профили F01–F14 (AG-08) лучше добавлять в `rewritten_query` или `subqueries` — тогда они пройдут через тот же путь.
 - **Задержка в `hybrid`:** каждый запрос плана — это эмбеддинг на CPU, около 250 мс. Если latency важна, ограничивать число подзапросов.
 
@@ -150,20 +162,19 @@ uv run python -m evaluation.retrieval --golden evaluation/datasets/retrieval.jso
 
 ### Все · golden set
 
-- **Набор уже есть:** `customer_questions.jsonl` от Вадима, 241 вход, split dev 170 / holdout 71. Страницы указаны в `expected_evidence` кодами документов (`y236re`, `y536rk`, …), а не `document_id` ingestion. Для retrieval-метрик нужно соответствие кодов и `document_id`. Holdout не трогать до финальной оценки.
+- **Набор уже есть:** `customer_questions.jsonl` от Вадима, 241 вход, split dev 170 / holdout 71. `evaluation.retrieval` читает его напрямую, коды документов сопоставляются через имя PDF в манифесте. Holdout не трогать до финальной оценки.
 - **Метрики считает Вадим.** Retrieval отдаёт индекс, конфигурации для сравнения и разбор промахов.
 
 ## 7. Открытые вопросы и блокеры
 
-1. Нет комплекта PDF и `vehicles.json` на машине владельца retrieval.
-2. Ни одна гипотеза RET не измерена: нет индекса по реальным PDF. `evaluation.retrieval` ещё не читает `customer_questions.jsonl`.
-3. Нужно проверить правило F08 на тексте pypdfium2. На тексте с раскладкой `pdftotext -layout` оно срабатывает.
-4. `git fetch` и `gh` на машине владельца не работают (SSL), ветка не опубликована, Issue #4 не обновлена.
-5. Векторы и reranker на всём корпусе не замерены по времени и памяти.
+1. Нет комплекта PDF на машине владельца retrieval. C1 на реальной выгрузке (стр. 52 в `EvidenceBundle` и операция в черновике) проверяется прогоном у Вадима.
+2. Ни одна гипотеза RET не измерена на всём наборе. Контрольные точки Вадима на BM25 по умолчанию: Q241 — все три страницы конфликта РЭ/РК в топ-7, Q008 — одна из трёх в топ-8.
+3. Словарь F01–F14 в retrieval дублирует профили `ml.generation.profiles` Алексея. После слияния веток свести к одному источнику.
+4. Векторы и reranker на всём корпусе не замерены по времени и памяти.
 
 ## 8. Следующие шаги
 
-1. Выгрузка ingestion → `build` → первый прогон RET-01 на dev-части `customer_questions.jsonl` (202 кейса со страницами).
+1. Выгрузка ingestion → `build` → `evaluation.retrieval.rewrite` → RET-01 на dev-части `customer_questions.jsonl` в трёх режимах запроса.
 2. `embed` BGE-M3 → сравнение `sparse`, `dense` и `hybrid` (RET-04, RET-06, RET-07).
 3. `structural` с 256/512/1024 токенами, reranker, `neighbor_pages`, подбор `top_k` и бюджета (RET-02, RET-03, RET-08–RET-10).
 4. По результатам — Qwen3-Embedding (RET-04, RET-05).

@@ -9,6 +9,7 @@ are cited) and dense/<model>.npy vectors built by `python -m ml.retrieval embed`
 
 import json
 import shutil
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,7 @@ from ml.contracts import AgentError, Evidence, EvidenceBundle, ParsedDocument, S
 from ml.retrieval.chunking import CHUNKERS, Chunk, corpus_version, load_documents, nfc, page_chunks
 from ml.retrieval.dense import DenseIndex, embed_chunks, load_dense
 from ml.retrieval.embeddings import Embedder
+from ml.retrieval.expansion import fault_query
 from ml.retrieval.fusion import reciprocal_rank_fusion
 from ml.retrieval.reranker import Reranker
 from ml.retrieval.sparse import BM25, Analyzer, tokenizer
@@ -48,6 +50,7 @@ class RetrievalConfig(BaseModel):
     embed_max_seq_length: int = Field(512, ge=16)
     embed_batch_size: int = Field(8, ge=1)
     device: str = 'cpu'
+    expand_anomaly: bool = True
     per_query_k: int = Field(30, ge=1)
     rrf_k: int = Field(60, ge=1)
     reranker: str | None = None
@@ -77,7 +80,7 @@ class RetrievalConfig(BaseModel):
             parts.append(f'BM25 k1={self.bm25_k1} b={self.bm25_b} analyzer={self.analyzer}')
         if self.mode != 'sparse':
             parts.append(f'dense={self.embedder} max_seq={self.embed_max_seq_length}')
-        parts.append(f'per_query_k={self.per_query_k} rrf_k={self.rrf_k}')
+        parts.append(f'expand_anomaly={self.expand_anomaly} per_query_k={self.per_query_k} rrf_k={self.rrf_k}')
         parts.append(f'rerank={self.reranker}/{self.rerank_candidates}' if self.reranker else 'rerank=none')
         parts.append(f'context={self.context}+{self.neighbor_pages} top_k={self.top_k} budget={self.max_evidence_words}')
         return ', '.join(parts)
@@ -135,6 +138,7 @@ def build_index(
         raise AgentError('RAG_CONFIG_INVALID', f'Неизвестный chunker {config.chunker}. Доступно: {", ".join(CHUNKERS)}.')
     if config.chunk_overlap >= config.chunk_words:
         raise AgentError('RAG_CONFIG_INVALID', 'chunk_overlap должен быть меньше chunk_words.')
+    check_output(source, output, manifest)
     documents = load_documents(source, manifest)
     chunker = CHUNKERS[config.chunker]
     by_document = [
@@ -151,19 +155,76 @@ def build_index(
         engine_models=sorted({model for document in documents for model in document.engine_models}),
         documents=[summarize(document, document_chunks) for document, document_chunks in by_document],
     )
-    temporary = output.with_name(output.name + '.tmp')
+    write_index(output, chunks, pages, manifest)
+    return manifest
+
+
+def check_output(source: Path, output: Path, manifest: Path | None = None) -> None:
+    """Refuse an output that overlaps the inputs or an existing directory that is not a retrieval index.
+
+    Rebuilding replaces the whole output directory, so it must never hold the corpus or other files.
+    """
+    target = output.resolve()
+    source = source.resolve()
+    inputs = [source]
+    if manifest is not None:
+        inputs.append(manifest.resolve())
+    elif source.is_file():
+        inputs.append(source.with_name('manifest.json'))
+    for path in inputs:
+        if target == path or target in path.parents:
+            raise AgentError('RAG_CONFIG_INVALID', f'Каталог индекса {output} содержит входные данные {path}.')
+    if source.is_dir() and source in target.parents:
+        raise AgentError('RAG_CONFIG_INVALID', f'Индекс нельзя собирать внутри каталога ParsedDocument {source}.')
+    if output.exists() and not is_index(output):
+        raise AgentError('RAG_CONFIG_INVALID', f'{output} существует и не является индексом retrieval, он не будет заменён.')
+
+
+def is_index(path: Path) -> bool:
+    """An existing directory may be replaced only if it is empty or holds a retrieval index."""
+    if not path.is_dir() or path.is_symlink():
+        return False
+    entries = {entry.name for entry in path.iterdir()}
+    if not entries:
+        return True
+    if not {MANIFEST, CHUNKS, PAGES} <= entries or not entries <= {MANIFEST, CHUNKS, PAGES, 'dense'}:
+        return False
     try:
-        shutil.rmtree(temporary, ignore_errors=True)
-        temporary.mkdir(parents=True)
-        _write_jsonl(temporary / CHUNKS, chunks)
-        _write_jsonl(temporary / PAGES, pages)
-        (temporary / MANIFEST).write_text(manifest.model_dump_json(indent=2), encoding='utf-8')
-        if output.exists():
-            shutil.rmtree(output)
-        temporary.replace(output)
+        Manifest.model_validate_json((path / MANIFEST).read_bytes())
+    except (OSError, ValidationError):
+        return False
+    return True
+
+
+def write_index(output: Path, chunks: list[Chunk], pages: list[Chunk], manifest: Manifest) -> None:
+    """Write into a fresh sibling directory, then swap it in. Only a verified index is ever removed."""
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(dir=output.parent, prefix=f'.{output.name}.build-'))
     except OSError as error:
         raise AgentError('RAG_INDEX_UNAVAILABLE', f'Не удалось записать индекс в {output}.') from error
-    return manifest
+    previous = None
+    try:
+        _write_jsonl(staging / CHUNKS, chunks)
+        _write_jsonl(staging / PAGES, pages)
+        (staging / MANIFEST).write_text(manifest.model_dump_json(indent=2), encoding='utf-8')
+        if output.exists():
+            if not is_index(output):
+                raise AgentError('RAG_CONFIG_INVALID', f'{output} не является индексом retrieval, он не будет заменён.')
+            previous = Path(tempfile.mkdtemp(dir=output.parent, prefix=f'.{output.name}.old-'))
+            previous.rmdir()
+            output.rename(previous)
+        staging.rename(output)
+    except OSError as error:
+        if previous is not None and not output.exists():
+            previous.rename(output)
+            previous = None
+        raise AgentError('RAG_INDEX_UNAVAILABLE', f'Не удалось записать индекс в {output}.') from error
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+    if previous is not None:
+        shutil.rmtree(previous, ignore_errors=True)
 
 
 def read_index(path: Path) -> tuple[Manifest, list[Chunk], list[Chunk]]:
@@ -203,9 +264,17 @@ class Hit:
     score: float
 
 
-def queries(plan: SearchPlan) -> list[str]:
-    """Original, rewritten and sub-queries without repeats (AG-05 compares these variants)."""
-    return list(dict.fromkeys(query.strip() for query in (plan.original_query, plan.rewritten_query, *plan.subqueries)))
+def queries(plan: SearchPlan, *, expand_anomaly: bool = True) -> list[str]:
+    """Original, rewritten and sub-queries without repeats, plus the fault-code query of a diagnosis.
+
+    The fault vocabulary also extends the rewritten query: a diagnostic rewrite such as "<fault title>.
+    Possible causes, checks and procedures" otherwise matches every troubleshooting table equally, and
+    under RRF a single expansion list loses to pages that several generic lists agree on.
+    """
+    expansion = fault_query(plan.anomaly_type) if expand_anomaly else None
+    rewritten = f'{plan.rewritten_query} {expansion}' if expansion else plan.rewritten_query
+    variants = (plan.original_query, rewritten, *plan.subqueries, expansion)
+    return list(dict.fromkeys(query.strip() for query in variants if query and query.strip()))
 
 
 class RetrievalEngine:
@@ -251,7 +320,7 @@ class RetrievalEngine:
             return []
         depth = self.config.per_query_k
         rankings = []
-        for query in queries(plan):
+        for query in queries(plan, expand_anomaly=self.config.expand_anomaly):
             if self.sparse is not None and (tokens := self.tokenize(query)):
                 rankings.append(self.sparse.top(tokens, depth, allowed))
             if self.dense is not None:

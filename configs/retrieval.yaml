@@ -19,6 +19,9 @@ embed_max_seq_length: 512
 embed_batch_size: 8
 device: cpu
 
+# Диагностический план: словарь узла по коду F01–F14 в rewritten и отдельным запросом (plan-expansion)
+expand_anomaly: true
+
 # Слияние и reranking (RET-07, RET-08)
 per_query_k: 30           # кандидатов на каждый запрос и каждый метод до RRF
 rrf_k: 60

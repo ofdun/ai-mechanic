@@ -1,3 +1,3 @@
 {"id": "ex-001", "engine_model": "ЯМЗ-536", "question": "Какой порядок затяжки болтов головки цилиндров?", "relevant": [{"document_id": "yamz-536_re_2016", "pdf_page": 272}], "split": "dev", "tags": ["схема", "норматив"]}
-{"id": "ex-002", "engine_model": "ЯМЗ-236М2", "question": "Что делать при нарушении регулировки форсунки?", "relevant": [{"document_id": "yamz-236_re_2010", "pdf_page": 52}], "split": "dev", "tags": ["F08", "таблица"]}
+{"id": "ex-002", "engine_model": "ЯМЗ-236М2", "question": "Что делать при нарушении регулировки форсунки?", "relevant": [{"document_id": "yamz-236-operations-2010", "pdf_page": 52}], "split": "dev", "tags": ["F08", "таблица"]}
 {"id": "ex-003", "engine_model": "ЯМЗ-236М2", "question": "Какое давление в шинах прицепа?", "relevant": [], "split": "dev", "tags": ["вне корпуса"]}

@@ -4,6 +4,7 @@ import math
 import statistics
 import time
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -25,6 +26,29 @@ class GoldenQuestion(BaseModel):
     relevant: list[PageRef] = Field(default_factory=list)
     split: str = 'dev'
     tags: list[str] = Field(default_factory=list)
+    rewritten_query: Text | None = None
+    subqueries: list[Text] = Field(default_factory=list, max_length=5)
+
+
+QueryMode = Literal['original', 'rewritten', 'combined']
+QUERY_MODES: tuple[QueryMode, ...] = ('original', 'rewritten', 'combined')
+
+
+def plan_for(question: GoldenQuestion, mode: QueryMode = 'combined') -> SearchPlan:
+    """original: the question only; rewritten: the rewrite and its subqueries; combined: everything, fused by RRF.
+
+    A question without a rewrite falls back to its own text, so the three modes stay comparable case by case.
+    """
+    rewritten = question.rewritten_query or question.question
+    subqueries = question.subqueries if question.rewritten_query else []
+    if mode == 'original':
+        return SearchPlan(engine_model=question.engine_model, original_query=question.question,
+                          rewritten_query=question.question)
+    if mode == 'rewritten':
+        return SearchPlan(engine_model=question.engine_model, original_query=rewritten, rewritten_query=rewritten,
+                          subqueries=subqueries)
+    return SearchPlan(engine_model=question.engine_model, original_query=question.question,
+                      rewritten_query=rewritten, subqueries=subqueries)
 
 
 class QuestionResult(BaseModel):
@@ -42,7 +66,9 @@ class Report(BaseModel):
     corpus_version: str
     config: RetrievalConfig
     split: str | None
+    query_mode: QueryMode = 'combined'
     questions: int
+    rewrites: int = 0
     answerable: int
     unanswerable: int
     ks: list[int]
@@ -87,13 +113,12 @@ def dcg(gains: list[int]) -> float:
 
 def evaluate(
     engine: RetrievalEngine, questions: list[GoldenQuestion], ks: tuple[int, ...] = (1, 3, 5, 10),
-    *, split: str | None = None,
+    *, split: str | None = None, query_mode: QueryMode = 'combined',
 ) -> Report:
     depth = max(ks)
     results = []
     for question in questions:
-        plan = SearchPlan(engine_model=question.engine_model, original_query=question.question,
-                          rewritten_query=question.question)
+        plan = plan_for(question, query_mode)
         started = time.perf_counter()
         hits = engine.rank_pages(plan, depth)
         latency = (time.perf_counter() - started) * 1000
@@ -131,7 +156,8 @@ def evaluate(
             'chunker': engine.manifest.chunker, 'analyzer': engine.manifest.analyzer,
             'chunk_words': engine.manifest.chunk_words, 'chunk_overlap': engine.manifest.chunk_overlap,
         }),
-        split=split, questions=len(questions), answerable=len(answerable),
+        split=split, query_mode=query_mode, questions=len(questions),
+        rewrites=sum(question.rewritten_query is not None for question in questions), answerable=len(answerable),
         unanswerable=len(questions) - len(answerable), ks=list(ks),
         hit_at_k={k: mean([float(bool(r.first_relevant_rank and r.first_relevant_rank <= k)) for _, r in answerable]) for k in ks},
         recall_at_k={k: mean([recall(q, r, k) for q, r in answerable]) for k in ks},
@@ -155,7 +181,8 @@ def run_record(
         'run_id': run_id,
         'status': 'completed',
         'hypothesis': hypothesis,
-        'configuration': f'{config.describe()}, фильтр модели до top-k, корпус {report.corpus_version}',
+        'configuration': (f'query_mode={report.query_mode}, {config.describe()}, фильтр модели до top-k, '
+                          f'корпус {report.corpus_version}'),
         'models': ', '.join(filter(None, (
             config.embedder if config.mode != 'sparse' else None, config.reranker,
         ))) or 'none',
@@ -169,6 +196,7 @@ def run_record(
         'result': f'{report.answerable} вопросов с ответом: {hits}; {ndcg}; MRR {report.mrr:.3f}.',
         'notes': (
             f'Вопросов без ответа в корпусе: {report.unanswerable}, они не входят в метрики ранжирования. '
+            f'Переформулировки есть у {report.rewrites} из {report.questions}, у остальных используется исходный вопрос. '
             'Релевантность считается по физическим страницам, фрагменты одной страницы схлопываются. '
             'Задержка только поиска в процессе (с эмбеддингом запроса), без загрузки индекса и LLM.'
         ),

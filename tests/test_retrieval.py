@@ -376,3 +376,133 @@ def test_evaluation_counts_pages_not_chunks(parsed_dir, tmp_path):
 def test_example_golden_set_is_valid():
     questions = load_golden(Path('evaluation/datasets/retrieval.example.jsonl'))
     assert [bool(question.relevant) for question in questions] == [True, True, False]
+
+
+def test_fault_code_extends_the_diagnostic_queries():
+    from ml.retrieval.engine import queries
+
+    diagnostic = SearchPlan(engine_model=DIESEL, original_query='Проведи диагностику', anomaly_type='F08',
+                            rewritten_query='Дизельная топливоподача.')
+    expanded = queries(diagnostic)
+    assert len(expanded) == 3 and 'форсунки' in expanded[1] and expanded[1].startswith('Дизельная топливоподача.')
+    assert queries(diagnostic, expand_anomaly=False) == ['Проведи диагностику', 'Дизельная топливоподача.']
+    assert queries(plan(DIESEL, 'момент затяжки')) == ['момент затяжки']
+
+
+@pytest.mark.parametrize('layout', ['same', 'parent', 'inside', 'foreign'])
+def test_build_never_replaces_inputs_or_foreign_directories(parsed_dir, tmp_path, layout):
+    extra = parsed_dir / 'notes.txt'
+    extra.write_text('не удалять', encoding='utf-8')
+    foreign = tmp_path / 'foreign'
+    foreign.mkdir()
+    (foreign / 'keep.txt').write_text('чужой файл', encoding='utf-8')
+    output = {'same': parsed_dir, 'parent': tmp_path, 'inside': parsed_dir / 'index', 'foreign': foreign}[layout]
+    before = sorted(path.name for path in parsed_dir.iterdir())
+
+    with pytest.raises(AgentError) as error:
+        build_index(parsed_dir, output)
+    assert error.value.code == 'RAG_CONFIG_INVALID'
+    assert sorted(path.name for path in parsed_dir.iterdir()) == before and extra.read_text(encoding='utf-8')
+    assert (foreign / 'keep.txt').exists()
+
+
+def test_build_rejects_the_export_directory_and_rebuilds_an_index_in_place(tmp_path):
+    record = {'document_id': 'dvs-100_re_2020', 'models': [DIESEL], 'printed_page': None, 'section': None}
+    pages = write_export(tmp_path / 'data', [{**record, 'pdf_page': 1, 'text': 'Момент затяжки болтов'}],
+                         [{'document_id': 'dvs-100_re_2020', 'title': 'РЭ', 'designation': '100.0001 РЭ'}])
+    with pytest.raises(AgentError, match='содержит входные данные'):
+        build_index(pages, tmp_path / 'data')
+    assert pages.exists() and (tmp_path / 'data' / 'manifest.json').exists()
+
+    index = tmp_path / 'data' / 'index'
+    build_index(pages, index)
+    (index / 'dense').mkdir()
+    build_index(pages, index)
+    assert sorted(path.name for path in index.iterdir()) == ['chunks.jsonl', 'manifest.json', 'pages.jsonl']
+    assert sorted(path.name for path in (tmp_path / 'data').iterdir()) == ['index', 'manifest.json', 'pages.jsonl']
+
+
+def write_rows(path: Path, rows: list[dict]) -> Path:
+    path.write_text(''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in rows), encoding='utf-8')
+    return path
+
+
+def test_customer_questions_are_adapted_with_canonical_ids_and_query_modes(tmp_path):
+    from evaluation.retrieval.customer import is_customer_format, load_customer_questions, load_rewrites
+    from evaluation.retrieval.metrics import plan_for
+
+    manifest = tmp_path / 'manifest.json'
+    manifest.write_text(json.dumps({'documents': [
+        {'document_id': 'dvs-100-re', 'title': 'Руководство', 'designation': '100.0001 РЭ'},
+        {'document_id': 'bdv-7-rk', 'title': '7.0002 РК', 'designation': None},
+    ]}, ensure_ascii=False), encoding='utf-8')
+    case = {'suite': 'rag', 'expected_tool': 'search_manuals', 'split': 'dev', 'focus': ['citation']}
+    rows = [
+        {**case, 'id': 'Q1', 'text': 'Какой момент затяжки головки?', 'context': {'engine_model': DIESEL},
+         'answer_outcome': 'answer', 'expected_evidence': [
+             {'document': 'd1', 'manual': '100.0001 РЭ', 'pdf_pages': [3, 3], 'scope': 'passage'},
+             {'document': 'd1', 'manual': '100.0001 РЭ', 'pdf_pages': [2], 'scope': 'context'}]},
+        {**case, 'id': 'Q2', 'text': 'Давление в шинах прицепа?', 'context': {'engine_model': DIESEL},
+         'answer_outcome': 'abstain', 'expected_evidence': [
+             {'document': 'd1', 'manual': '100.0001 РЭ', 'pdf_pages': [5], 'scope': 'context'}]},
+        {**case, 'id': 'Q3', 'text': 'Что искать при износе ЦПГ?', 'context': {'engine_model': DIESEL},
+         'reference_rewrite': {'template': 'Износ ЦПГ для [Тип ДВС]', 'placeholder': '[Тип ДВС]'}},
+        {**case, 'id': 'Q4', 'text': 'Проведи диагностику', 'expected_tool': 'diagnose',
+         'context': {'engine_model': DIESEL}},
+        {**case, 'id': 'Q5', 'text': 'Зазор свечи', 'context': {'engine_model': PETROL}, 'split': 'holdout',
+         'answer_outcome': 'answer', 'expected_evidence': [
+             {'document': 'b7', 'manual': '7.0002 РК', 'pdf_pages': [11], 'scope': 'module'}]},
+    ]
+    golden = write_rows(tmp_path / 'customer_questions.jsonl', rows)
+    rewrites = write_rows(tmp_path / 'rewrites.jsonl', [{
+        'id': 'Q1', 'action': 'search_manuals', 'rewritten_query': 'момент затяжки болтов',
+        'subqueries': ['головка цилиндров']}])
+
+    assert is_customer_format(golden) and not is_customer_format(Path('evaluation/datasets/retrieval.example.jsonl'))
+    adapted = load_customer_questions(golden, manifest, 'dev', load_rewrites(rewrites))
+    q1, q2 = adapted.questions
+    assert [(ref.document_id, ref.pdf_page) for ref in q1.relevant] == [('dvs-100-re', 3)]
+    assert q2.relevant == [] and adapted.skipped == {'нет разметки страниц': ['Q3']}
+    assert load_customer_questions(golden, manifest, 'holdout').questions[0].relevant[0].document_id == 'bdv-7-rk'
+
+    original, rewritten, combined = (plan_for(q1, mode) for mode in ('original', 'rewritten', 'combined'))
+    assert (original.rewritten_query, original.subqueries) == (q1.question, [])
+    assert (rewritten.original_query, rewritten.subqueries) == ('момент затяжки болтов', ['головка цилиндров'])
+    assert (combined.original_query, combined.rewritten_query) == (q1.question, 'момент затяжки болтов')
+    assert plan_for(q2, 'rewritten').rewritten_query == q2.question
+
+    rows[2].update(answer_outcome='answer', expected_evidence=[
+        {'document': 'd1', 'manual': '100.0001 РЭ', 'pdf_pages': [3], 'scope': 'passage'}])
+    rows[0]['expected_evidence'][0]['manual'] = '999 РЭ'
+    write_rows(golden, rows)
+    with pytest.raises(AgentError, match='999 РЭ'):
+        load_customer_questions(golden, manifest)
+    rows[0]['expected_evidence'][0]['manual'] = '100.0001 РЭ'
+    write_rows(golden, rows)
+    q3 = next(q for q in load_customer_questions(golden, manifest).questions if q.id == 'Q3')
+    assert q3.rewritten_query == f'Износ ЦПГ для {DIESEL}'
+
+
+def test_cli_runs_three_query_modes_on_one_index(parsed_dir, tmp_path, monkeypatch, capsys):
+    build_index(parsed_dir, tmp_path / 'index')
+    manifest = tmp_path / 'manifest.json'
+    manifest.write_text(json.dumps({'documents': [
+        {'document_id': 'dvs-100-re', 'title': 'Руководство', 'designation': '100.0001 РЭ'}]}), encoding='utf-8')
+    golden = write_rows(tmp_path / 'customer_questions.jsonl', [{
+        'id': 'Q1', 'suite': 'rag', 'expected_tool': 'search_manuals', 'split': 'dev',
+        'text': 'насколько сильно тянуть крепёж наверху', 'context': {'engine_model': DIESEL}, 'answer_outcome': 'answer',
+        'reference_rewrite': {'template': 'момент затяжки болтов головки цилиндров'},
+        'expected_evidence': [{'manual': '100.0001 РЭ', 'pdf_pages': [3], 'scope': 'passage'}]}])
+    run_file = tmp_path / 'run.json'
+    monkeypatch.setattr('sys.argv', [
+        'evaluation.retrieval', '--index', str(tmp_path / 'index'), '--golden', str(golden), '--manifest', str(manifest),
+        '--query-mode', 'all', '--output', str(tmp_path / 'report.json'), '--run-file', str(run_file),
+        '--run-id', 'ret-test', '--commit', 'abc', '--dataset', 'synthetic'])
+    assert evaluation_cli() == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['original']['mrr'] == 0.0 and summary['rewritten']['mrr'] == 1.0 and summary['combined']['mrr'] > 0
+    assert summary['rewritten']['rewrites'] == 1
+    records = {mode: json.loads((tmp_path / f'run-{mode}.json').read_text(encoding='utf-8'))
+               for mode in ('original', 'rewritten', 'combined')}
+    assert records['rewritten']['run_id'] == 'ret-test-rewritten'
+    assert 'query_mode=combined' in records['combined']['configuration']

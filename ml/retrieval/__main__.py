@@ -27,6 +27,20 @@ def uncovered_models(index_models: list[str]) -> list[str]:
     return sorted({vehicle.engine_model for vehicle in vehicles} - set(index_models))
 
 
+def reviewed_row_warning(index: Path) -> str | None:
+    """C1 needs the reviewed F08 row on its physical page. Say so at build time if the export lost it."""
+    from ml.pdf_baseline import DOCUMENT_ID, FIRST_PAGE, injector_row
+    from ml.retrieval.engine import read_index
+
+    _, _, pages = read_index(index)
+    page = next((page for page in pages if (page.document_id, page.pdf_page) == (DOCUMENT_ID, FIRST_PAGE)), None)
+    if page is None:
+        return f'В индексе нет {DOCUMENT_ID}, стр. {FIRST_PAGE}: правило F08 для C1 не сработает.'
+    if injector_row(page.text) is None:
+        return f'{DOCUMENT_ID}, стр. {FIRST_PAGE}: правило F08 не нашло проверенную строку таблицы.'
+    return None
+
+
 def main() -> int:
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
@@ -61,8 +75,13 @@ def main() -> int:
             manifest = build_index(args.source, args.output, config, manifest=args.manifest)
             summary = manifest.model_dump(mode='json')
             summary['index'] = str(args.output)
+            warnings = []
             if missing := uncovered_models(manifest.engine_models):
-                summary['warning'] = f'Модели из vehicles.json без руководств в индексе: {", ".join(missing)}'
+                warnings.append(f'Модели из vehicles.json без руководств в индексе: {", ".join(missing)}')
+            if warning := reviewed_row_warning(args.output):
+                warnings.append(warning)
+            if warnings:
+                summary['warnings'] = warnings
             if args.embed:
                 summary['dense'] = {config.embedder: embed_index(args.output, load_embedder(config), config)}
             print(json.dumps(summary, ensure_ascii=False, indent=2))
