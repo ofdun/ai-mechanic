@@ -274,10 +274,11 @@ li + li { margin-top: .35rem; }
 .draft-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
 .print-sheet { display: none; }
 @media print {
-  @page { size: A4; margin: 14mm 13mm; }
+  @page defect-sheet { size: A4; margin: 0; }
   :root { background: #fff; color: #000; }
   body:has(> .print-sheet) > #root { display: none; }
   .print-sheet {
+    page: defect-sheet; padding: 14mm 13mm; box-decoration-break: clone;
     display: block; color: #000; background: #fff;
     font-size: 10.5pt; line-height: 1.35; overflow-wrap: anywhere;
   }
