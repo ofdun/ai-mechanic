@@ -13,6 +13,7 @@ class Decision:
     action: Action
     rewritten_query: str | None = None
     subqueries: list[str] = field(default_factory=list)
+    clarification: str | None = None
 
 
 class Planner(Protocol):

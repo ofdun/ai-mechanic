@@ -94,7 +94,7 @@ class Pipeline:
             request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
             engine_model=vehicle.engine_model, conversation_id=request.conversation_id,
             action=decision.action,
-            message='Уточните, что проверить или какой норматив найти.',
+            message=decision.clarification or 'Уточните, что проверить или какой норматив найти.',
         )
 
         if decision.action in ('diagnose', 'draft_ticket'):

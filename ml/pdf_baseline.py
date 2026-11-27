@@ -184,6 +184,7 @@ def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> P
 def build_manual_pipeline(settings: Settings, http: httpx.Client, retriever: PdfPageRetriever | RetrievalEngine) -> Pipeline:
     if settings.planner_mode == 'local':
         from ml.local_evidence import LocalEvidence
+        from ml.planner.local import LocalPlanner
         from ml.manual_corpus import document_catalog
         from ml.reviewed_checks import ReviewCatalog
         catalog = ReviewCatalog.load(settings.reviewed_evidence_path)
@@ -192,7 +193,9 @@ def build_manual_pipeline(settings: Settings, http: httpx.Client, retriever: Pdf
         generation = None
         if settings.allow_external_evidence and settings.agent_architecture != 'baseline':
             generation = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, ReviewedOperations())
-        return Pipeline(settings, http, search_workflow=LocalEvidence(retriever, catalog, engines, generation=generation))
+        terms = retriever.sparse.idf if isinstance(retriever, RetrievalEngine) and retriever.sparse else ()
+        return Pipeline(settings, http, planner=LocalPlanner(terms),
+                        search_workflow=LocalEvidence(retriever, catalog, engines, generation=generation))
     return build_retrieval_pipeline(settings, http, retriever)
 
 

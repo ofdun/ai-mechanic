@@ -8,6 +8,8 @@ from ml.planner.local import LocalPlanner
 
 
 @pytest.mark.parametrize(('message', 'action'), [
+    ('дай рецепт пряников домашних', 'clarify'),
+    ('термостат', 'search_manuals'),
     ('Проверь мотор', 'diagnose'),
     ('Оформить наряд на работы', 'draft_ticket'),
     ('Создать заявку', 'draft_ticket'),
@@ -47,7 +49,7 @@ def test_local_planner_grounds_an_elliptical_question_in_the_current_diagnosis()
     message = 'Почему это опасно?'
     with_context = planner.plan(message, 'Учебный мотор', diagnostic())
     assert with_context.action == 'search_manuals' and 'Ремённый привод' in with_context.rewritten_query
-    assert planner.plan(message, 'Учебный мотор', None).rewritten_query == message
+    assert planner.plan(message, 'Учебный мотор', None, recent_messages=['дай рецепт пряников домашних']).action == 'clarify'
 
 
 def test_reviewed_norm_requires_all_pages_of_the_selected_engine():
