@@ -259,6 +259,7 @@ li + li { margin-top: .35rem; }
   .answer-language { max-width: 100%; }
 }
 
+.manual-quote { background: #ffe58a; color: #17231b; text-decoration: underline; text-decoration-color: #9b6500; text-underline-offset: .15em; }
 .compose-row input { min-width: 0; }
 .compose-row button[aria-pressed="true"] { background: var(--pine); color: var(--paper); }
 .dictation-status:not(:empty) { margin-top: .35rem; font-size: .9rem; }
