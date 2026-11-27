@@ -9,7 +9,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ml.contracts import Evidence, EvidenceBundle, FaultCode, SearchOutcome, SearchPlan, TechnicalClaim
+from ml.contracts import AnswerVerification, CheckedPage, Evidence, EvidenceBundle, FaultCode, SearchOutcome, SearchPlan, TechnicalClaim
+from ml.generation.text import number_list
 from ml.document_ids import document_id_variants
 
 DEFAULT_CATALOG = Path(__file__).with_name('ingestion') / 'reviewed_evidence.json'
@@ -88,11 +89,14 @@ class ReviewCatalog(BaseModel):
         sources = {}
         claims = []
         notices = []
+        checked_pages = {}
+        rejected = 0
         for entry in self.entries:
             if not ((fault and entry.fault_code == fault) or entry.topic in topics):
                 continue
             # A multi-page procedure is released as a unit, including exceptions and conflicting tables.
             if any(read(key) is None for claim in entry.claims for key in claim.evidence_ids):
+                rejected += sum(not risk_only or c.kind == 'risk' for c in entry.claims)
                 continue
             if entry.conflict_notice:
                 notices.append(entry.conflict_notice)
@@ -100,11 +104,19 @@ class ReviewCatalog(BaseModel):
                 if risk_only and claim.kind != 'risk':
                     continue
                 fields, ids = {}, []
+                used = {name for _, name, _, _ in Formatter().parse(claim.text) if name}
                 for key in claim.evidence_ids:
                     item, values = read(key)
                     sources[item.evidence_id] = item
                     ids.append(item.evidence_id)
                     fields.update(values)
+                    numbers = checked_pages.setdefault(item.evidence_id, {})
+                    for name, value in values.items():
+                        if name in used:
+                            numbers.update(dict.fromkeys(number_list(value)))
                 claims.append(TechnicalClaim(text=claim.text.format_map(fields), kind=claim.kind, evidence_ids=ids))
         return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=list(sources.values())),
+                             verification=AnswerVerification(engine_model=plan.engine_model, rejected_claims=rejected,
+                                 pages=[CheckedPage(evidence_id=k, numbers=list(v)) for k, v in checked_pages.items()]
+                             ) if checked_pages or rejected else None,
                              summary=' '.join(dict.fromkeys(notices)))
