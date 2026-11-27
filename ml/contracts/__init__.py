@@ -9,7 +9,7 @@ FaultCode = Annotated[str, StringConstraints(pattern=r'^F(0[1-9]|1[0-4])$')]
 TicketUrgency = Literal['low', 'medium', 'high']
 Score = Annotated[float, Field(ge=0, le=1)]
 PageNumber = Annotated[int, Field(ge=1)]
-Action = Literal['diagnose', 'search_manuals', 'get_diagnostic_history', 'draft_ticket', 'clarify']
+Action = Literal['diagnose', 'search_manuals', 'get_diagnostic_history', 'draft_ticket', 'clarify', 'record_inspection']
 # Answer language for the mechanic: Russian, Uzbek (Latin), Tajik, Kyrgyz, Kazakh. Manuals and tickets stay Russian.
 Language = Literal['ru', 'uz', 'tg', 'ky', 'kk', 'hi']
 
@@ -198,15 +198,64 @@ class TicketReceipt(BaseModel):
     status: Literal['created']
 
 
+class PastTicket(BaseModel):
+    """A ticket the agent created for this vehicle earlier (B1 vehicle memory)."""
+    ticket_id: Text
+    session_id: Text
+    anomaly_type: Text
+
+
+class PartNumber(BaseModel):
+    """A part designation printed on a manual page of this engine; stock and compatibility are not known."""
+    designation: Text
+    context: str
+    manual: Text
+    document_id: Text
+    pdf_page: PageNumber
+    evidence_id: Text
+
+
+class FigureReference(BaseModel):
+    """A figure with a tightening order on a page of this engine's manual."""
+    figure: Text
+    caption: str | None = None
+    manual: Text
+    document_id: Text
+    pdf_page: PageNumber
+    # Numbered steps only from a sequence people checked against this page; empty means «open the figure».
+    sequence: list[str] = Field(default_factory=list)
+
+
+class InspectionInput(BaseModel):
+    """What the mechanic found after the defect check. It never changes the diagnosis or the ticket."""
+    model_config = ConfigDict(extra='forbid')
+
+    # Did the acoustic hypothesis hold: confirmed / not confirmed / the cause was another one.
+    outcome: Literal['confirmed', 'not_confirmed', 'other_cause']
+    # For checks by marks: matched or not; no angle is entered. «matched» does not mean the engine is fine.
+    marks: Literal['matched', 'not_matched'] | None = None
+    comment: Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)] = ''
+
+
+class InspectionRecord(InspectionInput):
+    inspection_id: Text
+    vehicle_id: Text
+    session_id: Text
+    model_version: Text
+    anomaly_type: FaultCode | None = None
+    recorded_at: AwareDatetime
+
+
 class AgentTurn(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     vehicle_id: Text
     session_id: Text
     conversation_id: Text | None = None
-    command: Literal['auto', 'diagnose', 'draft_ticket'] = 'auto'
+    command: Literal['auto', 'diagnose', 'draft_ticket', 'get_diagnostic_history', 'record_inspection'] = 'auto'
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)] | None = None
     language: Language = 'ru'
+    inspection: InspectionInput | None = None
 
 
 class AgentRequest(AgentTurn):
@@ -216,6 +265,8 @@ class AgentRequest(AgentTurn):
     def require_input(self):
         if self.command == 'auto' and self.message is None:
             raise ValueError('An automatic request requires text')
+        if (self.command == 'record_inspection') != (self.inspection is not None):
+            raise ValueError('An inspection is sent only with the record_inspection command')
         return self
 
 
@@ -255,6 +306,15 @@ class AgentResponse(BaseModel):
     evidence: EvidenceBundle = Field(default_factory=EvidenceBundle)
     claims: list[TechnicalClaim] = Field(default_factory=list)
     history: list[SessionRecord] = Field(default_factory=list)
+    # B1: comparison with earlier checks of this vehicle and the tickets created for it.
+    memory: list[str] = Field(default_factory=list)
+    past_tickets: list[PastTicket] = Field(default_factory=list)
+    # Part designations from the pages behind the answer; none is taken from external catalogues.
+    part_numbers: list[PartNumber] = Field(default_factory=list)
+    part_numbers_note: str | None = None
+    figures: list[FigureReference] = Field(default_factory=list)
+    # Inspection results recorded for this vehicle, newest last.
+    inspections: list[InspectionRecord] = Field(default_factory=list)
     ticket_draft: TicketDraft | None = None
     limitations: list[str] = Field(default_factory=list)
     language: Language = 'ru'
@@ -278,6 +338,7 @@ class LocalizedAnswer(BaseModel):
     # Same order and length as AgentResponse.claims.
     claims: list[LocalizedText] = Field(default_factory=list)
     limitations: list[LocalizedText] = Field(default_factory=list)
+    memory: list[LocalizedText] = Field(default_factory=list)
     # Fixed interface labels for this language: sections, conflict, urgency, notes.
     labels: dict[str, str] = Field(default_factory=dict)
 

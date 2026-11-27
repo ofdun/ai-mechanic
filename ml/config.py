@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     vehicles_path: Path | None = None
     manual_manifest_path: Path | None = None
     reviewed_evidence_path: Path | None = None
+    # Tightening sequences checked by people against manual figures; a local file, not in the repository.
+    reviewed_sequences_path: Path | None = None
     web_retrieval_mode: Literal['legacy', 'team'] = 'legacy'
     retrieval_config_path: Path | None = None
     artifacts_dir: Path = Path('artifacts')

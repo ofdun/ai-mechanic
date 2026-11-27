@@ -42,6 +42,8 @@ type Turn struct {
 	ID       string  `json:"conversation_id"`
 	Message  *string `json:"message,omitempty"`
 	Command  string  `json:"command,omitempty"`
+	// Inspection result for command record_inspection; the worker validates its fields.
+	Inspection json.RawMessage `json:"inspection,omitempty"`
 }
 
 var ErrInput = errors.New("invalid agent turn")

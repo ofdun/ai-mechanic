@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ml.contracts import AgentResponse, DiagnosticResult, Evidence, SessionRecord, TechnicalClaim
+from ml.contracts import AgentResponse, DiagnosticResult, Evidence, InspectionRecord, SessionRecord, TechnicalClaim
 from ml.generation.claims import conflict_group, quote_of
 from ml.generation.profiles import PROFILES, URGENCY_LABELS, Urgency, urgency_for
 from ml.generation.text import claim_numbers, content_stems, fold, has_negation
@@ -143,8 +143,14 @@ class MechanicFinalizer:
             answer = self.history(response)
         elif response.action in {'diagnose', 'draft_ticket'} and response.diagnostic is not None:
             answer = self.diagnosis(response)
+            answer.sections.extend(memory_section(response))
         elif response.action == 'search_manuals':
             answer = self.manual_answer(response)
+            # A tightening order people checked against the figure; without it the limitation points to the figure.
+            answer.sections.extend(AnswerSection(
+                title=f'Порядок затяжки (рис. {figure.figure})', numbered=True,
+                items=[AnswerItem(text=step, manual=figure.manual, pdf_page=figure.pdf_page) for step in figure.sequence],
+            ) for figure in response.figures if figure.sequence)
         else:
             answer = MechanicAnswer(tone='info', verdict=response.message)
         answer.text = render(answer)
@@ -291,8 +297,13 @@ class MechanicFinalizer:
         if not sessions:
             return MechanicAnswer(tone='info', verdict='📈 История проверок пуста.')
         items = [AnswerItem(text=describe_session(session)) for session in sessions]
+        sections = [AnswerSection(title='Проверки', items=items)]
+        if response.inspections:
+            sections.append(AnswerSection(title='Результаты осмотра', items=[
+                AnswerItem(text=describe_inspection(record)) for record in response.inspections]))
+        sections.extend(memory_section(response))
         return MechanicAnswer(tone='info', verdict=f'📈 Последние проверки {response.vehicle_id}',
-                              details=[trend(sessions)], sections=[AnswerSection(title='Проверки', items=items)])
+                              details=[trend(sessions)], sections=sections)
 
     # Ticket fields ----------------------------------------------------------------------------
 
@@ -360,6 +371,10 @@ def localized_text(response: AgentResponse) -> str:
             lines.extend(['', f'{names["section." + kind]}:', *grouped[kind]])
     if find_conflicts(response.claims, sources):
         lines.extend(['', f'⚖️ {names["conflict.title"]}. {names["conflict.note"]}'])
+    if answer.memory:
+        lines.extend(['', f'{names["memory"]}:'])
+        for text in answer.memory:
+            lines.extend(rendered(text))
     if answer.limitations:
         lines.append('')
         for text in answer.limitations:
@@ -382,6 +397,30 @@ def item(claim: TechnicalClaim, sources: dict[str, Evidence]) -> AnswerItem:
 STATUS_LABELS = {'normal': 'норма', 'anomaly': 'отклонение', 'check_failed': 'сбой записи'}
 
 
+MEMORY_TITLE = 'По этой машине'
+
+
+def memory_section(response: AgentResponse) -> list[AnswerSection]:
+    """B1: earlier checks and tickets of the same vehicle, after the answer itself."""
+    if not response.memory:
+        return []
+    return [AnswerSection(title=MEMORY_TITLE, items=[AnswerItem(text=line) for line in response.memory])]
+
+
+INSPECTION_OUTCOMES = {
+    'confirmed': 'гипотеза ИИ подтвердилась', 'not_confirmed': 'гипотеза ИИ не подтвердилась',
+    'other_cause': 'причина другая',
+}
+MARKS = {'matched': 'метки совпали', 'not_matched': 'метки не совпадают'}
+
+
+def describe_inspection(record: InspectionRecord) -> str:
+    text = f'{record.recorded_at:%d.%m.%Y} · {record.session_id} — {INSPECTION_OUTCOMES[record.outcome]}'
+    if record.marks:
+        text += f', {MARKS[record.marks]}'
+    return f'{text}: {record.comment}' if record.comment else text
+
+
 def describe_session(session: SessionRecord) -> str:
     text = f'{session.checked_at:%d.%m.%Y} · {session.session_id} — {STATUS_LABELS[session.status]}'
     if session.status == 'anomaly':
@@ -400,16 +439,17 @@ def trend(sessions: list[SessionRecord]) -> str:
     if len(scores) < 2:
         return 'Для оценки динамики нужны хотя бы две успешные проверки.'
     path = ' → '.join(decimal(score) for score in scores)
-    steps = [later - earlier for earlier, later in zip(scores, scores[1:])]
-    if all(step >= 0 for step in steps) and scores[-1] - scores[0] >= TREND_STEP:
+    # Rounded: 0.30 - 0.20 is 0.0999… in floating point, and a 0.10 rise must count as one.
+    steps = [round(later - earlier, 6) for earlier, later in zip(scores, scores[1:])]
+    if all(step >= 0 for step in steps) and round(scores[-1] - scores[0], 6) >= TREND_STEP:
         return f'Оценка аномалии растёт: {path}. Состояние ухудшается — стоит запланировать дефектовку.'
-    if all(step <= 0 for step in steps) and scores[0] - scores[-1] >= TREND_STEP:
+    if all(step <= 0 for step in steps) and round(scores[0] - scores[-1], 6) >= TREND_STEP:
         return f'Оценка аномалии снижается: {path}.'
     if steps[-1] >= TREND_STEP:
         return f'Оценка аномалии выросла по сравнению с прошлой проверкой: {path}.'
     if steps[-1] <= -TREND_STEP:
         return f'Оценка аномалии снизилась по сравнению с прошлой проверкой: {path}.'
-    if max(scores) - min(scores) >= TREND_STEP:
+    if round(max(scores) - min(scores), 6) >= TREND_STEP:
         return f'Оценка аномалии колеблется: {path}.'
     return f'Оценка аномалии стабильна: {path}.'
 

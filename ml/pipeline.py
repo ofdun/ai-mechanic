@@ -14,11 +14,14 @@ from ml.contracts import (
     AgentResponse,
     ConversationContext,
     DiagnosticResult,
+    Evidence,
     EvidenceBundle,
     Generator,
+    PastTicket,
     Retriever,
     SearchPlan,
     SearchWorkflow,
+    SessionRecord,
     TechnicalClaim,
     TicketConfirmation,
     TicketDraft,
@@ -34,8 +37,13 @@ from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic
 from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
+from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers, requested_names
+from ml.tools.figures import (FIGURE_PAGE, QUESTION, ReviewedSequence, attach_sequences, figure_note, load_sequences,
+                              sequence_figures)
+from ml.tools.inspections import InspectionStore
 from ml.tools.audit import AuditLog
 from ml.tools.tickets import TicketStore
+from ml.tools.vehicle_memory import diagnosis_memory, history_memory
 from ml.vehicles import VehicleDirectory
 
 logger = logging.getLogger(__name__)
@@ -88,8 +96,20 @@ class Pipeline:
             self.settings.artifacts_dir / 'agent-tickets.sqlite3', self.settings.http_timeout_seconds * 4 + 10,
         )
 
+    @cached_property
+    def inspections(self) -> InspectionStore:
+        return InspectionStore(self.settings.artifacts_dir / 'agent-inspections.sqlite3')
+
     def ticket_store_for(self, actor_id: str) -> TicketStore:
         return self.tickets
+
+    def past_tickets(self, vehicle_id: str) -> list[PastTicket] | None:
+        """Tickets of this vehicle, or None when the store is unavailable: memory must not break a diagnosis."""
+        try:
+            return self.tickets.created(vehicle_id)
+        except AgentError:
+            logger.warning('Ticket store unavailable for vehicle memory', exc_info=True)
+            return None
 
     @cached_property
     def audit(self) -> AuditLog | None:
@@ -117,14 +137,17 @@ class Pipeline:
         return response
 
     def answer_turn(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
-        vehicle, _ = self.vehicles.get(request.vehicle_id, request.session_id)
+        vehicle, current = self.vehicles.get(request.vehicle_id, request.session_id)
         if context is not None and (
             context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
         ) != (request.actor_id, request.vehicle_id, request.session_id, request.conversation_id, vehicle.engine_model):
             raise AgentError('CONTEXT_MISMATCH', 'Контекст не соответствует пользователю, диалогу или выбранной сессии ТС.')
+        if request.command == 'record_inspection':
+            return self.record_inspection(request, vehicle, context.diagnostic if context else None)
         message = request.message or {
             'diagnose': 'Запусти диагностику выбранной сессии.',
             'draft_ticket': 'Подготовь черновик заявки на дефектовку.',
+            'get_diagnostic_history': 'Покажи историю проверок.',
         }[request.command]
 
         diagnostic = context.diagnostic if context is not None else None
@@ -147,22 +170,72 @@ class Pipeline:
         )
 
         if decision.action in ('diagnose', 'draft_ticket'):
-            self.run_diagnosis(request, vehicle, message, response)
+            self.run_diagnosis(request, vehicle, message, response, current)
         elif decision.action == 'search_manuals':
             response.message = 'Вопрос по руководству выбранного двигателя.'
             self.search(response, SearchPlan(
                 engine_model=vehicle.engine_model, original_query=message,
                 rewritten_query=decision.rewritten_query or message, subqueries=decision.subqueries,
             ), diagnostic)
+            self.link_sequence_figures(response, message)
         elif decision.action == 'get_diagnostic_history':
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
+            tickets = self.past_tickets(vehicle.vehicle_id)
+            response.memory = history_memory(vehicle, tickets)
+            response.past_tickets = tickets or []
+            response.inspections = self.inspections.for_vehicle(vehicle.vehicle_id)
         response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
+        question = (request.message or '').casefold().replace(vehicle.engine_model.casefold(), ' ')
+        names = requested_names(question) if response.action == 'search_manuals' else None
+        if response.claims:
+            response.part_numbers = part_numbers(response, names)
+        if not response.part_numbers and asks_for_parts(response, request.message):
+            if response.claims or response.action == 'search_manuals':
+                response.part_numbers_note = NONE_FOUND
         response.language = request.language
         if request.language != 'ru':
             response.localized = self.localizer.localize(response, request.language)
         if self.finalizer is not None:
             response.message = self.finalizer.compose(response)
+        return response
+
+    @cached_property
+    def reviewed_sequences(self) -> list[ReviewedSequence]:
+        return load_sequences(self.settings.reviewed_sequences_path)
+
+    def link_sequence_figures(self, response: AgentResponse, question: str) -> None:
+        """«В каком порядке затягивать…»: the figure goes with the answer; steps only from a reviewed sequence."""
+        manual_pages = self.figure_pages(response.engine_model, question)
+        figures = sequence_figures(response, question, manual_pages)
+        if not figures:
+            return
+        response.figures = attach_sequences(figures, [*response.evidence.items, *manual_pages], self.reviewed_sequences)
+        for figure in response.figures:
+            if not figure.sequence:
+                response.limitations.append(figure_note(figure))
+
+    def figure_pages(self, engine_model: str, question: str) -> list[Evidence]:
+        """Pages of this engine with a tightening-order caption or a reference to one: the figure is often a few
+        pages away from the text the search ranked first, so it is not looked for among the answer's pages only."""
+        if not QUESTION.search(question):
+            return []
+        retriever = self.retriever or getattr(self.search_workflow, 'retriever', None)
+        lookup = getattr(retriever, 'figure_pages', None)
+        return lookup(engine_model, FIGURE_PAGE) if lookup else []
+    def record_inspection(self, request: AgentRequest, vehicle: Vehicle, diagnostic: DiagnosticResult | None) -> AgentResponse:
+        """Stores what the mechanic found. The diagnosis, its context and any ticket stay as they were."""
+        if (diagnostic is None or diagnostic.status != 'anomaly' or self.measurement_issue(diagnostic)
+                or self.ticket_mismatch(vehicle, diagnostic)):
+            raise AgentError('INSPECTION_UNAVAILABLE', 'Для записи осмотра получите достоверное отклонение в этом диалоге.')
+        self.inspections.add(request.actor_id, diagnostic, request.inspection)
+        response = AgentResponse(
+            request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
+            engine_model=vehicle.engine_model, conversation_id=request.conversation_id, action='record_inspection',
+            message='Результат осмотра записан. Диагноз и заявка не меняются.',
+            inspections=self.inspections.for_vehicle(vehicle.vehicle_id),
+        )
+        response.language = request.language
         return response
 
     def measurement_issue(self, result: DiagnosticResult) -> str | None:
@@ -189,7 +262,8 @@ class Pipeline:
                     'Диагноз по записи поставить нельзя.')
         return None
 
-    def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse) -> None:
+    def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse,
+                      current: SessionRecord) -> None:
         result = self.services.diagnose(request.vehicle_id, request.session_id)
         response.diagnostic = result
         problem = self.measurement_issue(result)
@@ -205,6 +279,10 @@ class Pipeline:
                 response.message = f'Предварительная гипотеза ИИ — «{result.anomaly_title}». {problem}'
             response.requires_remeasurement = True
             return
+        # Memory only for a reliable result: a failed or misread check is not compared with the past.
+        tickets = self.past_tickets(vehicle.vehicle_id)
+        response.memory = diagnosis_memory(vehicle, current, result, tickets)
+        response.past_tickets = tickets or []
         if result.status == 'normal':
             response.message = 'На записи звук двигателя в пределах нормы.'
             return
