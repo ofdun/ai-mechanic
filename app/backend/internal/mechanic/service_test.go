@@ -53,3 +53,17 @@ func TestFollowUpKeepsDiagnosisAndLastFourMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInspectionOperationsLeaveTheConversationAlone(t *testing.T) {
+	for _, command := range []string{"record_inspection", "get_diagnostic_history"} {
+		repo := &memoryTurns{previous: &Conversation{Messages: []string{"question"}, Diagnostic: json.RawMessage(`{"status":"anomaly"}`)}}
+		s := Service{Repository: repo, Agent: scriptedAgent{}, Measurements: map[[2]string]bool{{"V", "S"}: true}}
+		turn := Turn{Vehicle: "V", Session: "S", Command: command}
+		if command == "record_inspection" {
+			turn.Inspection = json.RawMessage(`{"outcome":"confirmed"}`)
+		}
+		if _, err := s.Run(context.Background(), "mechanic", turn); err != nil || !repo.released || repo.saved != nil {
+			t.Fatalf("%s altered the dialog or failed to release it: %v", command, err)
+		}
+	}
+}

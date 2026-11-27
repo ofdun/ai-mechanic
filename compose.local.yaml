@@ -5,6 +5,13 @@ services:
   maintenance:
     image: ${LOCAL_FLEET_IMAGE}
   gateway:
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -s /data/caddy/pki/authorities/local/root.crt && wget -S --spider --no-check-certificate https://gateway/health 2>&1 | grep -q '401 Unauthorized'
+      interval: 2s
+      timeout: 5s
+      retries: 30
     ports: !override
       - "127.0.0.1::443"
     volumes:
