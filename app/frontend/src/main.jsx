@@ -5,6 +5,7 @@ import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, Messag
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } from './Response'
 import { ManualNavigation } from './ManualReader'
+import { FleetOverview } from './FleetOverview'
 import { useChatHistory } from './chatHistory'
 import { ChatComposer } from './ChatComposer'
 import './style.css'
@@ -29,10 +30,12 @@ function selectedSession(vehicle) {
   return vehicle.sessions.some(session => session.session_id === saved) ? saved : vehicle.sessions[0]?.session_id || ''
 }
 
+const modeKey = 'ai-mechanic.mode'
 const answerLanguages = { ru: 'Русский', uz: 'Oʻzbekcha', tg: 'Тоҷикӣ', ky: 'Кыргызча', kk: 'Қазақша', hi: 'हिन्दी' }
 const languageKey = 'ai-mechanic.answerLanguage'
 
 function App() {
+  const [mode, setMode] = useState(() => readPreference(modeKey) === 'chief' ? 'chief' : 'mechanic')
   const [language, setLanguage] = useState(() => {
     const saved = readPreference(languageKey)
     return Object.hasOwn(answerLanguages, saved) ? saved : 'ru'
@@ -102,9 +105,24 @@ function App() {
     document.documentElement.lang = language
     document.title = translator(language)('Диагностика · Цифровой механик')
   }, [language])
+  function changeMode(next) {
+    savePreference(modeKey, next)
+    setMode(next)
+  }
+  // From the fleet list: open the vehicle's latest check on the History tab.
+  function openVehicle(next) {
+    savePreference(lastVehicleKey, next.vehicle_id)
+    if (next.sessions[0]) savePreference(sessionKey(next.vehicle_id), next.sessions[0].session_id)
+    setEngineFilter(next.engine_model)
+    setVehicleId(next.vehicle_id)
+    setSessionId(next.sessions[0]?.session_id || '')
+    setView('history')
+    changeMode('mechanic')
+  }
   function openResult(event) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
+    changeMode('mechanic')
     setView('result')
     if (history.state?.mechanicReader && document.getElementById('manual-title')) history.back()
     else document.getElementById('tab-result')?.focus()
@@ -112,6 +130,10 @@ function App() {
   return <UiLanguage.Provider value={language}>
     <header className="mast"><div className="mast-inner">
       <h1><a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>{t('Цифровой механик')}</a></h1>
+      <div className="mode-switch" role="group" aria-label={t('Режим')}>
+        <button type="button" aria-pressed={mode === 'mechanic'} onClick={() => changeMode('mechanic')}>{t('Механик')}</button>
+        <button type="button" aria-pressed={mode === 'chief'} onClick={() => changeMode('chief')}>{t('Главный механик')}</button>
+      </div>
       <label className="answer-language">{t('Язык')}
         <select id="ui-language" value={language} onChange={event => {
           setLanguage(event.target.value)
@@ -125,6 +147,7 @@ function App() {
       {error ? <div role="alert" className="error"><p>{t(error)}</p><button onClick={() => setAttempt(n => n + 1)}>{t('Повторить загрузку')}</button></div>
         : !catalog ? <p role="status">{t('Загружаем список транспорта…')}</p>
         : !catalog.length ? <p role="status">{t('В справочнике пока нет транспортных средств.')}</p>
+        : mode === 'chief' ? <FleetOverview catalog={catalog} onOpen={openVehicle} />
         : <Workspace key={JSON.stringify([vehicleId, sessionId])}
           {...{ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
     </main>
