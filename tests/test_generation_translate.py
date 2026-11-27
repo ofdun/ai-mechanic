@@ -160,3 +160,13 @@ def test_russian_requests_are_unchanged(pipeline):
     result = pipeline.run(AgentRequest(actor_id='mechanic', vehicle_id='M333YK47', session_id='S-0005',
                                        command='draft_ticket'))
     assert result.language == 'ru' and result.localized is None
+
+
+def test_translation_check_reads_oracle_traces():
+    from evaluation.generation.translation_check import answer_from_trace
+    row = {'id': 'Q1', 'trace': {'summary': 'Лид.\nОтрегулируйте форсунку.',
+                                 'final': [{'kind': 'operation', 'text': OPERATION['text'], 'pages': []}]}}
+    answer = answer_from_trace(row)
+    assert answer.message == 'Лид.' and answer.summary == 'Отрегулируйте форсунку.'
+    assert answer.claims[0].text == OPERATION['text']
+    assert answer_from_trace({'id': 'Q2', 'trace': {'final': []}}) is None
