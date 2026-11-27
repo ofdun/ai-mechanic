@@ -39,6 +39,7 @@ from ml.tools.services import FleetServices
 from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers
 from ml.tools.figures import ReviewedSequence, attach_sequences, figure_note, load_sequences, sequence_figures
 from ml.tools.inspections import InspectionStore
+from ml.tools.audit import AuditLog
 from ml.tools.tickets import TicketStore
 from ml.tools.vehicle_memory import diagnosis_memory, history_memory
 from ml.vehicles import VehicleDirectory
@@ -108,7 +109,30 @@ class Pipeline:
             logger.warning('Ticket store unavailable for vehicle memory', exc_info=True)
             return None
 
+    @cached_property
+    def audit(self) -> AuditLog | None:
+        if not self.settings.audit_enabled:
+            return None
+        return AuditLog(self.settings.artifacts_dir / 'agent-audit.sqlite3', self.settings.audit_retention_days)
+
+    def record(self, write) -> None:
+        """The audit log must never cost the mechanic an answer: a failed write is logged and skipped."""
+        try:
+            if self.audit is not None:
+                write(self.audit)
+        except AgentError:
+            logger.warning('Audit log unavailable', exc_info=True)
+
     def run(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
+        try:
+            response = self.answer_turn(request, context=context)
+        except AgentError as error:
+            self.record(lambda audit: audit.turn(request, None, error))
+            raise
+        self.record(lambda audit: audit.turn(request, response))
+        return response
+
+    def answer_turn(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
         vehicle, current = self.vehicles.get(request.vehicle_id, request.session_id)
         if context is not None and (
             context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
@@ -339,6 +363,15 @@ class Pipeline:
         return draft
 
     def confirm_ticket(self, confirmation: TicketConfirmation) -> TicketReceipt:
+        try:
+            receipt = self.send_ticket(confirmation)
+        except AgentError as error:
+            self.record(lambda audit: audit.confirmation(confirmation, None, error))
+            raise
+        self.record(lambda audit: audit.confirmation(confirmation, receipt))
+        return receipt
+
+    def send_ticket(self, confirmation: TicketConfirmation) -> TicketReceipt:
         if not confirmation.confirmed:
             raise AgentError('CONFIRMATION_REQUIRED', 'Нужно явное подтверждение механика.')
         tickets = self.ticket_store_for(confirmation.actor_id)
