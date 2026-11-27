@@ -1,5 +1,6 @@
 """Exercise the release UI with the supplied fleet, actual mocks and a private ticket store."""
 import argparse
+import json
 import os
 from contextlib import ExitStack
 from pathlib import Path
@@ -63,26 +64,31 @@ def exercise(page, base_url, ranked_pages):
     expect(page.get_by_role('heading', name='Отклонение', exact=True)).to_be_visible()
     chat.click()
     expect(thread).to_contain_text('Отклонение')
-    language = page.get_by_role('combobox', name='Язык ответа')
+    language = page.locator('#ui-language')
+    dictionaries = Path('app/frontend/src/locales')
+    uz = json.loads((dictionaries / 'uz.json').read_text())
+    kk = json.loads((dictionaries / 'kk.json').read_text())
+    hi = json.loads((dictionaries / 'hi.json').read_text())
+    question.fill('Почему это опасно?')
     assert set(language.locator('option').evaluate_all('options => options.map(option => option.value)')) == set(get_args(Language))
     language.select_option('hi')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as hindi:
-        diagnose.click()
+        page.get_by_role('button', name=hi['Получить результат диагностики']).click()
     hindi_answer = hindi.value.json()['localized']
     assert hindi_answer['language'] == 'hi'
     expect(thread).to_contain_text(hindi_answer['labels']['untranslated'])
     language.select_option('uz')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as localized:
-        diagnose.click()
+        page.get_by_role('button', name=uz['Получить результат диагностики']).click()
     answer = localized.value.json()['localized']
     assert answer['language'] == 'uz' and not answer['message']['translated']
     expect(thread.locator('.turn')).to_have_count(1)
     expect(thread).to_contain_text(answer['labels']['untranslated'])
-    result_tab.click()
-    report = page.get_by_role('tabpanel', name='Результат', exact=True)
+    page.get_by_role('tab', name=uz['Результат'], exact=True).click()
+    report = page.get_by_role('tabpanel', name=uz['Результат'], exact=True)
     expect(report.get_by_role('heading', name=answer['labels']['section.operation'])).to_be_visible()
     expect(report).to_contain_text(answer['claims'][0]['text'])
-    chat.click()
+    page.get_by_role('tab', name=uz['Чат'], exact=True).click()
     canonical = 'yamz-236-operations-2010'
     legacy = 'yamz-236_re_2010'
     route = f'/api/documents/{canonical}/pages/52'
@@ -100,9 +106,10 @@ def exercise(page, base_url, ranked_pages):
         route.fulfill(response=upstream, json=body)
 
     page.route('**/agent/run', accepted_translation, times=1)
-    question.fill('Почему это опасно?')
+    uz_question = page.get_by_label(uz['Вопрос по двигателю'], exact=True)
+    expect(uz_question).to_have_value('Почему это опасно?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as followup_response:
-        question.press('Enter')
+        uz_question.press('Enter')
     cited = followup_response.value.json()
     reply = thread.locator('.turn').last
     expect(reply.get_by_text('Sinov tarjimasi', exact=True)).to_be_visible()
@@ -110,11 +117,11 @@ def exercise(page, base_url, ranked_pages):
     expect(reply.locator('.original-line').filter(has_text=original)).to_contain_text(cited['localized']['labels']['original'])
     assert any(s['document_id'] == canonical and s['pdf_page'] == 52 for s in cited['evidence']['items'])
     with page.expect_response(lambda r: r.url == base_url + route) as cited_page:
-        reply.get_by_role('button', name=re.compile(r'bet 52\b')).first.click()
+        reply.get_by_role('button', name=re.compile(r'52\b')).first.click()
     assert cited_page.value.ok
-    expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
+    expect(page.get_by_text(uz['Страница {page} из {total}'].format(page=52,total=172))).to_be_visible()
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
-    page.get_by_role('button', name='К чату').click()
+    page.get_by_role('button', name=uz['К чату']).click()
     language.select_option('ru')
     question.fill('Можно ли своим ходом перегнать машину на базу?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
@@ -127,22 +134,22 @@ def exercise(page, base_url, ranked_pages):
         expect(thread).to_contain_text('Рекомендуется дефектовка')
     page.get_by_role('tab', name='Результат', exact=True).click()
     language.select_option('kk')
-    open_ticket.click()
+    page.get_by_role('button', name=kk['К заявке'], exact=True).click()
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
-        create_ticket.click()
+        page.get_by_role('button', name=kk['Создать заявку'], exact=True).click()
     assert response.value.json()['language'] == 'ru'
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
     with page.expect_response(lambda r: r.url == base_url + route) as draft_page:
-        page.get_by_role('tabpanel', name='Заявка').get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+        page.get_by_role('tabpanel', name=kk['Заявка']).get_by_role('button', name=re.compile(r'52\b')).first.click()
     assert draft_page.value.ok
-    expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
+    expect(page.get_by_text(kk['Страница {page} из {total}'].format(page=52,total=172))).to_be_visible()
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
-    page.get_by_role('button', name='К заявке').click()
-    page.get_by_label('Приоритет', exact=True).select_option('high')
+    page.get_by_role('button', name=kk['К заявке']).click()
+    page.get_by_label(kk['Приоритет'], exact=True).select_option('high')
     with page.expect_response(lambda r: r.url.endswith('/agent/tickets/confirm')) as response:
-        page.get_by_role('button', name='Подтвердить заявку').click()
+        page.get_by_role('button', name=kk['Подтвердить заявку']).click()
     confirmed = response.value
     assert confirmed.ok
     assert confirmed.request.post_data_json['urgency'] == 'high'

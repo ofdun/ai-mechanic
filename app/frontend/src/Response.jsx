@@ -1,4 +1,5 @@
-import React from 'react'
+import { UiLanguage, useUiText } from './uiLanguage'
+import React, { useContext } from 'react'
 import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { Source } from './ManualReader'
@@ -44,12 +45,12 @@ function verdict(result) {
   return { status, title: outcomes[status] }
 }
 
-function anomalyDetails({ diagnostic, message }, status) {
+function anomalyDetails({ diagnostic, message }, status, t) {
   if (status !== 'anomaly') return ''
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
   return [
     diagnostic.anomaly_title && !message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
-    confidence && !message.includes(confidence) && 'Уверенность ИИ ' + confidence,
+    confidence && !message.includes(confidence) && t('Уверенность ИИ {value}', { value: confidence }),
   ].filter(Boolean).join(' · ')
 }
 
@@ -60,6 +61,7 @@ function AnswerLine({ line, labels }) {
 }
 
 function LocalizedResponse({ result, compact = false }) {
+  const t = useUiText()
   const { localized: answer, diagnostic } = result
   const { labels } = answer
   const { sources, verified, summary } = verifiedClaims(result)
@@ -69,15 +71,15 @@ function LocalizedResponse({ result, compact = false }) {
   if (!verified.length && result.action === 'search_manuals') {
     for (const source of sources.values()) pages.set(pageKey(source), source)
   }
-  const details = status && anomalyDetails({ diagnostic, message: answer.message.original || answer.message.text }, status.status)
+  const details = status && anomalyDetails({ diagnostic, message: answer.message.original || answer.message.text }, status.status, t)
   const lines = summary ? answer.summary : []
   return <article className={compact ? 'diagnostic-verdict' : 'reply'} lang={answer.language}>
-    {status && <div className={'verdict ' + status.status} lang="ru"><h3>{status.title}</h3>
-      {recordingWarnings[diagnostic.signal_quality] && <span>{recordingWarnings[diagnostic.signal_quality]}</span>}
+    {status && <div className={'verdict ' + status.status}><h3>{t(status.title)}</h3>
+      {recordingWarnings[diagnostic.signal_quality] && <span>{t(recordingWarnings[diagnostic.signal_quality])}</span>}
     </div>}
     {(compact || !lines.length || result.action !== 'search_manuals') &&
       <AnswerLine line={answer.message} labels={labels} />}
-    {details && <p className="meta" lang="ru">{details}</p>}
+    {details && <p className="meta">{details}</p>}
     {!compact && <>
       {lines.map((line, index) => <AnswerLine key={index} line={line} labels={labels} />)}
       {showClaims && Object.entries(sections).map(([kind, title]) => {
@@ -88,14 +90,14 @@ function LocalizedResponse({ result, compact = false }) {
             const index = result.claims.indexOf(claim)
             return <div key={index}>
               <AnswerLine line={answer.claims[index] || { text: claim.text, translated: false }} labels={labels} />
-              {claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} pageLabel={labels.page} />)}
+              {claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}
             </div>
           })}
         </section>
       })}
       {labels['conflict.title'] && result.message.includes('⚖️ ' + labels['conflict.title']) &&
         <p className="limitations"><strong>{labels['conflict.title']}</strong> {labels['conflict.note']}</p>}
-      {Array.from(pages, ([key, source]) => <Source key={key} source={source} pageLabel={labels.page} />)}
+      {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
       {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
     </>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
@@ -104,6 +106,7 @@ function LocalizedResponse({ result, compact = false }) {
 }
 
 export function DiagnosticReport({ result }) {
+  const t = useUiText()
   if (result.localized) return <LocalizedResponse result={result} />
   const { diagnostic } = result
   const { sources, verified, summary } = verifiedClaims(result)
@@ -130,21 +133,21 @@ export function DiagnosticReport({ result }) {
     }))
     const lastSpace = claim.text.trimEnd().lastIndexOf(' ')
     return <p key={claim.kind + claim.text}>
-      {claim.kind === 'reference_value' && 'Норматив: '}
-      {claim.kind === 'spare_part' && 'Запчасти: '}
+      {claim.kind === 'reference_value' && t('Норматив:') + ' '}
+      {claim.kind === 'spare_part' && t('Запчасти:') + ' '}
       {claim.text.slice(0, lastSpace + 1)}<span className="cited-end">{claim.text.slice(lastSpace + 1)}{[...numbers].map(number => {
         const source = references[number - 1]
         return <sup key={number}><Source source={source} number={number} /></sup>
       })}</span>
     </p>
   }
-  const reading = [recordingWarnings[diagnostic.signal_quality], anomalyDetails(result, status)].filter(Boolean).join(' · ')
+  const reading = [t(recordingWarnings[diagnostic.signal_quality]), anomalyDetails(result, status, t)].filter(Boolean).join(' · ')
   const OutcomeIcon = { anomaly: CircleAlert, recognition_error: CircleAlert, check_failed: RotateCcw, normal: CheckCircle2 }[status]
-  const lead = status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.' : result.message
+  const lead = status === 'normal' ? t('По результату этой проверки можно продолжить эксплуатацию.') : result.message
   const title = status === 'anomaly' && diagnostic.anomaly_title
   const titleAt = title ? lead.indexOf(title) : -1
   return <article className={'report report-' + status}>
-    <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{statusTitle}</h3>
+    <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{t(statusTitle)}</h3>
       {reading && <p className="report-reading">{reading}</p>}
     </header>
     <p className="report-lead">{titleAt < 0 ? lead : <>
@@ -154,12 +157,12 @@ export function DiagnosticReport({ result }) {
     <ManualAnswer summary={status === 'anomaly' && summary}>
       {[['observation', 'Что заметили'], ['cause', 'Возможная причина'], ['risk', 'Чем это грозит']].map(([kind, label]) => {
         const group = narrative.filter(claim => claim.kind === kind)
-        return group.length ? <section key={kind} className="report-row"><h4>{label}</h4><div>{group.map(citedClaim)}</div></section> : null
+        return group.length ? <section key={kind} className="report-row"><h4>{t(label)}</h4><div>{group.map(citedClaim)}</div></section> : null
       })}
-      {!!actions.length && <section className="report-row report-action"><h4>Что делать дальше</h4><div>{actions.map(citedClaim)}</div></section>}
+      {!!actions.length && <section className="report-row report-action"><h4>{t('Что делать дальше')}</h4><div>{actions.map(citedClaim)}</div></section>}
     </ManualAnswer>
-    {!!result.limitations?.length && <section className="report-row"><h4>Что осталось уточнить</h4><div><Entries items={result.limitations} /></div></section>}
-    {!!references.length && <footer className="report-row report-sources"><h4>Руководство</h4>
+    {!!result.limitations?.length && <section className="report-row"><h4>{t('Что осталось уточнить')}</h4><div><Entries items={result.limitations} /></div></section>}
+    {!!references.length && <footer className="report-row report-sources"><h4>{t('Руководство')}</h4>
       <div>{references.map((source, index) => <div key={pageKey(source)}>
         {references.length > 1 && <span>[{index + 1}] </span>}<Source source={source} />
       </div>)}</div>
@@ -168,23 +171,25 @@ export function DiagnosticReport({ result }) {
 }
 
 export function DiagnosticVerdict({ result }) {
+  const t = useUiText()
   if (result.localized) return <LocalizedResponse result={result} compact />
   const { diagnostic, message } = result
   const { status, title } = verdict(result)
-  const details = anomalyDetails(result, status)
+  const details = anomalyDetails(result, status, t)
   const warning = recordingWarnings[diagnostic.signal_quality]
   return <div className="diagnostic-verdict">
     <div className={'verdict ' + status}>
-      <h3>{title}</h3>
-      {warning && <span>{warning}</span>}
+      <h3>{t(title)}</h3>
+      {warning && <span>{t(warning)}</span>}
     </div>
     <p>{message}</p>
-    {status === 'normal' && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
+    {status === 'normal' && <p>{t('По результату этой проверки можно продолжить эксплуатацию.')}</p>}
     {details && <p className="meta">{details}</p>}
   </div>
 }
 
 export function Response({ result }) {
+  const t = useUiText()
   if (result.localized) return <LocalizedResponse result={result} />
   const { diagnostic, message, requires_remeasurement: repeat } = result
   const { sources, verified, summary } = verifiedClaims(result)
@@ -200,19 +205,19 @@ export function Response({ result }) {
       {!repeat && !result.recognition_error && Object.entries(sections).map(([kind, title]) => {
         const group = verified.filter(claim => claim.kind === kind)
         if (!group.length) return null
-        return <section key={kind} className="claims"><h4>{title}</h4>
+        return <section key={kind} className="claims"><h4>{t(title)}</h4>
           <Entries items={group} render={claim => <>{claim.text}
             <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
           </>} /></section>
       })}
     </ManualAnswer>
-    {!insufficient && limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
+    {!insufficient && limitations.length > 0 && <section className="limitations"><h4>{t('Ограничения')}</h4>
       <Entries items={limitations} /></section>}
     {insufficient && <div className="search-fallback">
-      <Entries items={limitations.length ? limitations : ['Ответ по руководству подтвердить не удалось.']} />
-      {' Рекомендуется дефектовка.'}
+      <Entries items={limitations.length ? limitations : [t('Ответ по руководству подтвердить не удалось.')]} />
+      {' ' + t('Рекомендуется дефектовка.')}
     </div>}
-    {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? 'Страницы по теме для самостоятельной проверки' : 'Источники ответа'}</h4>
+    {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? t('Страницы по теме для самостоятельной проверки') : t('Источники ответа')}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
     {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
@@ -220,18 +225,20 @@ export function Response({ result }) {
 }
 
 export function VehicleHistory({ vehicleId, sessions }) {
+  const t = useUiText()
+  const language = useContext(UiLanguage)
   const meanings = {
     normal: 'Проверка не выявила отклонений.',
     anomaly: 'В записи обнаружены признаки отклонения. Причину уточняют при диагностике.',
     check_failed: 'Оценить двигатель по этой записи не удалось. Нужен повторный замер.',
   }
-  return <section className="history-report"><h3>История проверок · {vehicleId}</h3>
+  return <section className="history-report"><h3>{t('История проверок ·')} {vehicleId}</h3>
     {sessions.length ? <>
       <ol className="vehicle-history">{sessions.map(row =>
-        <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
-          <small>Замер {row.session_id}</small></div>
-          <div><strong>{outcomes[row.status]}</strong><p>{meanings[row.status]}</p></div></li>)}</ol>
-    </> : <p>У этой машины пока нет проверок.</p>}
+        <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at, language)}</time>
+          <small>{t('Замер {id}', { id: row.session_id })}</small></div>
+          <div><strong>{t(outcomes[row.status])}</strong><p>{t(meanings[row.status])}</p></div></li>)}</ol>
+    </> : <p>{t('У этой машины пока нет проверок.')}</p>}
   </section>
 }
 
@@ -242,26 +249,27 @@ const schedules = {
   high: 'Запланировать дефектовку до выпуска в рейс.',
 }
 export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled }) {
+  const t = useUiText()
   const { payload } = draft
-  return <section className="draft" aria-label="Черновик заявки">
-    <h3>Черновик заявки на дефектовку</h3>
+  return <section className="draft" aria-label={t('Черновик заявки')}>
+    <h3>{t('Черновик заявки на дефектовку')}</h3>
     <dl className="fields">
-      <dt>ТС / проверка</dt><dd>{payload.vehicle_id} / {payload.session_id}</dd>
-      <dt><label htmlFor="ticket-urgency">Приоритет</label></dt>
+      <dt>{t('ТС / проверка')}</dt><dd>{payload.vehicle_id} / {payload.session_id}</dd>
+      <dt><label htmlFor="ticket-urgency">{t('Приоритет')}</label></dt>
       <dd>
         <select id="ticket-urgency" value={urgency} onChange={e => onUrgencyChange(e.target.value)}
           disabled={disabled} aria-describedby={draft.urgency_reason ? 'ticket-schedule ticket-priority-reason' : 'ticket-schedule'}>
-          {Object.entries(priorities).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+          {Object.entries(priorities).map(([value, name]) => <option key={value} value={value}>{t(name)}</option>)}
         </select>
-        <p id="ticket-schedule">{schedules[urgency]}</p>
-        {draft.urgency_reason && <p id="ticket-priority-reason" className="meta">{draft.urgency_reason} — {priorities[payload.urgency].toLowerCase()}.</p>}
+        <p id="ticket-schedule">{t(schedules[urgency])}</p>
+        {draft.urgency_reason && <p id="ticket-priority-reason" className="meta">{draft.urgency_reason} — {t(priorities[payload.urgency]).toLocaleLowerCase()}.</p>}
       </dd>
-      <dt>Заключение</dt><dd>{payload.conclusion}</dd>
-      <dt>Работы</dt><dd><Entries items={payload.operations} /></dd>
-      <dt>Запчасти</dt><dd>{payload.spare_parts.length ? payload.spare_parts.join(', ') : 'Нет подтверждённых позиций'}</dd>
-      <dt>Источники</dt><dd>{payload.references.map((reference, index) => {
+      <dt>{t('Заключение')}</dt><dd>{payload.conclusion}</dd>
+      <dt>{t('Работы')}</dt><dd><Entries items={payload.operations} /></dd>
+      <dt>{t('Запчасти')}</dt><dd>{payload.spare_parts.length ? payload.spare_parts.join(', ') : t('Нет подтверждённых позиций')}</dd>
+      <dt>{t('Источники')}</dt><dd>{payload.references.map((reference, index) => {
         const source = evidence.find(item => item.manual === reference.manual && item.pdf_page === reference.pdf_page)
-        return source ? <Source key={index} source={source} /> : <p key={index}>{reference.manual}, стр. {reference.pdf_page}</p>
+        return source ? <Source key={index} source={source} /> : <p key={index}>{reference.manual}, {t('стр.')} {reference.pdf_page}</p>
       })}</dd>
     </dl>
   </section>

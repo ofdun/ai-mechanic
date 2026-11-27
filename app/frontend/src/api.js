@@ -36,6 +36,6 @@ export async function request(path, body, signal) {
   return data
 }
 
-export const formatDate = (value) => new Intl.DateTimeFormat('ru-RU', {
+export const formatDate = (value, language = 'ru') => new Intl.DateTimeFormat(language, {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
 }).format(new Date(value))
