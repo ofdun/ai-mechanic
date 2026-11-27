@@ -57,6 +57,8 @@ def test_a_uses_planned_models_and_filters_unsupported_claims():
     assert requests[0]['reasoning'] == {'enabled': False} and requests[1]['reasoning'] == {'effort': 'minimal'}
     assert [item.evidence_id for item in result.evidence.items] == ['p52']
     assert [item.model_dump() for item in result.claims] == [good]
+    assert result.verification.rejected_claims == 4
+    assert [(p.evidence_id, p.numbers) for p in result.verification.pages] == [('p52', [])]
     # The plain lead keeps what the claims say and loses a line with a number they do not contain.
     assert result.summary == 'Проверьте регулировку форсунки.'
     verifier_input = json.loads(requests[1]['messages'][-1]['content'])
@@ -114,6 +116,7 @@ def test_b_reconsiders_earlier_instruction_when_corrective_lookup_finds_conflict
     repair_input = json.loads(requests[-4]['messages'][-1]['content'])
     assert [source['evidence_id'] for source in repair_input['sources']] == ['p52', 'p53']
     assert [item.model_dump() for item in result.claims] == [earlier, later]
+    assert [(p.evidence_id, p.numbers) for p in result.verification.pages] == [('p52', ['10']), ('p53', ['10'])]
     # With disagreeing manuals the lead is neutral and lines that pick a side are dropped.
     assert result.summary == 'Руководства пишут по-разному. Ниже обе инструкции.\nНачать проверку раньше 10 минут.'
 

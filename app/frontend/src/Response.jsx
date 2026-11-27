@@ -2,6 +2,7 @@ import { UiLanguage, useUiText } from './uiLanguage'
 import React, { useContext } from 'react'
 import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
+import { AnswerChecks } from './AnswerChecks'
 import { Source } from './ManualReader'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
@@ -102,6 +103,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
     </>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
       .map((line, index) => <AnswerLine key={index} line={line} />)}
+    {!compact && <AnswerChecks result={result} />}
   </article>
 }
 
@@ -167,6 +169,7 @@ export function DiagnosticReport({ result }) {
         {references.length > 1 && <span>[{index + 1}] </span>}<Source source={source} />
       </div>)}</div>
     </footer>}
+    <AnswerChecks result={result} />
   </article>
 }
 
@@ -221,6 +224,7 @@ export function Response({ result }) {
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
     {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+    <AnswerChecks result={result} />
   </article>
 }
 

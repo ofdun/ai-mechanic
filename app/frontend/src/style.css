@@ -266,3 +266,7 @@ li + li { margin-top: .35rem; }
   .compose-row button { min-width: 44px; padding-inline: .6rem; }
   .compose-row .submit span { display: none; }
 }
+
+.answer-checks { margin-top: 1rem; border-top: 1px solid var(--line); }
+.answer-checks summary { padding: .75rem 0; cursor: pointer; font-weight: 600; }
+.answer-checks[open] > :not(summary) { margin-block: .4rem; }
