@@ -131,7 +131,10 @@ def exercise(context, base_url):
 
     question.fill('Сколько стоит маркировка учебного узла?')
     send.tap()
-    candidates = thread.get_by_role('heading', name='Проверить в руководстве').last.locator('..')
+    candidates = thread.get_by_role('heading', name='Страницы по теме для самостоятельной проверки').last.locator('..')
+    reply = thread.get_by_role('article').last
+    expect(reply.locator('.search-fallback')).to_have_count(1)
+    expect(reply.get_by_role('heading', name='Ограничения')).to_have_count(0)
     candidate_page = candidates.get_by_role('button', name=source_name)
     candidate_page.tap()
     expect(page.get_by_text('Страница 2 из 2')).to_be_visible()

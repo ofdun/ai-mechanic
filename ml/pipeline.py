@@ -181,7 +181,10 @@ class Pipeline:
             source_ids = {item.evidence_id for item in response.evidence.items}
             response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
             if not response.claims:
-                response.limitations.append('В руководстве по этому двигателю недостаточно сведений для вывода.')
+                response.limitations.append(
+                    'На найденных страницах не удалось подтвердить ответ на этот вопрос.'
+                    if response.evidence.items else 'В руководстве по этому двигателю ответ не найден.'
+                )
             return
         if self.retriever is None:
             response.limitations.append('Сейчас поиск по руководствам недоступен.')

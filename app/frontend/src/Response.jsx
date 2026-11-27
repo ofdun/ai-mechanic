@@ -130,7 +130,7 @@ export function Response({ result }) {
     for (const source of sources.values()) candidatePages.set(pageKey(source), source)
   }
   return <article className="reply">
-    {diagnostic ? <DiagnosticVerdict result={result} /> : <p>{message}</p>}
+    {diagnostic ? <DiagnosticVerdict result={result} /> : result.action !== 'search_manuals' && <p>{message}</p>}
     {!repeat && Object.entries(sections).map(([kind, title]) => {
       const group = verified.filter(claim => claim.kind === kind)
       if (!group.length) return null
@@ -139,10 +139,13 @@ export function Response({ result }) {
           <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
         </>} /></section>
     })}
-    {limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
+    {!insufficient && limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
       <Entries items={limitations} /></section>}
-    {insufficient && <p>Подтверждённых данных по этому двигателю недостаточно. Рекомендуется дефектовка.</p>}
-    {candidatePages.size > 0 && <section className="claims"><h4>Проверить в руководстве</h4>
+    {insufficient && <div className="search-fallback">
+      <Entries items={limitations.length ? limitations : ['Ответ по руководству подтвердить не удалось.']} />
+      {' Рекомендуется дефектовка.'}
+    </div>}
+    {candidatePages.size > 0 && <section className="claims"><h4>Страницы по теме для самостоятельной проверки</h4>
       {Array.from(candidatePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
     {!!result.history?.length && <section><h4>История проверок</h4><ul>{result.history.map(row =>
