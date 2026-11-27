@@ -1,0 +1,39 @@
+# Layer over compose.yaml and compose.stand.yaml; stand.py provides the instance identity.
+services:
+  ml:
+    image: ${LOCAL_FLEET_IMAGE}
+  maintenance:
+    image: ${LOCAL_FLEET_IMAGE}
+  gateway:
+    ports: !override
+      - "127.0.0.1::443"
+    volumes:
+      - ${LOCAL_HARNESS}/deploy/local-stand/Caddyfile:/etc/caddy/Caddyfile:ro
+  agent:
+    image: ${LOCAL_FLEET_IMAGE}
+    env_file: !reset []
+    environment: &agent-profile
+      ALLOW_EXTERNAL_EVIDENCE: ${LOCAL_EXTERNAL_EVIDENCE:-false}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: https://openrouter.ai/api/v1
+      A_GENERATOR_MODEL: deepseek/deepseek-v4.1-flash
+      A_VERIFIER_MODEL: z-ai/glm-5.3-flash
+      MIN_DIAGNOSTIC_CONFIDENCE: "0.70"
+      REPEAT_ON_WARNING: "true"
+  index:
+    image: ${LOCAL_FLEET_IMAGE}
+    env_file: !reset []
+    environment: *agent-profile
+  browser:
+    profiles: [test]
+    build: ${LOCAL_HARNESS}/deploy/local-stand/browser
+    environment:
+      STAND_USER: ${STAND_USER}
+      STAND_PASSWORD: ${STAND_PASSWORD}
+    volumes:
+      - ${LOCAL_HARNESS}/tests/e2e/stand:/tests:ro
+      - ./tests:/feature-tests:ro
+    working_dir: /tests
+    shm_size: 256mb
+    entrypoint: ["python"]
+    command: ["smoke.py"]
