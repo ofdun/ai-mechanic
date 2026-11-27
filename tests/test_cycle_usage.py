@@ -132,3 +132,14 @@ def test_nested_steps_keep_start_order_and_nothing_is_recorded_outside_a_turn():
             record(CallUsage(step='embeddings', kind='retrieval', model='m', cost_usd=0.5))
     assert [step.step for step in usage.summary().steps] == ['retrieval', 'embeddings']
     assert usage.summary().cost_usd == 0.5
+
+
+def test_billed_invalid_tool_call_counts_as_failed():
+    settings = Settings(_env_file=None, llm_base_url='https://llm.test/api/v1', llm_api_key='test')
+    reply = {'choices': [{'message': {'tool_calls': []}}], 'usage': USAGE}
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=reply))) as http:
+        with collect() as usage, pytest.raises(AgentError, match='Planner'):
+            LLMClient(http, settings).select_tool([], [])
+    summary = usage.summary()
+    assert summary.failed_calls == 1
+    assert summary.cost_usd == pytest.approx(USAGE['cost'])

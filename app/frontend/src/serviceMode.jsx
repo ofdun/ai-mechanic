@@ -22,6 +22,7 @@ export function useServiceMode() {
 const requestLabels = {
   diagnose: 'Результат диагностики', refresh: 'Перевод результата', chat: 'Вопрос в чате',
   draft_ticket: 'Черновик заявки', confirm: 'Отправка заявки',
+  get_diagnostic_history: 'История осмотров', record_inspection: 'Запись осмотра',
 }
 const stepLabels = {
   planner: 'Планировщик', diagnosis: 'ML API: диагностика', retrieval: 'Поиск по руководствам',
@@ -68,7 +69,7 @@ export function cycleTotals(cycle) {
   return {
     requests: requests.length,
     failed: requests.filter(request => !request.ok).length,
-    unmeasured: requests.filter(request => request.ok && !request.usage).length,
+    unmeasured: requests.length - usages.length,
     llmCalls: llm.length,
     input: sumKnown(usages.map(usage => usage.input_tokens)),
     output: sumKnown(usages.map(usage => usage.output_tokens)),
@@ -83,6 +84,11 @@ export function cycleTotals(cycle) {
     wallMs: requests.at(-1).finishedAt - cycle.startedAt,
     ticket: requests.some(request => request.kind === 'confirm' && request.ok),
   }
+}
+
+function measuredCount(value, unmeasured) {
+  if (!unmeasured) return integer.format(value)
+  return value ? `не менее ${integer.format(value)}` : 'нет данных'
 }
 
 function costText(cost, complete) {
@@ -116,13 +122,13 @@ export function CycleCost({ cycle }) {
     <p className="meta">{total.ticket ? 'Цикл завершён заявкой в ТОиР.' : 'Цикл открыт: от результата диагностики до последнего ответа.'}{' '}
       Значения взяты из ответов провайдеров для запросов в этом окне; если провайдер значение не вернул, указано «нет данных».</p>
     <dl className="service-totals">
-      <div><dt>Стоимость LLM</dt><dd>{costText(total.cost, total.costComplete)}</dd></div>
-      <div><dt>Токены вход / выход</dt><dd>{total.input == null && total.output == null ? (total.llmCalls ? 'нет данных' : 'LLM не вызывалась')
+      <div><dt>Стоимость вызовов</dt><dd>{costText(total.cost, total.costComplete)}</dd></div>
+      <div><dt>Токены вход / выход</dt><dd>{total.input == null && total.output == null ? (total.llmCalls || total.unmeasured ? 'нет данных' : 'LLM не вызывалась')
         : `${tokens(total.input)} / ${tokens(total.output)}`}{total.reasoning != null && ` · рассуждения ${tokens(total.reasoning)}`}</dd></div>
       <div><dt>Время цикла</dt><dd>{seconds(total.wallMs)}</dd></div>
       <div><dt>Ожидание ответов</dt><dd>{seconds(total.clientMs)} · агент {seconds(total.agentMs)}</dd></div>
-      <div><dt>Запросы / LLM-вызовы</dt><dd>{total.requests} / {total.llmCalls}</dd></div>
-      <div><dt>Повторы и ошибки</dt><dd>повторов в вызовах {total.retries} · ошибок вызовов {total.failedCalls} · неудачных запросов {total.failed}</dd></div>
+      <div><dt>Запросы / LLM-вызовы</dt><dd>{total.requests} / {measuredCount(total.llmCalls, total.unmeasured)}</dd></div>
+      <div><dt>Повторы и ошибки</dt><dd>повторов в вызовах {measuredCount(total.retries, total.unmeasured)} · ошибок вызовов {measuredCount(total.failedCalls, total.unmeasured)} · неудачных запросов {total.failed}</dd></div>
     </dl>
     {total.unmeasured > 0 && <p className="meta">Для {total.unmeasured} запрос(ов) сервер не вернул замеры.</p>}
     {cycle.requests.map((request, index) => <details key={index} className="service-request" open={index === cycle.requests.length - 1}>
