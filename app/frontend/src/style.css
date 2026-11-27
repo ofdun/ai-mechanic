@@ -184,15 +184,15 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
   .report-action { padding-inline: .75rem; }
   .report-action h4 { padding-inline-start: 0; }
 }
-.vehicle-history { list-style: none; margin: .5rem 0; padding: 0; }
+.vehicle-history, .inspection-history { list-style: none; margin: .5rem 0; padding: 0; }
 .history-report { padding-block: 1rem; }
-.vehicle-history li { display: grid; grid-template-columns: minmax(9rem, 1fr) 2fr; gap: .3rem 1rem; align-items: baseline; padding-block: .7rem; border-bottom: 1px solid var(--line); }
-.vehicle-history li p { margin: .2rem 0 0; }
+.vehicle-history li, .inspection-history li { display: grid; grid-template-columns: minmax(9rem, 1fr) 2fr; gap: .3rem 1rem; align-items: baseline; padding-block: .7rem; border-bottom: 1px solid var(--line); }
+.vehicle-history li p, .inspection-history li p { margin: .2rem 0 0; }
 @media (max-width: 32rem) {
   .view-switch button svg { display: none; }
-  .vehicle-history li { grid-template-columns: 1fr; }
+  .vehicle-history li, .inspection-history li { grid-template-columns: 1fr; }
 }
-.vehicle-history small { display: block; color: var(--muted); }
+.vehicle-history small, .inspection-history small { display: block; color: var(--muted); }
 .turn { padding-block: 1rem; }
 .turn + .turn { border-top: 1px solid var(--line); }
 .question { padding: .65rem .9rem; background: var(--tint); border-inline-start: 3px solid var(--pine); }
@@ -302,6 +302,14 @@ li + li { margin-top: .35rem; }
   .print-signoff p { padding-top: 9mm; border-bottom: .75pt solid #000; }
   .print-signoff span { display: block; transform: translateY(5mm); font-size: 8.5pt; }
 }
+.inspection-form { display: grid; gap: .6rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.inspection-form fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: .25rem; }
+.inspection-form legend { font-weight: 650; margin-bottom: .25rem; }
+.inspection-form label { display: flex; gap: .55rem; align-items: center; min-height: 40px; }
+.inspection-form input[type="radio"] { min-height: 0; width: 1.15rem; height: 1.15rem; flex: none; }
+.inspection-comment { flex-direction: column; align-items: stretch !important; gap: .25rem !important; font-weight: 600; }
+.inspection-comment textarea { font: inherit; padding: .5rem; border: 1px solid var(--outline); border-radius: 6px; min-height: 3.5rem; }
+.inspection-form button { justify-self: start; }
 .tightening-figures ol { margin: .3rem 0 .5rem; padding-left: 1.4rem; }
 .tightening-figures > div > div + div { margin-top: .75rem; }
 .part-numbers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }

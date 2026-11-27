@@ -8,6 +8,7 @@ import { Source } from './ManualReader'
 import { ScoreChart, score } from './ScoreChart'
 import { PartNumbers } from './Parts'
 import { TighteningFigures } from './Figures'
+import { InspectionList } from './Inspection'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -110,7 +111,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
       {labels['conflict.title'] && result.message.includes('⚖️ ' + labels['conflict.title']) &&
         <p className="limitations"><strong>{labels['conflict.title']}</strong> {labels['conflict.note']}</p>}
       {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
-      {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+      {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
       <PartNumbers result={result} className={report ? 'report-row' : 'claims'} />
       <TighteningFigures result={result} className={report ? 'report-row' : 'claims'} />
     </>}
@@ -246,9 +247,20 @@ export function Response({ result }) {
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
     {result.action === 'get_diagnostic_history' && <VehicleMemory result={result} className="claims" />}
-    {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+    {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
     <AnswerChecks result={result} />
   </article>
+}
+
+function HistoryReply({ result }) {
+  const t = useUiText()
+  return <>
+    <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />
+    {!!result.inspections?.length && <section className="history-report">
+      <h3>{t('Результаты осмотра')}</h3>
+      <InspectionList records={result.inspections} vehicleId={result.vehicle_id} />
+    </section>}
+  </>
 }
 
 export function VehicleHistory({ vehicleId, sessions }) {
