@@ -10,6 +10,9 @@ from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
+from typing import get_args
+
+from ml.contracts import Language
 from ml.retrieval import RetrievalEngine
 from ml.worker import create_app
 import socket
@@ -61,7 +64,13 @@ def exercise(page, base_url, ranked_pages):
     chat.click()
     expect(thread).to_contain_text('Отклонение')
     language = page.get_by_role('combobox', name='Язык ответа')
-    expect(language.locator('option')).to_have_count(5)
+    assert set(language.locator('option').evaluate_all('options => options.map(option => option.value)')) == set(get_args(Language))
+    language.select_option('hi')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as hindi:
+        diagnose.click()
+    hindi_answer = hindi.value.json()['localized']
+    assert hindi_answer['language'] == 'hi'
+    expect(thread).to_contain_text(hindi_answer['labels']['untranslated'])
     language.select_option('uz')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as localized:
         diagnose.click()
