@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import cached_property
@@ -94,7 +95,7 @@ class Pipeline:
             request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
             engine_model=vehicle.engine_model, conversation_id=request.conversation_id,
             action=decision.action,
-            message='Уточните, что проверить или какой норматив найти.',
+            message=decision.clarification or 'Уточните, что проверить или какой норматив найти.',
         )
 
         if decision.action in ('diagnose', 'draft_ticket'):
@@ -187,11 +188,21 @@ class Pipeline:
             source_ids = {item.evidence_id for item in response.evidence.items}
             response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
             if not response.claims:
-                response.limitations.append('В руководстве по этому двигателю недостаточно сведений для вывода.')
+                response.limitations.append(
+                    'На найденных страницах не удалось подтвердить ответ на этот вопрос.'
+                    if response.evidence.items else 'В руководстве по этому двигателю ответ не найден.'
+                )
             elif outcome.summary and len(response.claims) == len(outcome.claims):
                 response.summary = outcome.summary
                 if response.action == 'search_manuals':
                     response.message = outcome.summary
+            if response.action == 'search_manuals' and response.claims and re.search(
+                r'\b(?:чинить|починить|отремонтировать|ремонтировать)\b', plan.original_query, re.I
+            ) and not any(claim.kind == 'operation' for claim in response.claims):
+                response.limitations.append(
+                    f'Порядок ремонта для двигателя {plan.engine_model} подтвердить не удалось. '
+                    'Уточните, какой признак неисправности вы наблюдаете.'
+                )
             return
         if self.retriever is None:
             response.limitations.append('Сейчас поиск по руководствам недоступен.')

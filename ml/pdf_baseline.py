@@ -18,6 +18,7 @@ from ml.contracts import (
 from ml.document_ids import YAMZ_236_OPERATIONS_ID as DOCUMENT_ID, document_id_variants
 from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
+from ml.retrieval import RetrievalEngine
 from ml.retrieval.expansion import fault_query
 
 
@@ -180,15 +181,24 @@ class ReviewedOperations:
 
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:
-    retriever = PdfPageRetriever(index)
+    return build_manual_pipeline(settings, http, PdfPageRetriever(index))
+
+
+def build_manual_pipeline(settings: Settings, http: httpx.Client, retriever: PdfPageRetriever | RetrievalEngine) -> Pipeline:
     if settings.planner_mode == 'local':
         from ml.local_evidence import LocalEvidence
+        from ml.planner.local import LocalPlanner
         from ml.manual_corpus import document_catalog
         from ml.reviewed_checks import ReviewCatalog
         catalog = ReviewCatalog.load(settings.reviewed_evidence_path)
         manuals = document_catalog(settings.manual_manifest_path)
         engines = {engine for manual in manuals.values() for engine in manual['models']}
-        return Pipeline(settings, http, search_workflow=LocalEvidence(retriever, catalog, engines))
+        generation = None
+        if settings.allow_external_evidence and settings.agent_architecture != 'baseline':
+            generation = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, ReviewedOperations())
+        terms = retriever.sparse.idf if isinstance(retriever, RetrievalEngine) and retriever.sparse else ()
+        return Pipeline(settings, http, planner=LocalPlanner(terms),
+                        search_workflow=LocalEvidence(retriever, catalog, engines, generation=generation))
     return build_retrieval_pipeline(settings, http, retriever)
 
 

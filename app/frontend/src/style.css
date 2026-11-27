@@ -42,21 +42,20 @@ svg.lucide { width: 1.15em; height: 1.15em; flex: none; stroke-width: 1.8; }
 .mast { color: var(--paper); background: #0b2019; }
 .mast-inner, main { width: min(100%, 120rem); padding-inline: var(--gutter); margin-inline: auto; }
 .mast-inner { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1.25rem; min-height: 64px; }
-.wordmark { display: inline-flex; gap: .65rem; align-items: center; font-size: 1.12rem; font-weight: 740; letter-spacing: -.025em; }
+.wordmark { color: inherit; text-decoration: none; min-height: 44px; display: inline-flex; gap: .65rem; align-items: center; font-size: 1.12rem; font-weight: 740; letter-spacing: -.025em; }
+.wordmark:focus-visible { outline-color: var(--lime); }
 .brand-mark { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 6px; color: var(--ink); background: var(--lime); }
-.mast h1 { padding-inline-start: 1.25rem; border-left: 1px solid var(--line); font-size: 1rem; color: #e5eee7; font-weight: 500; letter-spacing: 0; }
 main { flex: 1; display: flex; flex-direction: column; padding-block: clamp(.8rem, 2vh, 1.6rem); }
 .inspection { flex: 1; display: flex; flex-direction: column; }
 .workspace { flex: 1; display: grid; grid-template-rows: auto minmax(19rem, 1fr); gap: clamp(.75rem, 1.5vh, 1.2rem); }
 .controls, .chat { min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); overflow-wrap: anywhere; }
 .controls { padding: 1rem var(--inset) 1.15rem; }
 .controls h2 { display: flex; gap: .5rem; align-items: center; }
-.controls-heading { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: .25rem .65rem; margin-bottom: .75rem; }
-.controls-heading time { display: none; font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.controls-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .25rem .65rem; margin-bottom: .75rem; }
 .controls h2 { font-size: 1.15rem; }
 .controls h2 svg { color: var(--pine); }
 #selection {
-  display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,.85fr) minmax(0,1.2fr) minmax(0,1.35fr);
+  display: grid; grid-template-columns: minmax(0,.85fr) minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,1.35fr);
   align-items: end; gap: .5rem clamp(.75rem, 2vw, 2.25rem);
 }
 #selection > * { min-width: 0; }
@@ -92,6 +91,12 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
 .view-switch button[aria-selected="true"]:focus-visible { outline-color: var(--lime); }
 .view-switch button:focus-visible, .pane:focus-visible { outline-offset: -4px; }
 .pane { padding-inline: var(--inset); min-width: 0; height: 0; min-height: 100%; overflow: auto; overscroll-behavior-y: contain; }
+.chat-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.dialog-bar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding-inline: var(--inset); border-bottom: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+.dialog-bar strong { color: var(--ink); }
+.dialog-bar .reset-chat { flex: none; gap: .35rem; padding-inline: .45rem; border-color: transparent; background: transparent; font-size: inherit; }
+.dialog-bar .reset-chat:hover:enabled { background: var(--wash, #eef2ed); }
+.dialog-bar .reset-chat svg { width: 1rem; height: 1rem; }
 .empty, .receipt { display: grid; align-content: center; justify-items: center; min-height: 100%; padding: 1.25rem 0; text-align: center; }
 .empty > svg, .receipt > svg { width: 2.8rem; height: 2.8rem; stroke-width: 1.45; color: var(--pine); margin-bottom: .8rem; }
 .empty h3, .receipt h3, .draft h3 { font-size: clamp(1.3rem, 2vw, 2rem); }
@@ -179,12 +184,22 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
   .report-action { padding-inline: .75rem; }
   .report-action h4 { padding-inline-start: 0; }
 }
+.vehicle-history { list-style: none; margin: .5rem 0; padding: 0; }
+.history-report { padding-block: 1rem; }
+.vehicle-history li { display: grid; grid-template-columns: minmax(9rem, 1fr) 2fr; gap: .3rem 1rem; align-items: baseline; padding-block: .7rem; border-bottom: 1px solid var(--line); }
+.vehicle-history li p { margin: .2rem 0 0; }
+@media (max-width: 32rem) {
+  .view-switch button svg { display: none; }
+  .vehicle-history li { grid-template-columns: 1fr; }
+}
+.vehicle-history small { display: block; color: var(--muted); }
 .turn { padding-block: 1rem; }
 .turn + .turn { border-top: 1px solid var(--line); }
 .question { padding: .65rem .9rem; background: var(--tint); border-inline-start: 3px solid var(--pine); }
 .question strong { font-size: .82rem; color: var(--pine-dark); }
 .reply { padding-top: .9rem; }
 .reply > * + *, .diagnostic-verdict > * + *, .claims > :nth-child(2) { margin-top: .6rem; }
+.manual-answer { white-space: pre-line; }
 .verdict span { display: block; margin-top: .25rem; color: var(--muted); font-size: .85rem; }
 .claims { border-top: 1px solid var(--line); padding-top: .7rem; }
 h4 { font-size: 1rem; }
@@ -209,14 +224,12 @@ li + li { margin-top: .35rem; }
   .mast-inner { min-height: 52px; justify-content: space-between; gap: .6rem; }
   .wordmark { font-size: 1rem; gap: .45rem; }
   .brand-mark { width: 1.7rem; height: 1.7rem; }
-  .mast h1 { font-size: .75rem; padding: 0; border: 0; text-align: right; }
   main { padding-bottom: max(.6rem, env(safe-area-inset-bottom)); }
   .controls { padding: .8rem var(--inset); }
   .controls-heading { margin-bottom: .55rem; }
-  .controls-heading time { display: inline; }
   .controls h2 { font-size: 1rem; }
   #selection { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: .35rem .6rem; }
-  #selection > .vehicle-picker, #selection > .primary { grid-column: 1 / -1; }
+  #selection > .session-picker, #selection > .primary { grid-column: 1 / -1; }
   #selection > .primary { margin-top: .2rem; }
   .workspace { grid-template-rows: auto minmax(17rem, 1fr); }
   .view-switch button { padding-inline: .25rem; gap: .32rem; min-height: 46px; font-size: .92rem; }

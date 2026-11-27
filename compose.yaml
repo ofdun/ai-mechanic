@@ -13,6 +13,8 @@ x-fleet: &fleet
     ARTIFACTS_DIR: /state
     ML_API_URL: ${ML_API_URL:-http://ml:8001}
     MAINTENANCE_API_URL: ${MAINTENANCE_API_URL:-http://maintenance:8002}
+    RETRIEVAL_CONFIG_PATH: ${RETRIEVAL_CONFIG_PATH:-/app/configs/retrieval.yaml}
+    WEB_RETRIEVAL_MODE: ${WEB_RETRIEVAL_MODE:-team}
     PLANNER_MODE: ${PLANNER_MODE:-local}
     AGENT_ARCHITECTURE: ${AGENT_ARCHITECTURE:-baseline}
   volumes:

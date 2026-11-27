@@ -4,7 +4,7 @@ import { formatDate } from './api'
 import { Source } from './ManualReader'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
-const qualities = { good: 'хорошая', warning: 'с помехами', bad: 'непригодная' }
+const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
 const sections = {
   observation: 'Наблюдения', cause: 'Возможные причины', risk: 'Риски',
   check: 'Что проверить', reference_value: 'Нормативы', operation: 'Работы', spare_part: 'Запчасти',
@@ -23,7 +23,17 @@ function verifiedClaims(result) {
   const evidence = (result.evidence?.items || []).filter(item => item.engine_models.includes(result.engine_model))
   const sources = new Map(evidence.map(item => [item.evidence_id, item]))
   const verified = (result.claims || []).filter(claim => claim.evidence_ids.length && claim.evidence_ids.every(id => sources.has(id)))
-  return { sources, verified }
+  const summary = verified.length && verified.length === result.claims.length &&
+    !result.requires_remeasurement && !result.recognition_error ? result.summary?.trim() : ''
+  return { sources, verified, summary }
+}
+
+function ManualAnswer({ summary, children }) {
+  if (!summary) return children
+  return <>
+    <p className="manual-answer">{summary}</p>
+    {children}
+  </>
 }
 
 function verdict(result) {
@@ -36,7 +46,7 @@ function verdict(result) {
 
 export function DiagnosticReport({ result }) {
   const { diagnostic } = result
-  const { sources, verified } = verifiedClaims(result)
+  const { sources, verified, summary } = verifiedClaims(result)
   const { status, title: statusTitle } = verdict(result)
   const claims = status === 'anomaly' ? verified : []
   const narrative = claims.filter(c => ['observation', 'cause', 'risk'].includes(c.kind))
@@ -68,30 +78,32 @@ export function DiagnosticReport({ result }) {
       })}</span>
     </p>
   }
-  const quality = qualities[diagnostic.signal_quality]
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  const reading = [
+    recordingWarnings[diagnostic.signal_quality],
+    status === 'anomaly' && diagnostic.anomaly_type && 'Код ' + diagnostic.anomaly_type,
+    status === 'anomaly' && !result.message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
+    status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность ИИ ' + confidence,
+  ].filter(Boolean).join(' · ')
   const OutcomeIcon = { anomaly: CircleAlert, recognition_error: CircleAlert, check_failed: RotateCcw, normal: CheckCircle2 }[status]
   const lead = status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.' : result.message
   const title = status === 'anomaly' && diagnostic.anomaly_title
   const titleAt = title ? lead.indexOf(title) : -1
   return <article className={'report report-' + status}>
     <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{statusTitle}</h3>
-      <p className="report-reading">{[
-        quality && 'Запись ' + quality,
-        status === 'anomaly' && diagnostic.anomaly_type && 'Код ' + diagnostic.anomaly_type,
-        status === 'anomaly' && !result.message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
-        status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность ИИ ' + confidence,
-      ].filter(Boolean).join(' · ')}</p>
+      {reading && <p className="report-reading">{reading}</p>}
     </header>
     <p className="report-lead">{titleAt < 0 ? lead : <>
       {lead.slice(0, titleAt)}<strong>{title}</strong>{lead.slice(titleAt + title.length)}
     </>}</p>
     {status === 'normal' && <p>{result.message}</p>}
-    {[['observation', 'Что заметили'], ['cause', 'Возможная причина'], ['risk', 'Чем это грозит']].map(([kind, label]) => {
-      const group = narrative.filter(claim => claim.kind === kind)
-      return group.length ? <section key={kind} className="report-row"><h4>{label}</h4><div>{group.map(citedClaim)}</div></section> : null
-    })}
-    {!!actions.length && <section className="report-row report-action"><h4>Что делать дальше</h4><div>{actions.map(citedClaim)}</div></section>}
+    <ManualAnswer summary={status === 'anomaly' && summary}>
+      {[['observation', 'Что заметили'], ['cause', 'Возможная причина'], ['risk', 'Чем это грозит']].map(([kind, label]) => {
+        const group = narrative.filter(claim => claim.kind === kind)
+        return group.length ? <section key={kind} className="report-row"><h4>{label}</h4><div>{group.map(citedClaim)}</div></section> : null
+      })}
+      {!!actions.length && <section className="report-row report-action"><h4>Что делать дальше</h4><div>{actions.map(citedClaim)}</div></section>}
+    </ManualAnswer>
     {!!result.limitations?.length && <section className="report-row"><h4>Что осталось уточнить</h4><div><Entries items={result.limitations} /></div></section>}
     {!!references.length && <footer className="report-row report-sources"><h4>Руководство</h4>
       <div>{references.map((source, index) => <div key={pageKey(source)}>
@@ -105,10 +117,11 @@ export function DiagnosticVerdict({ result }) {
   const { diagnostic, message } = result
   const { status, title } = verdict(result)
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  const warning = recordingWarnings[diagnostic.signal_quality]
   return <div className="diagnostic-verdict">
     <div className={'verdict ' + status}>
       <h3>{title}</h3>
-      <span>Запись {qualities[diagnostic.signal_quality]}</span>
+      {warning && <span>{warning}</span>}
     </div>
     <p>{message}</p>
     {status === 'normal' && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
@@ -122,32 +135,52 @@ export function DiagnosticVerdict({ result }) {
 
 export function Response({ result }) {
   const { diagnostic, message, requires_remeasurement: repeat } = result
-  const { sources, verified } = verifiedClaims(result)
+  const { sources, verified, summary } = verifiedClaims(result)
   const limitations = result.limitations || []
   const insufficient = result.action === 'search_manuals' && verified.length === 0
-  const candidatePages = new Map()
+  const referencePages = new Map()
   if (insufficient) {
-    for (const source of sources.values()) candidatePages.set(pageKey(source), source)
+    for (const source of sources.values()) referencePages.set(pageKey(source), source)
   }
   return <article className="reply">
-    {diagnostic ? <DiagnosticVerdict result={result} /> : <p>{message}</p>}
-    {!repeat && Object.entries(sections).map(([kind, title]) => {
-      const group = verified.filter(claim => claim.kind === kind)
-      if (!group.length) return null
-      return <section key={kind} className="claims"><h4>{title}</h4>
-        <Entries items={group} render={claim => <>{claim.text}
-          <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
-        </>} /></section>
-    })}
-    {limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
+    {diagnostic ? <DiagnosticVerdict result={result} /> : !['search_manuals', 'get_diagnostic_history'].includes(result.action) && <p>{message}</p>}
+    <ManualAnswer summary={summary}>
+      {!repeat && !result.recognition_error && Object.entries(sections).map(([kind, title]) => {
+        const group = verified.filter(claim => claim.kind === kind)
+        if (!group.length) return null
+        return <section key={kind} className="claims"><h4>{title}</h4>
+          <Entries items={group} render={claim => <>{claim.text}
+            <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
+          </>} /></section>
+      })}
+    </ManualAnswer>
+    {!insufficient && limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
       <Entries items={limitations} /></section>}
-    {insufficient && <p>Подтверждённых данных по этому двигателю недостаточно. Рекомендуется дефектовка.</p>}
-    {candidatePages.size > 0 && <section className="claims"><h4>Проверить в руководстве</h4>
-      {Array.from(candidatePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
+    {insufficient && <div className="search-fallback">
+      <Entries items={limitations.length ? limitations : ['Ответ по руководству подтвердить не удалось.']} />
+      {' Рекомендуется дефектовка.'}
+    </div>}
+    {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? 'Страницы по теме для самостоятельной проверки' : 'Источники ответа'}</h4>
+      {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
-    {!!result.history?.length && <section><h4>История проверок</h4><ul>{result.history.map(row =>
-      <li key={row.session_id}>{formatDate(row.checked_at)} · {outcomes[row.status]}</li>)}</ul></section>}
+    {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
   </article>
+}
+
+export function VehicleHistory({ vehicleId, sessions }) {
+  const meanings = {
+    normal: 'Проверка не выявила отклонений.',
+    anomaly: 'В записи обнаружены признаки отклонения. Причину уточняют при диагностике.',
+    check_failed: 'Оценить двигатель по этой записи не удалось. Нужен повторный замер.',
+  }
+  return <section className="history-report"><h3>История проверок · {vehicleId}</h3>
+    {sessions.length ? <>
+      <ol className="vehicle-history">{sessions.map(row =>
+        <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
+          <small>Замер {row.session_id}</small></div>
+          <div><strong>{outcomes[row.status]}</strong><p>{meanings[row.status]}</p></div></li>)}</ol>
+    </> : <p>У этой машины пока нет проверок.</p>}
+  </section>
 }
 
 const priorities = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }

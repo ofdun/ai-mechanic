@@ -1,4 +1,5 @@
 """Private HTTP contract between the public backend and the engine-manual pipeline."""
+import logging
 from contextlib import asynccontextmanager
 
 import httpx
@@ -9,7 +10,8 @@ from ml.api import api_errors
 from ml.config import Settings
 from ml.contracts import AgentRequest, ConversationContext, TicketConfirmation, TicketDecision
 from ml.manual_api import manual_router
-from ml.pdf_baseline import build_pdf_pipeline
+from ml.pdf_baseline import PdfPageRetriever, build_manual_pipeline
+from ml.retrieval import RetrievalConfig, RetrievalEngine
 
 
 class Run(BaseModel):
@@ -25,8 +27,17 @@ class Confirm(BaseModel):
 def create_app():
     settings = Settings()
     index = settings.artifacts_dir / 'manuals.sqlite3'
+    if settings.web_retrieval_mode == 'team':
+        config = RetrievalConfig.load(settings.retrieval_config_path)
+        retriever = RetrievalEngine.load(settings.artifacts_dir / 'retrieval', config)
+        logging.getLogger('uvicorn.error').info(
+            'Loaded %s retrieval, corpus %s (%d manuals)', config.mode,
+            retriever.manifest.corpus_version, len(retriever.manifest.documents),
+        )
+    else:
+        retriever = PdfPageRetriever(index)
     client = httpx.Client(timeout=settings.http_timeout_seconds)
-    pipeline = build_pdf_pipeline(settings, client, index)
+    pipeline = build_manual_pipeline(settings, client, retriever)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -42,7 +53,7 @@ def create_app():
     def fleet():
         return {'vehicles': [vehicle.model_dump(include={
             'vehicle_id': True, 'engine_model': True, 'make': True, 'model': True,
-            'sessions': {'__all__': {'session_id', 'checked_at'}},
+            'sessions': {'__all__': {'session_id', 'checked_at', 'status'}},
         }) for vehicle in pipeline.vehicles.vehicles.values()]}
 
     @app.post('/run')

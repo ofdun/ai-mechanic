@@ -9,6 +9,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable, Collection, Sequence
 from functools import lru_cache
+from threading import local
 from typing import Literal
 
 import snowballstemmer
@@ -24,9 +25,13 @@ STOPWORDS = frozenset('''
 '''.split())
 
 
-@lru_cache(maxsize=1)
-def _stemmer():
-    return snowballstemmer.stemmer('russian')
+class _Analyzers(local):
+    def __init__(self):
+        self.russian = snowballstemmer.stemmer('russian')
+
+
+# Snowball mutates its current word during stemming. Each HTTP worker thread needs its own instance.
+_analyzers = _Analyzers()
 
 
 def _plain(word: str) -> str:
@@ -35,7 +40,7 @@ def _plain(word: str) -> str:
 
 @lru_cache(maxsize=200_000)
 def _stem(word: str) -> str:
-    return _stemmer().stemWord(word)
+    return _analyzers.russian.stemWord(word)
 
 
 def tokenizer(analyzer: Analyzer) -> Callable[[str], list[str]]:

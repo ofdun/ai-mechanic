@@ -141,7 +141,7 @@ class LLMEvidenceWorkflow:
             sources = {item.evidence_id: item for item in evidence.items}
             writer = PlainWriter(self.client, self.settings.a_generator_model, language=self.settings.answer_language)
             summary = writer.write(plan.original_query, plan.engine_model, claims,
-                                   conflict=bool(find_conflicts(claims, sources)))
+                                   conflict=bool(find_conflicts(claims, sources)), allow_assessment=plan.anomaly_type is not None)
         return SearchOutcome(plan=plan, evidence=evidence, claims=claims, summary=summary)
 
     def run(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:

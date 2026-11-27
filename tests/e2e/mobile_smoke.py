@@ -50,11 +50,12 @@ def exercise(context, base_url):
     diagnose = page.get_by_role('button', name='Получить результат диагностики')
     draft = page.get_by_role('button', name='Создать заявку', exact=True)
     confirm = page.get_by_role('button', name='Подтвердить заявку', exact=True)
-    vehicle.select_option('ДЕМО-01')
-    expect(engine).to_have_value('')
+    expect(vehicle).to_be_disabled()
+    expect(diagnose).to_be_disabled()
     engine.select_option('Учебный Д-01')
-    expect(vehicle.locator('option')).to_have_count(1)
-    expect(vehicle.locator('optgroup[label="Учебный Д-01"] option')).to_have_text('ДЕМО-01 · Учебный Д-01')
+    expect(vehicle).to_have_value('')
+    expect(vehicle.locator('option:enabled')).to_have_count(1)
+    vehicle.select_option('ДЕМО-01')
     measurement.select_option('F08-DEMO')
     chat_view = page.get_by_role('tab', name='Чат', exact=True)
     ticket_view = page.get_by_role('tab', name='Заявка', exact=True)
@@ -124,6 +125,46 @@ def exercise(context, base_url):
     expect(answer.get_by_role('button', name=source_name)).to_be_focused()
     print('PASS — F4, уточнение по предыдущей диагностике с подтверждённым риском и ссылкой')
 
+    # The offline backend supplies genuine evidence; stand in only for the optional writer.
+    summary = 'Сначала проверьте настройку стенда.\nПосле этого повторите учебный замер.'
+
+    def with_summary(route):
+        upstream = route.fetch()
+        body = upstream.json()
+        assert body['claims'] and body['action'] == 'search_manuals'
+        route.fulfill(response=upstream, json={**body, 'message': summary, 'summary': summary})
+
+    page.route('**/agent/run', with_summary, times=1)
+    question.fill('Почему это опасно?')
+    send.tap()
+    generated = thread.get_by_role('article').last
+    expect(generated.locator('.manual-answer')).to_have_text(summary)
+    expect(generated.get_by_text(summary, exact=True)).to_have_count(1)
+    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
+    generated.get_by_role('button', name=source_name).tap()
+    expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='К чату').tap()
+    expect(generated.locator('details')).to_have_count(0)
+    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
+    print('PASS — один краткий ответ, его источник и видимая формулировка из руководства')
+
+    delayed = []
+    page.route('**/agent/run', lambda route: delayed.append(route), times=1)
+    text = 'Почему это опасно при следующем замере?'
+    question.fill(text)
+    question.press('Enter')
+    turn = thread.locator('.turn').last
+    expect(turn.get_by_text(text, exact=True)).to_be_visible()
+    expect(turn.get_by_text('Ищем ответ…')).to_be_visible()
+    expect(question).to_have_value('')
+    question.fill('Следующий вопрос')
+    delayed[0].abort()
+    expect(turn.get_by_role('button', name='Повторить')).to_be_visible()
+    turn.get_by_role('button', name='Повторить').tap()
+    expect(turn.get_by_role('article')).to_be_visible()
+    expect(thread.get_by_text(text, exact=True)).to_have_count(1)
+    expect(question).to_have_value('Следующий вопрос')
+
     question.fill('Можно ли перегнать машину на базу?')
     page.get_by_role('button', name='Отправить', exact=True).tap()
     expect(page.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()
@@ -131,7 +172,10 @@ def exercise(context, base_url):
 
     question.fill('Сколько стоит маркировка учебного узла?')
     send.tap()
-    candidates = thread.get_by_role('heading', name='Проверить в руководстве').last.locator('..')
+    reply = thread.locator('.turn').last.get_by_role('article')
+    candidates = reply.get_by_role('heading', name='Страницы по теме для самостоятельной проверки').locator('..')
+    expect(reply.locator('.search-fallback')).to_have_count(1)
+    expect(reply.get_by_role('heading', name='Ограничения')).to_have_count(0)
     candidate_page = candidates.get_by_role('button', name=source_name)
     candidate_page.tap()
     expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
@@ -182,17 +226,33 @@ def exercise(context, base_url):
     print('PASS — C1, черновик, явное подтверждение и повтор с тем же ticket_id')
 
     engine.select_option('Учебный Д-02')
+    expect(ticket_view).to_have_attribute('aria-selected', 'true')
     expect(engine).to_be_focused()
-    expect(vehicle).to_have_value('ДЕМО-02')
-    expect(vehicle.locator('option')).to_have_count(1)
+    expect(vehicle).to_have_value('')
+    expect(vehicle.locator('option:enabled')).to_have_count(1)
+    vehicle.select_option('ДЕМО-02')
     expect(measurement).to_have_value('REPEAT-DEMO')
+    agent_calls = []
+    page.on('request', lambda req: agent_calls.append(req.url) if '/agent/' in req.url else None)
+    saved_turns = thread.locator('.turn').count()
+    page.get_by_role('tab', name='История', exact=True).tap()
+    panel = page.get_by_role('tabpanel', name='История', exact=True)
+    history = panel.locator('.vehicle-history')
+    expect(panel.get_by_role('heading', name='История проверок · ДЕМО-02')).to_be_visible()
+    expect(thread.locator('.turn')).to_have_count(saved_turns)
+    expect(history.locator('li')).to_have_count(2)
+    expect(history.locator('li').first).to_contain_text('REPEAT-DEMO')
+    expect(history.locator('li').first).to_contain_text('Сбой проверки')
+    expect(history.locator('li').last).to_contain_text('Норма')
+    assert not agent_calls
     measurement.select_option('NORMAL-DEMO')
-    engine.select_option('')
-    expect(vehicle.locator('option')).to_have_count(2)
+    expect(panel).to_be_visible()
+    expect(history.locator('li')).to_have_count(2)
     expect(vehicle).to_have_value('ДЕМО-02')
     expect(measurement).to_have_value('NORMAL-DEMO')
     expect(page.get_by_text(re.compile(re.escape(ticket_id)))).to_have_count(0)
     expect(page.get_by_text(OPERATION, exact=False)).to_have_count(0)
+    page.get_by_role('tab', name='Результат').tap()
     diagnose.tap()
     expect(page.get_by_role('heading', name='Норма', exact=True)).to_be_visible()
     expect(report.get_by_text(re.compile('можно продолжить эксплуатацию'))).to_be_visible()
@@ -207,6 +267,8 @@ def exercise(context, base_url):
     print('PASS — норма, смена ТС очищает предыдущую заявку, ответ и источник')
 
     measurement.select_option('REPEAT-DEMO')
+    expect(chat_view).to_have_attribute('aria-selected', 'true')
+    page.get_by_role('tab', name='Результат').tap()
     expect(page.get_by_role('heading', name='Норма', exact=True)).to_have_count(0)
     diagnose.tap()
     expect(page.get_by_role('heading', name='Сбой проверки', exact=True)).to_be_visible()
@@ -259,11 +321,15 @@ def main():
         stack.callback(guest.close)
         guest_page = guest.new_page()
         guest_page.goto(base_url)
+        guest_page.get_by_label('Двигатель', exact=True).select_option('Учебный Д-01')
         guest_page.get_by_label('Транспортное средство').select_option('ДЕМО-01')
         guest_page.get_by_role('button', name='Получить результат диагностики').click()
         result_tab = guest_page.get_by_role('tab', name='Результат')
         result_tab.focus()
         result_tab.press('End')
+        history_tab = guest_page.get_by_role('tab', name='История')
+        expect(history_tab).to_be_focused()
+        history_tab.press('ArrowLeft')
         ticket_tab = guest_page.get_by_role('tab', name='Заявка')
         expect(ticket_tab).to_be_focused()
         expect(ticket_tab).to_have_attribute('aria-selected', 'true')
@@ -274,6 +340,59 @@ def main():
         second_ticket = confirmation.value.json()['ticket_id']
         assert first_ticket != second_ticket and len(ticket_posts) == 2
         expect(guest_page.get_by_text(re.compile(re.escape(second_ticket)))).to_be_visible()
+        def open_guest_chat():
+            guest_page.get_by_label('Двигатель', exact=True).select_option('Учебный Д-01')
+            guest_page.get_by_label('Транспортное средство').select_option('ДЕМО-01')
+            guest_page.get_by_role('tab', name='Чат', exact=True).click()
+
+        def ask_history():
+            field = guest_page.get_by_label('Вопрос по двигателю')
+            field.fill('Покажи историю проверок')
+            with guest_page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
+                guest_page.get_by_role('button', name='Отправить', exact=True).click()
+            return response.value.json()['conversation_id']
+
+        guest_page.get_by_role('tab', name='Чат', exact=True).click()
+        before = ask_history()
+        guest_page.reload()
+        open_guest_chat()
+        log = guest_page.get_by_role('log')
+        diagnose = guest_page.get_by_role('button', name='Получить результат диагностики')
+        expect(guest_page.get_by_text('Переписка сохранена', exact=True)).to_be_visible()
+        expect(log.locator('.turn')).to_have_count(0)
+        guest_page.route('**/agent/run', lambda route: route.abort(), times=1)
+        diagnose.click()
+        expect(guest_page.locator('.panel-status')).to_contain_text('Нет связи')
+        expect(log.locator('.turn')).to_have_count(0)
+        diagnose.click()
+        expect(log.get_by_text('Покажи историю проверок', exact=True)).to_have_count(1)
+        expect(log.locator('.vehicle-history')).to_be_visible()
+        expect(log.locator('.diagnostic-verdict')).to_have_count(1)
+
+        key = ('ДЕМО-01', 'F08-DEMO')
+        changed = upstream.measurements[key].model_copy(update={'confidence': 0.70})
+        with patch.dict(upstream.measurements, {key: changed}):
+            guest_page.reload()
+            open_guest_chat()
+            expect(guest_page.get_by_text('Переписка сохранена', exact=True)).to_be_visible()
+            expect(log.locator('.turn')).to_have_count(0)
+            diagnose.click()
+            turns = log.locator('.turn')
+            expect(turns).to_have_count(3)
+            expect(turns.first).to_contain_text('91%')
+            expect(turns.nth(1)).to_contain_text('Покажи историю проверок')
+            expect(turns.last.locator('.diagnostic-verdict')).to_contain_text('70%')
+            with guest_page.expect_response(lambda r: r.url.endswith('/agent/run')):
+                diagnose.click()
+            expect(diagnose).to_be_enabled()
+            expect(turns).to_have_count(3)
+        print('PASS — после изменения ответа Mock ML новый вердикт добавлен в конец один раз')
+        assert ask_history() == before
+        guest_page.once('dialog', lambda prompt: prompt.accept())
+        guest_page.get_by_role('button', name='Сбросить диалог').click()
+        expect(log.locator('.turn')).to_have_count(0)
+        assert ask_history() != before
+        print('PASS — переписка и контекст восстановлены после перезагрузки, сброс начинает новый диалог')
         print('PASS — второй посетитель может пройти учебную диагностику со своей заявкой')
 
 

@@ -1,9 +1,13 @@
 """Read reviewed rows and complete passages from the locally installed engine manuals."""
 import re
+from typing import TYPE_CHECKING
 
 from ml.contracts import EvidenceBundle, SearchOutcome, TechnicalClaim
 from ml.planner.local import is_diagnostic_followup
 from ml.reviewed_checks import ReviewCatalog
+
+if TYPE_CHECKING:
+    from ml.architectures import LLMEvidenceWorkflow
 
 
 def compact(item):
@@ -15,7 +19,7 @@ def topic_terms(text):
     ignored = ('как', 'нужн', 'можн', 'провер', 'опред', 'поиск', 'долж', 'руковод', 'двигат',
                'мотор', 'дальш', 'причин', 'следу', 'почему', 'сказат', 'скол', 'значен', 'номин',
                'пожал', 'найти', 'покаж', 'указа', 'этого', 'очень', 'может', 'быть', 'будет',
-               'такое', 'нормат', 'назван', 'характерист', 'вместе')
+               'такое', 'чинить', 'почин', 'отремонт', 'ремонтир', 'нормат', 'назван', 'характерист', 'вместе')
     return {w[:4] for w in words if not w.startswith(ignored) and w not in {
         'при', 'что', 'для', 'чем', 'это', 'под', 'него', 'его', 'чего', 'мне', 'меня', 'или', 'тип',
     }}
@@ -56,9 +60,11 @@ def engine_mentions(models):
 
 
 class LocalEvidence:
-    def __init__(self, retriever, catalog: ReviewCatalog | None = None, engine_models=()):
+    def __init__(self, retriever, catalog: ReviewCatalog | None = None, engine_models=(), *,
+                 generation: 'LLMEvidenceWorkflow | None' = None):
         self.retriever = retriever
         self.catalog = catalog if catalog is not None else ReviewCatalog.load()
+        self.generation = generation
         self.models = engine_mentions(engine_models) if engine_models else None
 
     def run(self, plan, diagnostic):
@@ -70,13 +76,20 @@ class LocalEvidence:
             return SearchOutcome(plan=plan, claims=[], evidence=EvidenceBundle())
 
         followup = diagnostic is not None and is_diagnostic_followup(question)
-        if diagnostic and (plan.anomaly_type or followup):
+        diagnosis_lookup = diagnostic is not None and (plan.anomaly_type is not None or followup)
+        if diagnosis_lookup:
             risk_only = followup and bool(re.search(r'опас|гроз|риск|плох', question))
-            return self.catalog.resolve(plan, self.retriever.page, fault=diagnostic.anomaly_type, risk_only=risk_only)
-
-        question = models.sub(' ', question)
-        result = self.catalog.resolve(plan, self.retriever.page, question=question)
-        if result.claims:
+            result = self.catalog.resolve(plan, self.retriever.page, fault=diagnostic.anomaly_type, risk_only=risk_only)
+        else:
+            question = models.sub(' ', question)
+            result = self.catalog.resolve(plan, self.retriever.page, question=question)
+        if result.summary:
+            return result
+        if self.generation is not None:
+            if result.claims:
+                return self.generation.outcome(plan, result.evidence, result.claims)
+            return self.generation.run(plan, diagnostic)
+        if result.claims or diagnosis_lookup:
             return result
         pages, claims = {}, []
         if not re.search(r'сколько|момент|давлен|норматив|допуск|температур|зазор|размер|затяж|затян', question):

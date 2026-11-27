@@ -1,5 +1,8 @@
 **
 !Dockerfile
+!configs/
+!configs/retrieval.yaml
+!configs/retrieval-web.yaml
 !pyproject.toml
 !uv.lock
 !ml/

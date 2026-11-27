@@ -38,6 +38,7 @@ class ReviewEntry(BaseModel):
     model_config = ConfigDict(extra='forbid')
     fault_code: FaultCode | None = None
     topic: str | None = None
+    conflict_notice: str = ''
     claims: list[TechnicalClaim] = Field(min_length=1)
 
 
@@ -86,12 +87,15 @@ class ReviewCatalog(BaseModel):
         topics = {name for name, terms in self.topics.items() if all(term.search(question) for term in terms)}
         sources = {}
         claims = []
+        notices = []
         for entry in self.entries:
             if not ((fault and entry.fault_code == fault) or entry.topic in topics):
                 continue
             # A multi-page procedure is released as a unit, including exceptions and conflicting tables.
             if any(read(key) is None for claim in entry.claims for key in claim.evidence_ids):
                 continue
+            if entry.conflict_notice:
+                notices.append(entry.conflict_notice)
             for claim in entry.claims:
                 if risk_only and claim.kind != 'risk':
                     continue
@@ -102,4 +106,5 @@ class ReviewCatalog(BaseModel):
                     ids.append(item.evidence_id)
                     fields.update(values)
                 claims.append(TechnicalClaim(text=claim.text.format_map(fields), kind=claim.kind, evidence_ids=ids))
-        return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=list(sources.values())))
+        return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=list(sources.values())),
+                             summary=' '.join(dict.fromkeys(notices)))

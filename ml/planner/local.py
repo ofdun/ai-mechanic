@@ -5,6 +5,8 @@ from collections import Counter
 from functools import lru_cache
 
 from ml.planner import Decision, TOOL_DESCRIPTIONS
+from ml.retrieval.expansion import FAULT_QUERIES
+from ml.retrieval.sparse import tokenizer
 
 
 EXAMPLES = {
@@ -56,7 +58,18 @@ def vector(counts, weights):
 
 
 class LocalPlanner:
+    def __init__(self, manual_terms=()):
+        self.tokenize = tokenizer('stem')
+        self.manual_terms = set(manual_terms)
+        self.manual_terms.update(self.tokenize(' '.join(FAULT_QUERIES.values())))
+        self.manual_terms.update(self.tokenize('двигатель мотор норматив момент затяжки дефектовка маркировка износ допуск ремонт'))
+        self.generic_terms = set(self.tokenize('дай дайте покажи расскажи напиши подскажи'
+            ' какой какая какие сколько сделать делать можно нужно почему проверить найти получить дома пожалуйста'))
+
     def plan(self, message, engine_model, diagnostic, *, recent_messages=()):
+        followup = is_diagnostic_followup(message)
+        if followup and (not diagnostic or diagnostic.status != 'anomaly'):
+            return Decision('clarify', clarification='О каком отклонении речь? Назовите признак или получите результат диагностики выбранной проверки.')
         weights, rows = examples()
         # A negated clause cannot request an action, even when its vocabulary matches perfectly.
         clauses = re.split(r'[,;.!?]|\b(?:а|но|лучше|вместо этого)\b', message.casefold())
@@ -67,12 +80,17 @@ class LocalPlanner:
         score, action = max(matches)
         if not positive.strip():
             action = 'clarify' if re.search(r'заявк|черновик|оформ|отправ|созда', message.casefold()) else 'search_manuals'
-        elif score < 0.28 or (action == 'draft_ticket' and re.search(r'\b(?:как|почему|зачем|когда)\b', positive)):
+        elif score < 0.28:
+            terms = set(self.tokenize(message)) - self.generic_terms
+            if not terms.intersection(self.manual_terms) and engine_model.casefold() not in message.casefold():
+                return Decision('clarify', clarification='Я помогаю с диагностикой двигателей. Что хотите узнать о выбранной машине?')
+            action = 'search_manuals'
+        elif (action == 'draft_ticket' and re.search(r'\b(?:как|почему|зачем|когда)\b', positive)):
             action = 'search_manuals'
         if action != 'search_manuals':
             return Decision(action)
         rewrite = message
-        if diagnostic and diagnostic.status == 'anomaly' and is_diagnostic_followup(message):
+        if diagnostic and diagnostic.status == 'anomaly' and followup:
             rewrite = f'{message} {diagnostic.anomaly_title}. {diagnostic.description}'
         return Decision(action, rewrite)
 
