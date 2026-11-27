@@ -39,6 +39,67 @@ def serve(app):
             worker.join(timeout=10)
 
 
+def exercise_dictation(context, base_url):
+    page = context.new_page()
+    page.goto(base_url)
+    page.get_by_label('Двигатель', exact=True).select_option('Учебный Д-01')
+    page.get_by_label('Транспортное средство').select_option('ДЕМО-01')
+    page.get_by_role('tab', name='Чат', exact=True).tap()
+    mic = page.get_by_role('button', name='Надиктовать сообщение')
+    field = page.get_by_label('Вопрос по двигателю')
+    send = page.get_by_role('button', name='Отправить', exact=True)
+    posts = []
+    page.on('request', lambda req: posts.append(req.url) if req.method == 'POST' else None)
+
+    def dictate(text):
+        def transcript(route):
+            assert len(route.request.post_data_buffer) > 0
+            route.fulfill(json={'text': text})
+
+        page.route('**/agent/audio?*', transcript, times=1)
+        mic.tap()
+        stop = page.get_by_role('button', name='Остановить диктовку')
+        expect(stop).to_be_visible()
+        page.wait_for_timeout(350)  # Capture microphone frames before stopping the encoder.
+        stop.tap()
+        expect(mic).to_be_enabled()
+
+    page.once('dialog', lambda prompt: prompt.dismiss())
+    mic.tap()
+    expect(mic).to_have_attribute('aria-pressed', 'false')
+    page.once('dialog', lambda prompt: prompt.accept())
+    dictate('Запусти диагностику')
+    expect(field).to_have_value('Запусти диагностику')
+    assert len(posts) == 1 and '/agent/audio?' in posts[0]
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as diagnosis:
+        send.tap()
+    assert diagnosis.value.json()['diagnostic']['status'] == 'anomaly'
+
+    dictate('Почему это')
+    field.fill('Почему это опасно?')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as answer:
+        send.tap()
+    assert answer.value.json()['evidence']['items']
+    expect(page.get_by_role('log').get_by_role('button', name=f'{MANUAL}, стр. 2').last).to_be_visible()
+
+    dictate('Создай заявку')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as draft:
+        send.tap()
+    assert draft.value.json()['ticket_draft']
+    assert not any(url.endswith('/agent/tickets/confirm') for url in posts)
+
+    field.fill('Черновик')
+    page.evaluate("""() => { navigator.mediaDevices.getUserMedia = async () => {
+        throw new DOMException('denied', 'NotAllowedError')
+    } }""")
+    mic.tap()
+    expect(page.get_by_text('Проверьте доступ к микрофону', exact=False)).to_be_visible()
+    expect(field).to_have_value('Черновик')
+    expect(send).to_be_enabled()
+    page.close()
+    print('PASS — диктовка, правка, диагностика, источник, черновик без отправки и отказ микрофона')
+
+
 def exercise(context, base_url):
     page = context.new_page()
     errors = []
@@ -121,18 +182,28 @@ def exercise(context, base_url):
     expect(answer).to_contain_text(RISK)
     answer.get_by_role('button', name=source_name).tap()
     expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='Текст', exact=True).tap()
+    expect(page.locator('.manual-quote')).to_have_text(RISK)
+    expect(page.locator('.manual-quote')).to_be_in_viewport()
+    page.get_by_role('button', name='Предыдущая страница').tap()
+    expect(page.locator('.manual-text')).to_contain_text('Демонстрационные данные')
+    expect(page.locator('.manual-quote')).to_have_count(0)
+    page.get_by_role('button', name='Следующая страница').tap()
+    expect(page.locator('.manual-quote')).to_have_text(RISK)
     page.get_by_role('button', name='К чату').tap()
     expect(answer.get_by_role('button', name=source_name)).to_be_focused()
     print('PASS — F4, уточнение по предыдущей диагностике с подтверждённым риском и ссылкой')
 
     # The offline backend supplies genuine evidence; stand in only for the optional writer.
     summary = 'Сначала проверьте настройку стенда.\nПосле этого повторите учебный замер.'
+    paraphrase = 'Проверьте настройку учебного стенда перед следующим замером.'
 
     def with_summary(route):
         upstream = route.fetch()
         body = upstream.json()
         assert body['claims'] and body['action'] == 'search_manuals'
-        route.fulfill(response=upstream, json={**body, 'message': summary, 'summary': summary})
+        claims = [{**claim, 'quote': claim['text'], 'text': paraphrase} for claim in body['claims']]
+        route.fulfill(response=upstream, json={**body, 'claims': claims, 'message': summary, 'summary': summary})
 
     page.route('**/agent/run', with_summary, times=1)
     question.fill('Почему это опасно?')
@@ -140,13 +211,37 @@ def exercise(context, base_url):
     generated = thread.get_by_role('article').last
     expect(generated.locator('.manual-answer')).to_have_text(summary)
     expect(generated.get_by_text(summary, exact=True)).to_have_count(1)
-    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
+    expect(generated.get_by_text(paraphrase, exact=False).first).to_be_visible()
     generated.get_by_role('button', name=source_name).tap()
     expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='Текст', exact=True).tap()
+    expect(page.locator('.manual-quote')).to_have_text(RISK)
+    assert paraphrase not in page.locator('.manual-text').inner_text()
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.get_by_role('button', name='К чату').tap()
     expect(generated.locator('details')).to_have_count(0)
-    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
+    expect(generated.get_by_text(paraphrase, exact=False).first).to_be_visible()
     print('PASS — один краткий ответ, его источник и видимая формулировка из руководства')
+
+    # A long page must scroll to the quote after asynchronous loading; repeated/missing text stays unmarked.
+    document_path = '**/api/documents/' + DOCUMENT_ID + '/pages/2'
+    for text, expected in [('Вводный раздел.\n' * 100 + RISK, 1),
+                           (RISK + '\n' + RISK, 0), ('Другая формулировка без цитаты.', 0)]:
+        def page_text(route, request, text=text):
+            upstream = route.fetch()
+            route.fulfill(response=upstream, json={**upstream.json(), 'text': text})
+        page.route(document_path, page_text, times=1)
+        generated.get_by_role('button', name=source_name).tap()
+        expect(page.get_by_role('button', name='Текст', exact=True)).to_be_enabled()
+        page.get_by_role('button', name='Текст', exact=True).tap()
+        expect(page.locator('.manual-text')).to_have_text(text)
+        expect(page.locator('.manual-quote')).to_have_count(expected)
+        if expected:
+            expect(page.locator('.manual-quote')).to_be_in_viewport()
+            assert page.locator('.manual-body').evaluate('node => node.scrollTop') > 0
+        page.get_by_role('button', name='К чату').tap()
+    print('PASS — точная исходная цитата, автопрокрутка длинной страницы, нет подсветки при повторе или несовпадении')
+
 
     delayed = []
     page.route('**/agent/run', lambda route: delayed.append(route), times=1)
@@ -310,11 +405,15 @@ def main():
         }))
         base_url = stack.enter_context(serve(create_app()))
         playwright = stack.enter_context(sync_playwright())
-        browser = playwright.chromium.launch(channel=args.channel)
+        browser = playwright.chromium.launch(channel=args.channel, args=['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'])
         stack.callback(browser.close)
         context = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
         stack.callback(context.close)
         print(f'Chromium {browser.version} · 390×844 · учебные HTTP-сервисы')
+        voice_context = browser.new_context(viewport={'width': 320, 'height': 780}, has_touch=True, is_mobile=True)
+        voice_context.grant_permissions(['microphone'], origin=base_url)
+        exercise_dictation(voice_context, base_url)
+        voice_context.close()
         first_ticket = exercise(context, base_url)
         assert len(ticket_posts) == 1, f'Ожидалась одна запись в ТОиР, отправлено {len(ticket_posts)}'
 

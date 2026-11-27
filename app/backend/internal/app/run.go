@@ -42,6 +42,6 @@ func Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("decode fleet: %w", err)
 	}
 	service := &mechanic.Service{Repository: store, Agent: client, Measurements: measurements}
-	api := httpapi.Server{Worker: cfg.agentURL, Fleet: fleet, Service: service}
+	api := httpapi.Server{Worker: cfg.agentURL, Speech: cfg.speechURL, Fleet: fleet, Service: service}
 	return serve(ctx, cfg.listenAddr, api.Routes(cfg.frontendDir))
 }
