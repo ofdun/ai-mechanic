@@ -5,6 +5,8 @@ import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, Messag
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } from './Response'
 import { ManualNavigation } from './ManualReader'
+import { FleetOverview } from './FleetOverview'
+import { InspectionForm, InspectionList } from './Inspection'
 import { useChatHistory } from './chatHistory'
 import { ChatComposer } from './ChatComposer'
 import { CycleCost, useCycleMetrics, useServiceMode } from './serviceMode'
@@ -30,10 +32,12 @@ function selectedSession(vehicle) {
   return vehicle.sessions.some(session => session.session_id === saved) ? saved : vehicle.sessions[0]?.session_id || ''
 }
 
+const modeKey = 'ai-mechanic.mode'
 const answerLanguages = { ru: 'Русский', uz: 'Oʻzbekcha', tg: 'Тоҷикӣ', ky: 'Кыргызча', kk: 'Қазақша', hi: 'हिन्दी' }
 const languageKey = 'ai-mechanic.answerLanguage'
 
 function App() {
+  const [mode, setMode] = useState(() => readPreference(modeKey) === 'chief' ? 'chief' : 'mechanic')
   const [language, setLanguage] = useState(() => {
     const saved = readPreference(languageKey)
     return Object.hasOwn(answerLanguages, saved) ? saved : 'ru'
@@ -103,9 +107,24 @@ function App() {
     document.documentElement.lang = language
     document.title = translator(language)('Диагностика · Цифровой механик')
   }, [language])
+  function changeMode(next) {
+    savePreference(modeKey, next)
+    setMode(next)
+  }
+  // From the fleet list: open the vehicle's latest check on the History tab.
+  function openVehicle(next) {
+    savePreference(lastVehicleKey, next.vehicle_id)
+    if (next.sessions[0]) savePreference(sessionKey(next.vehicle_id), next.sessions[0].session_id)
+    setEngineFilter(next.engine_model)
+    setVehicleId(next.vehicle_id)
+    setSessionId(next.sessions[0]?.session_id || '')
+    setView('history')
+    changeMode('mechanic')
+  }
   function openResult(event) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
+    changeMode('mechanic')
     setView('result')
     if (history.state?.mechanicReader && document.getElementById('manual-title')) history.back()
     else document.getElementById('tab-result')?.focus()
@@ -113,6 +132,10 @@ function App() {
   return <UiLanguage.Provider value={language}>
     <header className="mast"><div className="mast-inner">
       <h1><a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>{t('Цифровой механик')}</a></h1>
+      <div className="mode-switch" role="group" aria-label={t('Режим')}>
+        <button type="button" aria-pressed={mode === 'mechanic'} onClick={() => changeMode('mechanic')}>{t('Механик')}</button>
+        <button type="button" aria-pressed={mode === 'chief'} onClick={() => changeMode('chief')}>{t('Главный механик')}</button>
+      </div>
       <label className="answer-language">{t('Язык')}
         <select id="ui-language" value={language} onChange={event => {
           setLanguage(event.target.value)
@@ -126,13 +149,17 @@ function App() {
       {error ? <div role="alert" className="error"><p>{t(error)}</p><button onClick={() => setAttempt(n => n + 1)}>{t('Повторить загрузку')}</button></div>
         : !catalog ? <p role="status">{t('Загружаем список транспорта…')}</p>
         : !catalog.length ? <p role="status">{t('В справочнике пока нет транспортных средств.')}</p>
+        : mode === 'chief' ? <FleetOverview catalog={catalog} onOpen={openVehicle} />
         : <Workspace key={JSON.stringify([vehicleId, sessionId])}
           {...{ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
     </main>
   </UiLanguage.Provider>
 }
 
-const pendingLabels = { diagnose: 'Получаем результат', chat: 'Ищем ответ', draft_ticket: 'Готовим черновик', confirm: 'Отправляем заявку' }
+const pendingLabels = {
+  diagnose: 'Получаем результат', chat: 'Ищем ответ', draft_ticket: 'Готовим черновик', confirm: 'Отправляем заявку',
+  record_inspection: 'Сохраняем результат осмотра', get_diagnostic_history: 'Загружаем результаты осмотра',
+}
 const views = [
   { id: 'result', label: 'Результат', icon: FileText },
   { id: 'chat', label: 'Чат', icon: MessageSquare },
@@ -179,6 +206,10 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   const [ticketStatus, setTicketStatus] = useState(null)
   const [diagnosis, setDiagnosis] = useState(null)
   const [ticketHint, setTicketHint] = useState('')
+  // «Понимаю, что запись с помехами»: sent with every turn of this check once given. The worker still refuses
+  // bad and failed records and checks the draft again when the ticket is sent.
+  const acceptWarning = useRef(false)
+  const [inspections, setInspections] = useState(null)
   const serviceMode = useServiceMode()
   const metrics = useCycleMetrics()
   const chatBody = useRef(null)
@@ -213,7 +244,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
     if (!pending && diagnosis && lastRequestedLanguage.current !== language) refreshDiagnosis()
   }, [language, pending, diagnosis])
 
-  async function run(kind, turn, languageRefresh = false) {
+  async function run(kind, turn, languageRefresh = false, inspection = null) {
     const text = turn?.question ?? question.trim()
     const retryId = turn?.id
     if (running.current || !sessionId || !id || (kind === 'chat' && historyLocked)) return
@@ -250,7 +281,9 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         return
       }
       const body = kind === 'chat' ? { message: text } : { command: kind }
-      const result = await request('/agent/run', { ...pair, conversation_id: id, ...(kind !== 'draft_ticket' && language !== 'ru' && { language }), ...body }, controller.signal)
+      if (acceptWarning.current) body.accept_signal_warning = true
+      if (kind === 'record_inspection') body.inspection = inspection
+      const result = await request('/agent/run', { ...pair, conversation_id: id, ...(!['draft_ticket', 'get_diagnostic_history', 'record_inspection'].includes(kind) && language !== 'ru' && { language }), ...body }, controller.signal)
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
@@ -266,7 +299,9 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           const previous = last?.result.diagnostic
           const current = result.diagnostic
           if (sameDiagnostic(previous, current)) {
-            if (last.result.localized?.language === result.localized?.language) return old
+            if (last.result.localized?.language === result.localized?.language &&
+                last.result.signal_warning_accepted === result.signal_warning_accepted &&
+                last.result.requires_remeasurement === result.requires_remeasurement) return old
             return old.map(turn => turn === last ? { ...turn, result } : turn)
           }
           return [...old, verdict]
@@ -274,6 +309,10 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         setOpenedDialog(id)
       }
       if (kind === 'chat') updateTurn({ result })
+      if (kind === 'record_inspection' || kind === 'get_diagnostic_history') {
+        setInspections(result.inspections || [])
+        return true
+      }
       if (result.diagnostic || result.action === 'draft_ticket') {
         setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
@@ -314,6 +353,16 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   const translationStatus = <p className="meta translation-status" role="status">
     {t(error && !pending ? 'Получите результат диагностики заново.' : 'Получаем результат')}
   </p>
+  function confirmWarning(event) {
+    event.preventDefault()
+    acceptWarning.current = true
+    run('diagnose')
+  }
+  const warningForm = diagnosis?.warning_confirmable && <form className="warning-confirm" onSubmit={confirmWarning}>
+    <p><strong>{t('Запись с помехами.')}</strong> {t('Помехи могут исказить вывод. Лучше повторить замер.')}</p>
+    <label><input type="checkbox" required disabled={!!pending} /> {t('Понимаю, что запись с помехами и вывод может быть неточным')}</label>
+    <button type="submit" className="secondary" disabled={!!pending}>{t('Продолжить с этой записью')}</button>
+  </form>
   const returnLabels = { result: 'К результату', chat: 'К чату', history: 'К истории', ticket: 'К заявке' }
   return <ManualNavigation sessionKey={id} returnLabel={t(returnLabels[view])}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
@@ -356,6 +405,10 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           title={sessionId ? t('Результат ещё не запрошен') : t('У этой машины пока нет проверок')}>
           {sessionId ? t('Проверьте параметры замера и нажмите «Получить результат диагностики».') : t('Выберите другую машину в списке транспорта.')}
         </EmptyView>}
+        {/* After the verdict: the mechanic first reads why a repeat is needed, then may override it. */}
+        {!waitingForTranslation && warningForm}
+        {diagnosis?.diagnostic?.status === 'anomaly' && !diagnosis.requires_remeasurement && !diagnosis.recognition_error &&
+          <InspectionForm report={diagnosis} disabled={!!pending} onSave={found => run('record_inspection', null, false, found)} />}
         {serviceMode && <CycleCost cycle={metrics.cycle} />}
       </div>
       <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
@@ -394,6 +447,12 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       </div>
       <div className="pane" hidden={view !== 'history'} id="panel-history" aria-labelledby="tab-history" role="tabpanel" tabIndex={0}>
         <VehicleHistory vehicleId={vehicle.vehicle_id} sessions={vehicle.sessions.slice(0, 5)} />
+        <section className="history-report"><h3>{t('Результаты осмотра')}</h3>
+          {/* Loaded on request: the History tab itself works from the vehicle list without calling the agent. */}
+          {inspections ? <InspectionList records={inspections} vehicleId={vehicle.vehicle_id} />
+            : <button type="button" className="secondary" disabled={!id || !sessionId || !!pending}
+              onClick={() => run('get_diagnostic_history')}>{t('Показать результаты осмотра')}</button>}
+        </section>
       </div>
       <div className="pane" hidden={view !== 'ticket'} id="panel-ticket" aria-labelledby="tab-ticket" role="tabpanel" tabIndex={0}>
         {ticketStatus ? ticketStatus.ticketId
@@ -407,7 +466,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
             <p>{t('Заявка в ТОиР не отправлена. Для ручного оформления используйте этот текст.')}</p>
             <p className="manual-referral">{diagnosis.manual_referral}</p>
           </section>
-          : <EmptyView icon={ClipboardList} title={t('Заявка на дефектовку')}>
+          : warningForm || <EmptyView icon={ClipboardList} title={t('Заявка на дефектовку')}>
             {canDraft ? t('Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.')
               : t(ticketHint) || (sessionId ? t('Сначала получите результат диагностики.') : t('У этой машины пока нет проверок. Выберите другое ТС.'))}</EmptyView>}
       </div>

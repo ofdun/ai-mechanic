@@ -1,0 +1,13 @@
+{
+  "document_id": "demo-d1-training",
+  "file": "demo-d1.pdf",
+  "title": "Инструкция учебного стенда ДЕМО-Д1",
+  "designation": "ДЕМО-Д1 РЭ",
+  "models": [
+    "ДЕМО-Д1"
+  ],
+  "year": 2026,
+  "expected_pages": 1,
+  "printed_page_offset": 0,
+  "sha256": "45bc2665642e496d574ea5748a3c6314ddc5b2a491e3cf1e4bddf4b83fcdbbb7"
+}

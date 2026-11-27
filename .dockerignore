@@ -18,3 +18,5 @@
 !app/frontend/src/**
 **/__pycache__/
 **/*.pyc
+app/frontend/node_modules
+app/frontend/dist

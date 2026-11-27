@@ -23,7 +23,11 @@ func (t *Turn) normalize() error {
 		if t.Message == nil {
 			return ErrInput
 		}
-	case "diagnose", "draft_ticket":
+	case "diagnose", "draft_ticket", "get_diagnostic_history":
+	case "record_inspection":
+		if len(t.Inspection) == 0 {
+			return ErrInput
+		}
 	default:
 		return ErrInput
 	}
