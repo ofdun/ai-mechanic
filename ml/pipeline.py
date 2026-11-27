@@ -95,7 +95,9 @@ class Pipeline:
     def audit(self) -> AuditLog | None:
         if not self.settings.audit_enabled:
             return None
-        return AuditLog(self.settings.artifacts_dir / 'agent-audit.sqlite3', self.settings.audit_retention_days)
+        return AuditLog(self.settings.artifacts_dir / 'agent-audit.sqlite3', self.settings.audit_retention_days,
+                        credentials=[s.get_secret_value() for s in (self.settings.llm_api_key,
+                                     self.settings.openrouter_api_key, self.settings.cloudflare_api_token)])
 
     def record(self, write) -> None:
         """The audit log must never cost the mechanic an answer: a failed write is logged and skipped."""

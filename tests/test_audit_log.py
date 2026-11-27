@@ -61,6 +61,9 @@ def test_chain_from_question_to_ticket(pipeline):
     assert question['cited_pages'] == [['Fixture РЭ', 52]] and question['actor_id'] == 'mechanic-7'
     assert chain[0]['diagnostic']['model_version'] == 'neuro-1'
     assert sent['draft_id'] == drafted['draft_id'] == draft.draft_id and sent['ticket_id'] == 'T-1'
+    assert [claim['text'] for claim in question['answer_details']['claims']] == [OPERATION['text'], VALUE['text']]
+    assert question['answer_details']['evidence']['items'][0]['pdf_page'] == 52
+    assert pipeline.audit.path.stat().st_mode & 0o077 == 0
     assert 'secret-key' not in pipeline.audit.path.read_bytes().decode('utf-8', 'ignore')
 
 
@@ -75,8 +78,18 @@ def test_old_records_are_removed_and_a_broken_log_does_not_stop_answers(pipeline
     ask(pipeline, command='diagnose')
     with sqlite3.connect(pipeline.audit.path) as db:
         db.execute("UPDATE audit SET at='2020-01-01T00:00:00+00:00'")
-    ask(pipeline, command='diagnose')
-    assert len(pipeline.audit.chain('M1', 'S-1')) == 1          # the old one is past the 90-day retention
+    assert pipeline.audit.chain(None, 'S-1') == []
+    with sqlite3.connect(pipeline.audit.path) as db:
+        assert db.execute('SELECT count(*) FROM audit').fetchone() == (0,)
     pipeline.audit.path.unlink()
     pipeline.audit.path.mkdir()                                  # the log file cannot be opened now
     assert ask(pipeline, command='diagnose').diagnostic.status == 'anomaly'
+
+
+def test_free_text_credentials_do_not_reach_storage(pipeline):
+    question = 'Проверка secret-key Bearer abc-synthetic-test sk-or-v1-00000000000000'
+    ask(pipeline, message=question)
+    assert pipeline.audit.chain(None, 'S-1')[0]['question'] == 'Проверка [redacted] [redacted] [redacted]'
+    stored = pipeline.audit.path.read_bytes()
+    for secret in ('secret-key', 'abc-synthetic-test', 'sk-or-v1-00000000000000'):
+        assert secret.encode() not in stored

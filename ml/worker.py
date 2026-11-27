@@ -57,7 +57,7 @@ def create_app():
         }) for vehicle in pipeline.vehicles.vehicles.values()]}
 
     @app.get('/audit')
-    def audit(vehicle_id: str, session_id: str):
+    def audit(session_id: str, vehicle_id: str | None = None):
         # The chain for one check, from the first question to the ticket. Internal: the web backend does not expose it.
         with api_errors():
             if pipeline.audit is None:

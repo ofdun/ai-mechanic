@@ -4,6 +4,8 @@ Kept apart from the service logs, in its own SQLite file, without keys or tokens
 retention period are removed on every write. Only the agent worker reads it (GET /audit); the web
 backend does not expose it."""
 import json
+import os
+import re
 import sqlite3
 from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
@@ -20,12 +22,20 @@ from ml.contracts import (
 COLUMNS = ('at', 'kind', 'actor_id', 'vehicle_id', 'session_id', 'entry')
 
 
+# Cover credentials pasted into free text as well as the configured provider credentials.
+CREDENTIAL = re.compile(r'(?i)\b(?:sk-(?:or-v1-)?[a-z0-9_-]{12,}|bearer\s+[^\s,;]+|'
+                        r'(?:api[_-]?key|token|password|mechanic_session)\s*[=:]\s*[^\s,;&]+)')
+
+
 class AuditLog:
-    def __init__(self, path: Path, retention_days: int):
+    def __init__(self, path: Path, retention_days: int, credentials=()):
+        self.credentials = tuple(value for value in credentials if value)
         self.path = path
         self.retention = timedelta(days=retention_days)
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, 'ab', opener=lambda name, flags: os.open(name, flags, 0o600)) as file:
+                os.fchmod(file.fileno(), 0o600)
         except OSError as error:
             raise AgentError('AUDIT_STORAGE_UNAVAILABLE', 'Каталог журнала аудита недоступен.') from error
         with self.connect() as db:
@@ -42,12 +52,27 @@ class AuditLog:
         except sqlite3.Error as error:
             raise AgentError('AUDIT_STORAGE_UNAVAILABLE', 'Журнал аудита недоступен.') from error
 
+    def redact(self, value):
+        if isinstance(value, str):
+            for secret in self.credentials:
+                value = value.replace(secret, '[redacted]')
+            return CREDENTIAL.sub('[redacted]', value)
+        if isinstance(value, dict):
+            return {key: self.redact(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self.redact(item) for item in value]
+        return value
+
+    def prune(self, db, now):
+        db.execute('DELETE FROM audit WHERE at < ?', ((now - self.retention).isoformat(),))
+
     def write(self, kind: str, actor_id: str, vehicle_id: str, session_id: str, entry: dict) -> None:
         now = datetime.now(timezone.utc)
         with self.connect() as db:
-            db.execute('DELETE FROM audit WHERE at < ?', ((now - self.retention).isoformat(),))
+            self.prune(db, now)
             db.execute('INSERT INTO audit VALUES (?, ?, ?, ?, ?, ?)', (
-                now.isoformat(), kind, actor_id, vehicle_id, session_id, json.dumps(entry, ensure_ascii=False)))
+                now.isoformat(), kind, self.redact(actor_id), self.redact(vehicle_id), self.redact(session_id),
+                json.dumps(self.redact(entry), ensure_ascii=False)))
 
     def turn(self, request: AgentRequest, response: AgentResponse | None, error: AgentError | None = None) -> None:
         sources = {(item.manual, item.pdf_page) for item in response.evidence.items} if response else set()
@@ -58,6 +83,12 @@ class AuditLog:
             'request_id': response.request_id if response else None,
             'action': response.action if response else None,
             'answer': response.message if response else None,
+            'answer_details': response.model_dump(mode='json', exclude_none=True, include={
+                'summary': True, 'claims': {'__all__': {'kind', 'text', 'evidence_ids'}}, 'limitations': True,
+                'manual_referral': True, 'localized': {'language', 'message', 'summary', 'claims', 'limitations'},
+                'ticket_draft': {'payload'}, 'history': True,
+                'evidence': {'items': {'__all__': {'evidence_id', 'document_id', 'manual', 'pdf_page'}}},
+            }) if response else None,
             'diagnostic': response.diagnostic.model_dump(include={'status', 'anomaly_type', 'anomaly_score',
                                                                    'confidence', 'signal_quality', 'model_version'})
             if response and response.diagnostic else None,
@@ -78,9 +109,14 @@ class AuditLog:
                  'ticket_id': receipt.ticket_id if receipt else None, 'error': error.code if error else None}
         self.write('ticket_confirm', confirmation.actor_id, confirmation.vehicle_id, confirmation.session_id, entry)
 
-    def chain(self, vehicle_id: str, session_id: str) -> list[dict]:
+    def chain(self, vehicle_id: str | None, session_id: str) -> list[dict]:
         """Everything about one check, oldest first: questions, answers, drafts and the ticket."""
         with self.connect() as db:
-            rows = db.execute(f'SELECT {", ".join(COLUMNS)} FROM audit WHERE vehicle_id=? AND session_id=? ORDER BY at, rowid',
-                              (vehicle_id, session_id)).fetchall()
+            self.prune(db, datetime.now(timezone.utc))
+            query = f'SELECT {", ".join(COLUMNS)} FROM audit WHERE session_id=?'
+            params = [session_id]
+            if vehicle_id is not None:
+                query += ' AND vehicle_id=?'
+                params.append(vehicle_id)
+            rows = db.execute(query + ' ORDER BY at, rowid', params).fetchall()
         return [{**dict(zip(COLUMNS[:-1], row[:-1])), **json.loads(row[-1])} for row in rows]
