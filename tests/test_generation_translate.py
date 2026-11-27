@@ -187,3 +187,28 @@ def test_translation_check_reads_oracle_traces():
 ])
 def test_translation_checks_by_language(source, target, language, translated):
     assert checked(source, target, language).translated is translated
+
+
+@pytest.mark.parametrize(('source', 'target', 'language', 'translated'), [
+    # «М2 100» is a mark and a value, not the number 2100
+    ('Момент затяжки болтов двигателя ЯМЗ-236М2 составляет 100-125 Н·м (10-12 кгс·м).',
+     'Моменти мустаҳкамкунии болтҳои муҳаррики ЯМЗ-236М2 100-125 Н·м (10-12 кгс·м)-ро ташкил медиҳад.', 'tg', True),
+    # Kyrgyz «от» is not the Russian preposition
+    ('При недостаточной мощности искры заменить неисправную свечу зажигания или катушку зажигания.',
+     'Учкундын кубаттуулугу жетишсиз болсо, бузулган от алдыруу шамын же от алдыруу катушкасын алмаштыргыла.',
+     'ky', True),
+    ('При недостаточной мощности искры заменить неисправную свечу зажигания или катушку зажигания.',
+     'При недостаточной мощности искры замените неисправную свечу или катушку зажигания.', 'ky', False),
+    ('Затяните гайки скоб крепления форсунок моментом 50-62 Н·м.',
+     'Forсунка mahkamlash skobalarining gaykalarini 50-62 N·m moment bilan torting.', 'uz', False),
+    ('Водяной насос с неисправным уплотнением подлежит ремонту.',
+     "Zichlagichi nosoz suv nasosi (vodяной насос) ta'mirlanishi kerak.", 'uz', False),
+])
+def test_checks_from_the_forty_answer_run(source, target, language, translated):
+    assert checked(source, target, language).translated is translated
+
+
+def test_thousands_join_only_plain_numbers():
+    from ml.generation.text import number_list
+    assert number_list('ЯМЗ-236М2 составляет 100') == ['236', '2', '100']
+    assert number_list('от 1 000 до 2 500 об') == ['1000', '2500']

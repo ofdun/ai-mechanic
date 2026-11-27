@@ -60,7 +60,7 @@ PROMPT = (
     'передавай явно, отдельными словами, а не только окончанием.\n'
     '5. Термины переводи по glossary; если в glossary в скобках дан русский термин, оставь его в скобках.\n'
     '6. Узбекский пиши только латиницей, без единой кириллической буквы: термины без перевода пиши латиницей '
-    '(нутромер → nutromer). Таджикский, киргизский и казахский — кириллицей своего алфавита.\n'
+    '(нутромер → nutromer, форсунка → forsunka) и не добавляй русских слов в скобках. Таджикский, киргизский и казахский — кириллицей своего алфавита.\n'
     '7. Верни каждый id ровно один раз, в том же порядке.'
 )
 
@@ -92,7 +92,12 @@ def looks_russian(source: str, target: str, language: str | None = None) -> bool
     if language in _OWN_LETTERS and _OWN_LETTERS[language].search(target):
         return False
     words = re.findall(r'[^\W\d_]+', target.lower())
-    return len(words) >= 6 and len(_RUSSIAN.findall(target.lower())) / len(words) > 0.15
+    if len(words) < 6 or len(_RUSSIAN.findall(target.lower())) / len(words) <= 0.15:
+        return False
+    # Short words like «от» (Kyrgyz «fire») or «на» (Tajik «not») also exist in the target languages,
+    # so a Russian echo must also reuse the source's own words.
+    source_words = set(re.findall(r'[^\W\d_]+', source.lower()))
+    return sum(word in source_words for word in words) / len(words) >= 0.3
 
 
 def safety_critical(source: str) -> bool:
