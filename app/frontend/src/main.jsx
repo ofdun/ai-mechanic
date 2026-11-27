@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, MessageSquare, ScanLine, Send, Wrench } from 'lucide-react'
+import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Send, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, DiagnosticVerdict, Draft, Response } from './Response'
 import { ManualNavigation } from './ManualReader'
@@ -142,23 +142,23 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
   const running = useRef(null)
   useEffect(() => () => running.current?.abort(), [])
   const pair = { vehicle_id: vehicle.vehicle_id, session_id: sessionId }
-  const selectedSession = vehicle.sessions.find(session => session.session_id === sessionId)
-  async function run(kind, retryTurn) {
+  async function run(kind, turn) {
+    const text = turn?.question ?? question.trim()
+    const retryId = turn?.id
     if (running.current || !sessionId) return
     const controller = new AbortController()
     running.current = controller
     setPending(kind)
     setError('')
-    const text = retryTurn?.question ?? question.trim()
-    const turnId = kind === 'chat' ? retryTurn?.id ?? conversationId() : null
+    const turnId = kind === 'chat' ? retryId ?? conversationId() : null
     function updateTurn(fields) {
       setTurns(old => old.map(turn => turn.id === turnId ? { ...turn, ...fields } : turn))
     }
     if (kind === 'chat') {
-      if (retryTurn) updateTurn({ error: '' })
+      if (retryId) updateTurn({ error: '' })
       else {
         setTurns(old => [...old, { id: turnId, question: text }])
-        setQuestion('')
+        if (!turn) setQuestion('')
       }
     }
     try {
@@ -225,7 +225,10 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
   return <ManualNavigation sessionKey={id} returnLabel={returnLabels[view]}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
       <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />Параметры замера</h2>
-        {selectedSession && <time dateTime={selectedSession.checked_at}>{formatDate(selectedSession.checked_at)}</time>}
+        <button className="history-action" type="button" disabled={!sessionId || !!pending} aria-controls="panel-chat" onClick={() => {
+          selectTab('chat')
+          run('chat', { question: 'Покажи историю проверок' })
+        }}><History aria-hidden="true" />История проверок</button>
       </div>
       <div id="selection">
       <div className="vehicle-picker"><label htmlFor="vehicle">Транспортное средство</label>

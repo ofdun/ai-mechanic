@@ -142,7 +142,7 @@ export function Response({ result }) {
     for (const source of sources.values()) referencePages.set(pageKey(source), source)
   }
   return <article className="reply">
-    {diagnostic ? <DiagnosticVerdict result={result} /> : result.action !== 'search_manuals' && <p>{message}</p>}
+    {diagnostic ? <DiagnosticVerdict result={result} /> : !['search_manuals', 'get_diagnostic_history'].includes(result.action) && <p>{message}</p>}
     <ManualAnswer summary={summary}>
       {!repeat && !result.recognition_error && Object.entries(sections).map(([kind, title]) => {
         const group = verified.filter(claim => claim.kind === kind)
@@ -162,8 +162,12 @@ export function Response({ result }) {
     {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? 'Страницы по теме для самостоятельной проверки' : 'Источники ответа'}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
-    {!!result.history?.length && <section><h4>История проверок</h4><ul>{result.history.map(row =>
-      <li key={row.session_id}>{formatDate(row.checked_at)} · {outcomes[row.status]}</li>)}</ul></section>}
+    {result.action === 'get_diagnostic_history' && <section><h4>История проверок · {result.vehicle_id}</h4>
+      {result.history?.length ? <ol className="vehicle-history">{[...result.history].reverse().map(row =>
+        <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
+          <small>{row.session_id}</small></div><strong>{outcomes[row.status]}</strong></li>)}</ol>
+        : <p>У этой машины пока нет проверок.</p>}
+    </section>}
   </article>
 }
 
