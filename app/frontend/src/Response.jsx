@@ -58,12 +58,15 @@ function verdict(result) {
   return { status, title: outcomes[status] }
 }
 
-function anomalyDetails({ diagnostic, message }, status, t) {
+function anomalyDetails(result, status, t) {
+  const { diagnostic, message } = result
   if (status !== 'anomaly') return ''
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
   return [
     diagnostic.anomaly_title && !message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
     confidence && !message.includes(confidence) && t('Уверенность ИИ {value}', { value: confidence }),
+    // The threshold the verdict was checked against (MIN_DIAGNOSTIC_CONFIDENCE), so the number above can be read.
+    result.min_confidence != null && t('Порог уверенности {value}', { value: Math.round(result.min_confidence * 100) + '%' }),
   ].filter(Boolean).join(' · ')
 }
 
@@ -82,7 +85,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
   if (!verified.length && result.action === 'search_manuals') {
     for (const source of sources.values()) pages.set(pageKey(source), source)
   }
-  const details = status && anomalyDetails({ diagnostic, message: answer.message.original || answer.message.text }, status.status, t)
+  const details = status && anomalyDetails({ ...result, message: answer.message.original || answer.message.text }, status.status, t)
   const lines = summary ? answer.summary : []
   const Icon = status?.status === 'normal' ? CheckCircle2 : status?.status === 'check_failed' ? RotateCcw : CircleAlert
   return <article className={report ? 'report report-' + status.status : compact ? 'diagnostic-verdict' : 'reply'} lang={answer.language}>

@@ -219,5 +219,10 @@
   "{id}: история проверок": "{id}: tekshiruvlar tarixi",
   "Режим": "Rejim",
   "Механик": "Mexanik",
-  "Главный механик": "Bosh mexanik"
+  "Главный механик": "Bosh mexanik",
+  "Запись с помехами.": "Xalaqitli yozuv.",
+  "Понимаю, что запись с помехами и вывод может быть неточным": "Yozuv xalaqitli ekanini va xulosa noaniq bo'lishi mumkinligini tushunaman",
+  "Порог уверенности {value}": "Ishonch chegarasi {value}",
+  "Продолжить с этой записью": "Shu yozuv bilan davom etish",
+  "Помехи могут исказить вывод. Лучше повторить замер.": "Xalaqitlar xulosani buzishi mumkin. O'lchovni takrorlagan ma'qul."
 }
