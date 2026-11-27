@@ -267,6 +267,14 @@ li + li { margin-top: .35rem; }
   .compose-row button { min-width: 44px; padding-inline: .6rem; }
   .compose-row .submit span { display: none; }
 }
+.part-numbers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.part-numbers li { display: grid; gap: .2rem; justify-items: start; }
+.part-numbers code { font-family: var(--mono); font-size: 1.05rem; font-weight: 650; }
+.copy-code { min-height: 36px; padding: .2rem .55rem; gap: .35rem; font-size: .85rem; }
+.part-numbers li:has(> code) { grid-template-columns: max-content auto; align-items: center; }
+.part-numbers .copy-code { justify-self: start; }
+.part-numbers li > p, .part-numbers li > .source { grid-column: 1 / -1; }
+.part-numbers li:has(> code) { column-gap: .6rem; }
 .score-chart { margin: .75rem 0 1rem; max-width: 26rem; }
 .score-chart svg { display: block; width: 100%; height: auto; overflow: visible; font-size: 12px; font-variant-numeric: tabular-nums; }
 .score-chart .grid line { stroke: var(--line); stroke-width: 1; }
