@@ -36,11 +36,12 @@ type Conversation struct {
 type Lease struct{ Actor, ID, Token string }
 
 type Turn struct {
-	Vehicle string  `json:"vehicle_id"`
-	Session string  `json:"session_id"`
-	ID      string  `json:"conversation_id"`
-	Message *string `json:"message,omitempty"`
-	Command string  `json:"command,omitempty"`
+	Language string  `json:"language,omitempty"`
+	Vehicle  string  `json:"vehicle_id"`
+	Session  string  `json:"session_id"`
+	ID       string  `json:"conversation_id"`
+	Message  *string `json:"message,omitempty"`
+	Command  string  `json:"command,omitempty"`
 }
 
 var ErrInput = errors.New("invalid agent turn")
