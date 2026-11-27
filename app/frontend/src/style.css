@@ -303,3 +303,9 @@ li + li { margin-top: .35rem; }
 .fleet-state { font-weight: 700; }
 @media (max-width: 34rem) { .fleet-counters .counter { font-size: .8rem; } }
 .mode-switch + .answer-language { margin-left: 0; }
+@media (max-width: 34rem) {
+  /* Phone: brand and language on the first row, the mode switch as a full-width second row. */
+  .mode-switch { order: 3; width: 100%; margin-left: 0; }
+  .mode-switch button { flex: 1; }
+  .mode-switch + .answer-language { margin-left: auto; }
+}
