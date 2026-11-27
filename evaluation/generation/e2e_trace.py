@@ -30,7 +30,15 @@ from pathlib import Path
 import httpx
 
 from evaluation.generation.oracle_context import (
-    DATASET, Case, Corpus, Pipeline, Usage, answer_case, git_commit, reference_numbers, summarize,
+    DATASET,
+    Case,
+    Corpus,
+    Pipeline,
+    Usage,
+    answer_case,
+    git_commit,
+    reference_numbers,
+    summarize,
 )
 from ml.config import Settings
 from ml.contracts import Evidence, SearchPlan
