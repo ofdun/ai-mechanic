@@ -85,6 +85,33 @@ def manual_name(document):
     return (document.get("designation") or "").strip() or document["title"]
 
 
+def visual_table_text(text_page):
+    """Read the reviewed table whose PDF content stream stores digits out of display order."""
+    glyphs = []
+    for index in range(text_page.count_chars()):
+        char = text_page.get_text_range(index, 1)
+        if char.isprintable() and char.strip():
+            left, bottom, right, top = text_page.get_charbox(index, loose=True)
+            glyphs.append(((bottom + top) / 2, left, right, char))
+
+    lines = []
+    for height, left, right, char in sorted(glyphs, reverse=True):
+        if not lines or lines[-1][0] - height > 2.8:
+            lines.append((height, []))
+        lines[-1][1].append((left, right, char))
+    result = []
+    for _, line in lines:
+        pieces = []
+        previous = None
+        for left, right, char in sorted(line):
+            if previous is not None and left - previous > 1.4:
+                pieces.append("    " if left - previous > 8 else " ")
+            pieces.append(char)
+            previous = right
+        result.append("".join(pieces))
+    return "\n".join(result)
+
+
 def read_document_pages(document, source):
     digest = hashlib.sha256()
     with source.open("rb") as file:
@@ -95,6 +122,7 @@ def read_document_pages(document, source):
 
     sections = document.get("sections", [])
     offset = document.get("printed_page_offset")
+    visual_order_pages = set(document.get("visual_order_pages", []))
     table_rows = {row["pdf_page"]: row for row in document.get("table_rows", [])}
     with pypdfium2.PdfDocument(source) as pdf:
         page_count = len(pdf)
@@ -108,11 +136,14 @@ def read_document_pages(document, source):
             page = pdf[page_index]
             try:
                 text_page = page.get_textpage()
-                raw_text = text_page.get_text_bounded()
-                if pdf_page in table_rows:
-                    raw_text = format_table_row(
-                        text_page, raw_text.replace("\r\n", "\n"), table_rows[pdf_page]
-                    )
+                if pdf_page in visual_order_pages:
+                    raw_text = visual_table_text(text_page)
+                else:
+                    raw_text = text_page.get_text_bounded()
+                    if pdf_page in table_rows:
+                        raw_text = format_table_row(
+                            text_page, raw_text.replace("\r\n", "\n"), table_rows[pdf_page]
+                        )
             finally:
                 page.close()
             printed_page, text = page_content(raw_text, pdf_page, offset)

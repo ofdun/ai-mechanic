@@ -11,6 +11,7 @@
       "document_scope": "ЯМЗ-236М2 и ЯМЗ-238М2",
       "expected_pages": 172,
       "printed_page_offset": 0,
+      "visual_order_pages": [68],
       "table_rows": [
         {
           "pdf_page": 52,
