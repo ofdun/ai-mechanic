@@ -2,6 +2,7 @@ import React from 'react'
 import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { Source } from './ManualReader'
+import { ScoreChart, score } from './ScoreChart'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -175,10 +176,13 @@ export function VehicleHistory({ vehicleId, sessions }) {
   }
   return <section className="history-report"><h3>История проверок · {vehicleId}</h3>
     {sessions.length ? <>
+      <ScoreChart sessions={sessions} id={'score-trend-' + vehicleId} />
       <ol className="vehicle-history">{sessions.map(row =>
         <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
           <small>Замер {row.session_id}</small></div>
-          <div><strong>{outcomes[row.status]}</strong><p>{meanings[row.status]}</p></div></li>)}</ol>
+          <div><strong>{outcomes[row.status]}</strong>
+            {row.anomaly_score != null && <span className="meta"> · оценка аномалии {score(row.anomaly_score)}</span>}
+            <p>{meanings[row.status]}</p></div></li>)}</ol>
     </> : <p>У этой машины пока нет проверок.</p>}
   </section>
 }
