@@ -45,3 +45,6 @@ variants:
   - name: or-cohere-rerank-5-pro-combined
     query_mode: combined
     overrides: {reranker: or:cohere/rerank-5-pro, rerank_query: both}
+  - name: or-mongodb-rerank-2.5-context
+    query_mode: original
+    overrides: {reranker: or:mongodb/rerank-2.5, rerank_context: true}
