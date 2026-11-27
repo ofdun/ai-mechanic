@@ -258,6 +258,15 @@ li + li { margin-top: .35rem; }
   .dialog-bar .reset-chat { max-width: 100%; }
   .answer-language { max-width: 100%; }
 }
+
+.manual-quote { background: #ffe58a; color: #17231b; text-decoration: underline; text-decoration-color: #9b6500; text-underline-offset: .15em; }
+.compose-row input { min-width: 0; }
+.compose-row button[aria-pressed="true"] { background: var(--pine); color: var(--paper); }
+.dictation-status:not(:empty) { margin-top: .35rem; font-size: .9rem; }
+@media (max-width: 42rem) {
+  .compose-row button { min-width: 44px; padding-inline: .6rem; }
+  .compose-row .submit span { display: none; }
+}
 .warning-confirm { display: grid; gap: .6rem; margin-block: .75rem 1rem; padding: .9rem 1rem; border: 1px solid var(--amber); border-radius: 6px; background: var(--amber-tint); }
 .warning-confirm label { display: flex; gap: .6rem; align-items: flex-start; font-weight: 600; }
 .warning-confirm input { min-height: 0; width: 1.3rem; height: 1.3rem; flex: none; margin-top: .15rem; }

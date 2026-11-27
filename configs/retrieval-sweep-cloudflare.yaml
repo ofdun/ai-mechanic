@@ -1,0 +1,27 @@
+# Варианты на Cloudflare Workers AI. Перед запуском:
+#   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, ALLOW_EXTERNAL_EVIDENCE=true (текст руководств уходит в Cloudflare)
+#   uv run python -m ml.retrieval embed --model cf:@cf/baai/bge-m3
+# В Workers AI есть только bge-reranker-base: для русского он слабее bge-reranker-v2-m3, это и проверяем.
+
+base:
+  mode: hybrid
+  embedder: cf:@cf/baai/bge-m3
+  top_k: 8
+  rerank_candidates: 30
+
+variants:
+  - name: cf-hybrid
+    query_mode: original
+  - name: cf-hybrid-w2
+    query_mode: original
+    overrides: {sparse_weight: 2.0}
+  - name: cf-hybrid-rerank-base
+    query_mode: original
+    overrides: {reranker: cf:@cf/baai/bge-reranker-base, rerank_passage_words: 150}
+  - name: cf-hybrid-rerank-base-prior
+    query_mode: original
+    overrides: {reranker: cf:@cf/baai/bge-reranker-base, rerank_passage_words: 150, rerank_prior_weight: 1.0}
+  # Вектора Cloudflare, реранкер локально
+  - name: cf-hybrid-rerank-v2-m3
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_passage_words: 150}
