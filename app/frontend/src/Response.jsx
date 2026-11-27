@@ -23,7 +23,17 @@ function verifiedClaims(result) {
   const evidence = (result.evidence?.items || []).filter(item => item.engine_models.includes(result.engine_model))
   const sources = new Map(evidence.map(item => [item.evidence_id, item]))
   const verified = (result.claims || []).filter(claim => claim.evidence_ids.length && claim.evidence_ids.every(id => sources.has(id)))
-  return { sources, verified }
+  const summary = verified.length && verified.length === result.claims.length &&
+    !result.requires_remeasurement && !result.recognition_error ? result.summary?.trim() : ''
+  return { sources, verified, summary }
+}
+
+function ManualAnswer({ summary, children }) {
+  if (!summary) return children
+  return <>
+    <p className="manual-answer">{summary}</p>
+    <details className="manual-claims"><summary>Подробности из руководства</summary>{children}</details>
+  </>
 }
 
 function verdict(result) {
@@ -36,7 +46,7 @@ function verdict(result) {
 
 export function DiagnosticReport({ result }) {
   const { diagnostic } = result
-  const { sources, verified } = verifiedClaims(result)
+  const { sources, verified, summary } = verifiedClaims(result)
   const { status, title: statusTitle } = verdict(result)
   const claims = status === 'anomaly' ? verified : []
   const narrative = claims.filter(c => ['observation', 'cause', 'risk'].includes(c.kind))
@@ -87,11 +97,13 @@ export function DiagnosticReport({ result }) {
       {lead.slice(0, titleAt)}<strong>{title}</strong>{lead.slice(titleAt + title.length)}
     </>}</p>
     {status === 'normal' && <p>{result.message}</p>}
-    {[['observation', 'Что заметили'], ['cause', 'Возможная причина'], ['risk', 'Чем это грозит']].map(([kind, label]) => {
-      const group = narrative.filter(claim => claim.kind === kind)
-      return group.length ? <section key={kind} className="report-row"><h4>{label}</h4><div>{group.map(citedClaim)}</div></section> : null
-    })}
-    {!!actions.length && <section className="report-row report-action"><h4>Что делать дальше</h4><div>{actions.map(citedClaim)}</div></section>}
+    <ManualAnswer summary={status === 'anomaly' && summary}>
+      {[['observation', 'Что заметили'], ['cause', 'Возможная причина'], ['risk', 'Чем это грозит']].map(([kind, label]) => {
+        const group = narrative.filter(claim => claim.kind === kind)
+        return group.length ? <section key={kind} className="report-row"><h4>{label}</h4><div>{group.map(citedClaim)}</div></section> : null
+      })}
+      {!!actions.length && <section className="report-row report-action"><h4>Что делать дальше</h4><div>{actions.map(citedClaim)}</div></section>}
+    </ManualAnswer>
     {!!result.limitations?.length && <section className="report-row"><h4>Что осталось уточнить</h4><div><Entries items={result.limitations} /></div></section>}
     {!!references.length && <footer className="report-row report-sources"><h4>Руководство</h4>
       <div>{references.map((source, index) => <div key={pageKey(source)}>
@@ -122,31 +134,40 @@ export function DiagnosticVerdict({ result }) {
 
 export function Response({ result }) {
   const { diagnostic, message, requires_remeasurement: repeat } = result
-  const { sources, verified } = verifiedClaims(result)
+  const { sources, verified, summary } = verifiedClaims(result)
   const limitations = result.limitations || []
   const insufficient = result.action === 'search_manuals' && verified.length === 0
-  const candidatePages = new Map()
-  if (insufficient) {
-    for (const source of sources.values()) candidatePages.set(pageKey(source), source)
+  const referencePages = new Map()
+  if (summary) {
+    for (const claim of verified) {
+      for (const id of claim.evidence_ids) {
+        const source = sources.get(id)
+        referencePages.set(pageKey(source), source)
+      }
+    }
+  } else if (insufficient) {
+    for (const source of sources.values()) referencePages.set(pageKey(source), source)
   }
   return <article className="reply">
     {diagnostic ? <DiagnosticVerdict result={result} /> : result.action !== 'search_manuals' && <p>{message}</p>}
-    {!repeat && Object.entries(sections).map(([kind, title]) => {
-      const group = verified.filter(claim => claim.kind === kind)
-      if (!group.length) return null
-      return <section key={kind} className="claims"><h4>{title}</h4>
-        <Entries items={group} render={claim => <>{claim.text}
-          <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
-        </>} /></section>
-    })}
+    <ManualAnswer summary={summary}>
+      {!repeat && !result.recognition_error && Object.entries(sections).map(([kind, title]) => {
+        const group = verified.filter(claim => claim.kind === kind)
+        if (!group.length) return null
+        return <section key={kind} className="claims"><h4>{title}</h4>
+          <Entries items={group} render={claim => <>{claim.text}
+            <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
+          </>} /></section>
+      })}
+    </ManualAnswer>
     {!insufficient && limitations.length > 0 && <section className="limitations"><h4>Ограничения</h4>
       <Entries items={limitations} /></section>}
     {insufficient && <div className="search-fallback">
       <Entries items={limitations.length ? limitations : ['Ответ по руководству подтвердить не удалось.']} />
       {' Рекомендуется дефектовка.'}
     </div>}
-    {candidatePages.size > 0 && <section className="claims"><h4>Страницы по теме для самостоятельной проверки</h4>
-      {Array.from(candidatePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
+    {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? 'Страницы по теме для самостоятельной проверки' : 'Источники ответа'}</h4>
+      {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
     {!!result.history?.length && <section><h4>История проверок</h4><ul>{result.history.map(row =>
       <li key={row.session_id}>{formatDate(row.checked_at)} · {outcomes[row.status]}</li>)}</ul></section>}

@@ -7,11 +7,13 @@ from fastapi.testclient import TestClient
 
 from demo.fixtures import ENGINE, training_fleet
 from ml.contracts import AgentError, DocumentPage, ParsedDocument
+from ml.providers.openrouter import OpenRouterClient
 from ml.retrieval import RetrievalEngine, build_index
 from ml.worker import create_app
 
 
-def test_worker_searches_team_index_in_local_profile(tmp_path, monkeypatch):
+@pytest.mark.parametrize('external', [False, True])
+def test_worker_searches_team_index_in_local_profile(tmp_path, monkeypatch, external):
     fleet = training_fleet()
     parsed = tmp_path / 'parsed'
     parsed.mkdir()
@@ -32,6 +34,22 @@ def test_worker_searches_team_index_in_local_profile(tmp_path, monkeypatch):
     monkeypatch.setenv('ARTIFACTS_DIR', str(tmp_path))
     monkeypatch.setenv('WEB_RETRIEVAL_MODE', 'team')
     monkeypatch.setenv('PLANNER_MODE', 'local')
+    monkeypatch.setenv('AGENT_ARCHITECTURE', 'a')
+    monkeypatch.setenv('ALLOW_EXTERNAL_EVIDENCE', str(external))
+    roles = []
+    sentence = document.pages[0].text
+
+    def complete_json(self, role, model, messages, schema, **kwargs):
+        roles.append(role)
+        replies = {
+            'a_generator': {'claims': [{'text': sentence, 'kind': 'check', 'evidence_ids': ['training:3'],
+                                        'quote': sentence, 'conflict_group': ''}]},
+            'a_verifier_finalizer': {'indexes': [0]},
+            'plain_answer': {'lead': sentence, 'lines': [], 'assessment': 'Проверка простая.'},
+        }
+        return schema.model_validate(replies[role])
+
+    monkeypatch.setattr(OpenRouterClient, 'complete_json', complete_json)
     with TestClient(create_app()) as client:
         response = client.post('/run', json={'turn': {
             'vehicle_id': fleet[0].vehicle_id, 'session_id': fleet[0].sessions[0].session_id,
@@ -42,6 +60,9 @@ def test_worker_searches_team_index_in_local_profile(tmp_path, monkeypatch):
         assert answer['action'] == 'search_manuals'
         assert [c['evidence_ids'] for c in answer['claims']] == [['training:3']]
         assert [e['pdf_page'] for e in answer['evidence']['items']] == [3]
+        assert roles == (['a_generator', 'a_verifier_finalizer', 'plain_answer'] if external else [])
+        if external:
+            assert answer['message'] == answer['summary'] == sentence
     engine = RetrievalEngine.load(index)
     assert engine.page(ENGINE, 'training', 3).text == document.pages[0].text
     assert engine.page(ENGINE, 'training', 7) is None

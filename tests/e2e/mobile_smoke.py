@@ -124,6 +124,29 @@ def exercise(context, base_url):
     expect(answer.get_by_role('button', name=source_name)).to_be_focused()
     print('PASS — F4, уточнение по предыдущей диагностике с подтверждённым риском и ссылкой')
 
+    # The offline backend supplies genuine evidence; stand in only for the optional writer.
+    summary = 'Сначала проверьте настройку стенда.\nПосле этого повторите учебный замер.'
+
+    def with_summary(route):
+        upstream = route.fetch()
+        body = upstream.json()
+        assert body['claims'] and body['action'] == 'search_manuals'
+        route.fulfill(response=upstream, json={**body, 'message': summary, 'summary': summary})
+
+    page.route('**/agent/run', with_summary, times=1)
+    question.fill('Почему это опасно?')
+    send.tap()
+    generated = thread.get_by_role('article').last
+    expect(generated.locator('.manual-answer')).to_have_text(summary)
+    expect(generated.get_by_text(summary, exact=True)).to_have_count(1)
+    expect(generated.get_by_text(RISK, exact=False)).not_to_be_visible()
+    generated.get_by_role('button', name=source_name).tap()
+    expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='К чату').tap()
+    generated.get_by_text('Подробности из руководства', exact=True).tap()
+    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
+    print('PASS — один краткий ответ, его источник и раскрытие формулировки из руководства')
+
     question.fill('Можно ли перегнать машину на базу?')
     page.get_by_role('button', name='Отправить', exact=True).tap()
     expect(page.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()

@@ -189,7 +189,10 @@ def build_manual_pipeline(settings: Settings, http: httpx.Client, retriever: Pdf
         catalog = ReviewCatalog.load(settings.reviewed_evidence_path)
         manuals = document_catalog(settings.manual_manifest_path)
         engines = {engine for manual in manuals.values() for engine in manual['models']}
-        return Pipeline(settings, http, search_workflow=LocalEvidence(retriever, catalog, engines))
+        generation = None
+        if settings.allow_external_evidence and settings.agent_architecture != 'baseline':
+            generation = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, ReviewedOperations())
+        return Pipeline(settings, http, search_workflow=LocalEvidence(retriever, catalog, engines, generation=generation))
     return build_retrieval_pipeline(settings, http, retriever)
 
 

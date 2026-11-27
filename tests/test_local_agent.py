@@ -67,7 +67,7 @@ def test_reviewed_norm_requires_all_pages_of_the_selected_engine():
     checks['service:2']['captures'] = {'pressure': r'давление ([\d,]+) кПа'}
     catalog = ReviewCatalog.model_validate({
         'topics': {'pressure': ['давлен']}, 'pages': checks,
-        'entries': [{'topic': 'pressure', 'claims': [{
+        'entries': [{'topic': 'pressure', 'conflict_notice': 'Уточните применимую процедуру.', 'claims': [{
             'kind': 'reference_value', 'text': 'На холодном стенде {pressure} кПа.',
             'evidence_ids': ['service:1', 'service:2'],
         }]}],
@@ -76,12 +76,15 @@ def test_reviewed_norm_requires_all_pages_of_the_selected_engine():
     workflow = LocalEvidence(retriever, catalog, [engine, 'Delta-31'])
     question = 'Какое давление у Atlas-24?'
     plan = SearchPlan(engine_model=engine, original_query=question, rewritten_query=question)
-    claim, = workflow.run(plan, None).claims
+    reviewed = workflow.run(plan, None)
+    assert reviewed.summary == 'Уточните применимую процедуру.'
+    claim, = reviewed.claims
     assert (claim.text, claim.evidence_ids) == ('На холодном стенде 14,2 кПа.', ['e1', 'e2'])
     for other in ['Delta-31', 'Atlas-212']:
         assert not workflow.run(plan.model_copy(update={'original_query': f'Какое давление у {other}?'}), None).claims
     assert not workflow.run(plan.model_copy(update={'engine_model': 'Delta-31'}), None).claims
     pages[1].text = 'На горячем стенде.'
-    assert not workflow.run(plan, None).claims
+    changed = workflow.run(plan, None)
+    assert not changed.claims and not changed.summary
     del pages[1]
     assert not workflow.run(plan, None).claims
