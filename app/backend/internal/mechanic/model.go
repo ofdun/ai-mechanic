@@ -44,6 +44,8 @@ type Turn struct {
 	Command  string  `json:"command,omitempty"`
 	// Inspection result for command record_inspection; the worker validates its fields.
 	Inspection json.RawMessage `json:"inspection,omitempty"`
+	// The mechanic confirmed a noisy recording; the worker still refuses bad or failed ones.
+	AcceptWarning bool `json:"accept_signal_warning,omitempty"`
 }
 
 var ErrInput = errors.New("invalid agent turn")

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     http_timeout_seconds: Annotated[float, Field(gt=0, le=90)] = 20
     min_diagnostic_confidence: Annotated[float, Field(ge=0, le=1)] = 0.70
     repeat_on_warning: bool = True
+    # With repeat_on_warning: a confident noisy record may still go on after the mechanic confirms the noise.
+    confirm_signal_warning: bool = True
     default_ticket_urgency: TicketUrgency = 'medium'
     ticket_urgency_by_fault: dict[FaultCode, TicketUrgency] = Field(default_factory=dict)
     # Audit log of questions, answers, sources and tickets, kept apart from service logs.
