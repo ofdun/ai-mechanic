@@ -25,9 +25,16 @@ expand_anomaly: true
 # Слияние и reranking (RET-07, RET-08)
 per_query_k: 30           # кандидатов на каждый запрос и каждый метод до RRF
 rrf_k: 60
-reranker: null            # например BAAI/bge-reranker-v2-m3
+sparse_weight: 1.0        # вес списков BM25 в RRF (hybrid)
+dense_weight: 1.0         # вес списков dense в RRF (hybrid)
+reranker: null            # BAAI/bge-reranker-v2-m3 локально или cf:@cf/baai/bge-reranker-base
 rerank_candidates: 30
 rerank_max_length: 512
+rerank_query: rewritten   # rewritten, original или both (исходный вопрос и переформулировка)
+rerank_context: false     # обозначение руководства перед текстом
+rerank_passage_words: null  # окна по словам, балл страницы — лучшее окно (MaxP); null — страница целиком
+rerank_passage_overlap: 40
+rerank_prior_weight: 0.0  # вес порядка слияния рядом с порядком реранкера, 0 — только реранкер
 
 # Контекст для генерации (RET-09, RET-10)
 top_k: 8                  # страниц (context: page) или фрагментов (context: chunk)

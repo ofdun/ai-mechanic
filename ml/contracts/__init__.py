@@ -111,6 +111,8 @@ class EvidenceBundle(BaseModel):
 
 
 class TechnicalClaim(BaseModel):
+    # Optional verbatim evidence excerpt for source navigation; old responses may omit it.
+    quote: str = ''
     text: Text
     kind: Literal['observation', 'cause', 'risk', 'check', 'reference_value', 'operation', 'spare_part']
     evidence_ids: list[Text] = Field(min_length=1)

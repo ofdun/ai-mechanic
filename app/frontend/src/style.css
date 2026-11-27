@@ -258,6 +258,15 @@ li + li { margin-top: .35rem; }
   .dialog-bar .reset-chat { max-width: 100%; }
   .answer-language { max-width: 100%; }
 }
+
+.manual-quote { background: #ffe58a; color: #17231b; text-decoration: underline; text-decoration-color: #9b6500; text-underline-offset: .15em; }
+.compose-row input { min-width: 0; }
+.compose-row button[aria-pressed="true"] { background: var(--pine); color: var(--paper); }
+.dictation-status:not(:empty) { margin-top: .35rem; font-size: .9rem; }
+@media (max-width: 42rem) {
+  .compose-row button { min-width: 44px; padding-inline: .6rem; }
+  .compose-row .submit span { display: none; }
+}
 .part-numbers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
 .part-numbers li { display: grid; gap: .2rem; justify-items: start; }
 .part-numbers code { font-family: var(--mono); font-size: 1.05rem; font-weight: 650; }

@@ -15,10 +15,9 @@ class GroundedClaim(TechnicalClaim):
     """A claim plus the excerpt that proves it.
 
     ``quote`` is copied from the cited page. Claims that belong to one disagreement between sources share
-    a non-empty ``conflict_group``. The shared API keeps serialising the base ``TechnicalClaim`` fields.
+    a non-empty ``conflict_group``. The shared API includes ``quote``; internal conflict metadata stays private.
     """
 
-    quote: str = ''
     conflict_group: str = ''
 
 
@@ -57,7 +56,7 @@ def to_claims(output: ClaimsOutput) -> list[GroundedClaim]:
 
 def quote_of(claim: TechnicalClaim) -> str:
     """The excerpt to verify. A claim from an older generator is checked by its own text."""
-    return claim.quote if isinstance(claim, GroundedClaim) and claim.quote else claim.text
+    return claim.quote or claim.text
 
 
 def conflict_group(claim: TechnicalClaim) -> str:
