@@ -1,6 +1,7 @@
 import { UiLanguage, useUiText } from './uiLanguage'
-import React, { useContext } from 'react'
-import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
+import React, { useContext, useEffect, useState } from 'react'
+import { createPortal, flushSync } from 'react-dom'
+import { CheckCircle2, CircleAlert, Printer, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { Source } from './ManualReader'
 
@@ -248,11 +249,72 @@ const schedules = {
   medium: 'Запланировать дефектовку на ближайшее ТО. До него машина работает под наблюдением.',
   high: 'Запланировать дефектовку до выпуска в рейс.',
 }
-export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled }) {
+function vehicleName(vehicle) {
+  if (!vehicle) return ''
+  const { make, model } = vehicle
+  return model?.startsWith(make || '') ? model : [make, model].filter(Boolean).join(' ')
+}
+
+function PrintSheet({ draft, urgency, vehicle, diagnosis }) {
+  const t = useUiText()
+  const language = useContext(UiLanguage)
+  const [printedAt, setPrintedAt] = useState(() => new Date())
+  useEffect(() => {
+    const refresh = () => flushSync(() => setPrintedAt(new Date()))
+    window.addEventListener('beforeprint', refresh)
+    return () => window.removeEventListener('beforeprint', refresh)
+  }, [])
+  const { payload } = draft
+  const session = vehicle?.sessions.find(item => item.session_id === payload.session_id)
+  const engine = draft.engine_model || vehicle?.engine_model
+  const sameCheck = diagnosis?.diagnostic && diagnosis.vehicle_id === payload.vehicle_id && diagnosis.session_id === payload.session_id
+  const status = sameCheck && verdict(diagnosis)
+  const details = status && anomalyDetails({ diagnostic: diagnosis.diagnostic, message: payload.conclusion }, status.status, t)
+  return createPortal(<article className="print-sheet" lang={language}>
+    <header className="print-heading">
+      <h1>{t('Лист дефектовки')}</h1>
+      <p>{formatDate(printedAt, language)}</p>
+    </header>
+    <dl className="print-fields">
+      <dt>{t('Транспортное средство')}</dt><dd><strong>{payload.vehicle_id}</strong>{vehicleName(vehicle) && ' · ' + vehicleName(vehicle)}</dd>
+      {engine && <><dt>{t('Двигатель')}</dt><dd>{engine}</dd></>}
+      <dt>{t('Проверка')}</dt><dd>{payload.session_id}{session && ' · ' + formatDate(session.checked_at, language)}</dd>
+      <dt>{t('Диагноз')}</dt><dd>
+        {status && <p><strong>{[t(status.title), details].filter(Boolean).join(' · ')}</strong></p>}
+        <p>{payload.conclusion}</p>
+      </dd>
+      <dt>{t('Приоритет')}</dt><dd><strong>{t(priorities[urgency])}</strong>. {t(schedules[urgency])}</dd>
+    </dl>
+    <section className="print-section">
+      <h2>{t('Работы')}</h2>
+      <ul className="print-checklist">{payload.operations.map((operation, index) =>
+        <li key={index}><span className="print-box" aria-hidden="true" />{operation}</li>)}</ul>
+    </section>
+    <section className="print-section">
+      <h2>{t('Запчасти')}</h2>
+      {payload.spare_parts.length ? <ul className="print-checklist">{payload.spare_parts.map((part, index) =>
+        <li key={index}><span className="print-box" aria-hidden="true" />{part}</li>)}</ul>
+        : <p>{t('Нет подтверждённых позиций')}</p>}
+    </section>
+    <section className="print-section">
+      <h2>{t('Страницы руководства')}</h2>
+      <ol className="print-references">{payload.references.map((reference, index) =>
+        <li key={index}>{reference.manual}, {t('стр.') + ' ' + reference.pdf_page}</li>)}</ol>
+    </section>
+    <footer className="print-signoff">
+      {['Исполнитель', 'Дата', 'Подпись'].map(label => <p key={label}><span>{t(label)}</span></p>)}
+    </footer>
+  </article>, document.body)
+}
+
+export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled, vehicle, diagnosis, printable = false }) {
   const t = useUiText()
   const { payload } = draft
   return <section className="draft" aria-label={t('Черновик заявки')}>
-    <h3>{t('Черновик заявки на дефектовку')}</h3>
+    <div className="draft-heading">
+      <h3>{t('Черновик заявки на дефектовку')}</h3>
+      <button type="button" onClick={() => window.print()}><Printer aria-hidden="true" />{t('Печать')}</button>
+    </div>
     <dl className="fields">
       <dt>{t('ТС / проверка')}</dt><dd>{payload.vehicle_id} / {payload.session_id}</dd>
       <dt><label htmlFor="ticket-urgency">{t('Приоритет')}</label></dt>
@@ -272,5 +334,6 @@ export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled }) {
         return source ? <Source key={index} source={source} /> : <p key={index}>{reference.manual}, {t('стр.')} {reference.pdf_page}</p>
       })}</dd>
     </dl>
+    {printable && <PrintSheet draft={draft} urgency={urgency} vehicle={vehicle} diagnosis={diagnosis} />}
   </section>
 }

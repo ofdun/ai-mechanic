@@ -392,7 +392,8 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           ? <div className="receipt" role="status"><CheckCheck aria-hidden="true" /><h3>{t('Заявка создана')}</h3><p>{t('Номер в ТОиР')} <strong>{ticketStatus.ticketId}</strong></p></div>
           : <p className="limitations" role="status">{t(ticketStatus.message)}</p>
           : draft ? <Draft draft={draft.value} evidence={draft.evidence} urgency={draft.urgency}
-              disabled={!!pending} onUrgencyChange={urgency => setDraft(current => ({ ...current, urgency }))} />
+              disabled={!!pending} onUrgencyChange={urgency => setDraft(current => ({ ...current, urgency }))}
+              vehicle={vehicle} diagnosis={diagnosis} printable={view === 'ticket'} />
           : diagnosis?.manual_referral ? <section className="draft" aria-label={t('Рекомендация на дефектовку')}>
             <h3>{t('Рекомендация на дефектовку')}</h3>
             <p>{t('Заявка в ТОиР не отправлена. Для ручного оформления используйте этот текст.')}</p>
