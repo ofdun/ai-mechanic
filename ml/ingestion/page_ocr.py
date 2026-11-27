@@ -1,6 +1,6 @@
 """Optional local OCR and structured table extraction for rendered PDF pages."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from html.parser import HTMLParser
 
@@ -9,6 +9,34 @@ from html.parser import HTMLParser
 class OCRPage:
     text: str
     tables: tuple[str, ...] = ()
+    blocks: list[dict] = field(default_factory=list)
+
+
+def raster_regions(page):
+    """Return displayed raster areas with little native text, in rendered page coordinates."""
+    import pymupdf
+
+    regions = []
+    for image in page.get_image_info():
+        rect = (pymupdf.Rect(image["bbox"]) * page.rotation_matrix) & page.rect
+        if rect.is_empty or rect.width < 36 or rect.height < 36:
+            continue
+        # Merge overlapping tiles and repeated occurrences of the same displayed area.
+        changed = True
+        while changed:
+            changed = False
+            for existing in list(regions):
+                if not (existing & rect).is_empty:
+                    regions.remove(existing)
+                    rect |= existing
+                    changed = True
+        regions.append(rect)
+    found = []
+    for rect in sorted(regions, key=lambda box: (box.y0, box.x0)):
+        native = page.get_text(clip=rect * page.derotation_matrix).strip()
+        if len(native) < 20:
+            found.append(rect)
+    return found
 
 
 class TableText(HTMLParser):
@@ -49,9 +77,19 @@ def table_text(html):
 
 
 class PageOCR:
-    def __init__(self, mode, dpi=250):
+    def __init__(self, mode, dpi=250, table_html="model", padding=0):
+        if table_html not in {"model", "cells"}:
+            raise ValueError("Неизвестный способ сборки HTML таблиц.")
+        if table_html == "cells" and mode != "pp-structure":
+            raise ValueError("--table-html cells требует --ocr pp-structure.")
+        if type(padding) is not int or padding < 0:
+            raise ValueError("--ocr-padding должен быть целым неотрицательным числом.")
+        if padding and mode != "paddleocr":
+            raise ValueError("--ocr-padding поддерживается с --ocr paddleocr.")
         self.mode = mode
         self.dpi = dpi
+        self.table_html = table_html
+        self.padding = padding
 
     @cached_property
     def pipeline(self):
@@ -79,16 +117,43 @@ class PageOCR:
         image = page.get_pixmap(dpi=self.dpi, clip=clip, alpha=False)
         # PaddleOCR's ndarray input expects BGR.
         pixels = np.frombuffer(image.samples, dtype=np.uint8).reshape(image.height, image.width, 3)
-        result, = self.pipeline.predict(input=pixels[:, :, ::-1].copy())
+        if self.padding:
+            pixels = np.pad(pixels, ((self.padding, self.padding), (self.padding, self.padding), (0, 0)),
+                            mode="constant", constant_values=255)
+        options = {}
+        if self.mode == "pp-structure":
+            options["use_wired_table_cells_trans_to_html"] = self.table_html == "cells"
+        result, = self.pipeline.predict(input=pixels[:, :, ::-1].copy(), **options)
+        area = page.rect if clip is None else clip & page.rect
+
+        def bbox(box):
+            # Map model pixels back to points on the displayed PDF page.
+            x0, y0, x1, y1 = map(float, box)
+            return [
+                min(area.x1, max(area.x0, (image.x + x0 - self.padding) * 72 / self.dpi)),
+                min(area.y1, max(area.y0, (image.y + y0 - self.padding) * 72 / self.dpi)),
+                min(area.x1, max(area.x0, (image.x + x1 - self.padding) * 72 / self.dpi)),
+                min(area.y1, max(area.y0, (image.y + y1 - self.padding) * 72 / self.dpi)),
+            ]
+
         if self.mode == "paddleocr":
-            return OCRPage("\n".join(result["rec_texts"]))
+            blocks = [
+                {"type": "text", "text": text, "bbox": bbox(box), "confidence": float(confidence)}
+                for text, box, confidence in zip(
+                    result["rec_texts"], result["rec_boxes"], result["rec_scores"], strict=True
+                ) if text.strip()
+            ]
+            return OCRPage("\n".join(block["text"] for block in blocks), blocks=blocks)
 
         blocks, tables = [], []
         for block in result["parsing_res_list"]:
             content = block.content.strip()
+            item = {"type": block.label, "bbox": bbox(block.bbox)}
             if block.label == "table":
                 tables.append(content)
+                item["html"] = content
                 content = table_text(content)
             if content:
-                blocks.append(content)
-        return OCRPage("\n".join(blocks), tuple(tables))
+                item["text"] = content
+                blocks.append(item)
+        return OCRPage("\n".join(block["text"] for block in blocks), tuple(tables), blocks)

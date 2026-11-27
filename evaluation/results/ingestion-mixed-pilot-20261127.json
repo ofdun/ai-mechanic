@@ -1,0 +1,173 @@
+{
+  "base_commit": "c6dcbfb",
+  "dataset": "Three controlled mixed PDF pages made from manually checked manual crops and a native heading",
+  "gold_sha256": "e96e2f8e94b7dd26d964d2da6655848c8ffdbb34209171b0b4caa8c34eb65f3f",
+  "evaluation_scope": "Two text regions and one raster table. Same regions as the earlier pilot, not an independent holdout.",
+  "models": {
+    "paddleocr": "3.7.0",
+    "paddlepaddle": "3.3.1",
+    "pymupdf": "1.28.2",
+    "recognition": "cyrillic_PP-OCRv5_mobile_rec",
+    "detection": "PP-OCRv5_mobile_det",
+    "dpi": 250,
+    "device": "CPU arm64"
+  },
+  "teds_source": "https://github.com/opendatalab/OmniDocBench/blob/baf13e5a009cb3bc7400ab7891b6a05d7fd330b7/src/metrics/table_metric.py",
+  "validation": {
+    "python_tests": 240,
+    "default_export_unchanged_pages": 1743,
+    "both_formats_and_bm25": true,
+    "heading_occurrences_per_page": 1,
+    "bbox_in_bounds": true
+  },
+  "results": {
+    "paddleocr": {
+      "previous": {
+        "seconds": 0.016506458006915636,
+        "cases": [
+          {
+            "has_text": false,
+            "text_edit_distance": 1.0,
+            "reading_order_edit_distance": 1.0,
+            "id": "rk273-caption",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": false,
+            "text_edit_distance": 1.0,
+            "reading_order_edit_distance": 1.0,
+            "id": "rk278-paragraph",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": false,
+            "detected_tables": 0,
+            "teds": 0.0,
+            "teds_structure": 0.0,
+            "id": "rk280-table-6.10",
+            "native_heading_count": 1
+          }
+        ],
+        "summary": {
+          "detected_tables": 0,
+          "teds": 0.0,
+          "reading_order_edit_distance": 1.0,
+          "teds_structure": 0.0,
+          "text_edit_distance": 1.0,
+          "has_text": 0,
+          "native_heading_count": 1
+        }
+      },
+      "mixed": {
+        "seconds": 4.796395166005823,
+        "cases": [
+          {
+            "has_text": true,
+            "text_edit_distance": 0.0,
+            "reading_order_edit_distance": 0.0,
+            "id": "rk273-caption",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": true,
+            "text_edit_distance": 0.007751937984496124,
+            "reading_order_edit_distance": 0.25,
+            "id": "rk278-paragraph",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": true,
+            "detected_tables": 0,
+            "teds": 0.0,
+            "teds_structure": 0.0,
+            "id": "rk280-table-6.10",
+            "native_heading_count": 1
+          }
+        ],
+        "summary": {
+          "detected_tables": 0,
+          "teds": 0.0,
+          "reading_order_edit_distance": 0.125,
+          "teds_structure": 0.0,
+          "text_edit_distance": 0.003875968992248062,
+          "has_text": 1,
+          "native_heading_count": 1
+        }
+      }
+    },
+    "pp-structure": {
+      "previous": {
+        "seconds": 0.004069792004884221,
+        "cases": [
+          {
+            "has_text": false,
+            "text_edit_distance": 1.0,
+            "reading_order_edit_distance": 1.0,
+            "id": "rk273-caption",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": false,
+            "text_edit_distance": 1.0,
+            "reading_order_edit_distance": 1.0,
+            "id": "rk278-paragraph",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": false,
+            "detected_tables": 0,
+            "teds": 0.0,
+            "teds_structure": 0.0,
+            "id": "rk280-table-6.10",
+            "native_heading_count": 1
+          }
+        ],
+        "summary": {
+          "detected_tables": 0,
+          "teds": 0.0,
+          "reading_order_edit_distance": 1.0,
+          "teds_structure": 0.0,
+          "text_edit_distance": 1.0,
+          "has_text": 0,
+          "native_heading_count": 1
+        }
+      },
+      "mixed": {
+        "seconds": 13.30083266699512,
+        "cases": [
+          {
+            "has_text": true,
+            "text_edit_distance": 0.14960629921259844,
+            "reading_order_edit_distance": 1.0,
+            "id": "rk273-caption",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": true,
+            "text_edit_distance": 0.4496124031007752,
+            "reading_order_edit_distance": 0.5,
+            "id": "rk278-paragraph",
+            "native_heading_count": 1
+          },
+          {
+            "has_text": true,
+            "detected_tables": 1,
+            "teds": 0.8751034151034152,
+            "teds_structure": 0.962962962962963,
+            "id": "rk280-table-6.10",
+            "native_heading_count": 1
+          }
+        ],
+        "summary": {
+          "detected_tables": 1,
+          "teds": 0.8751034151034152,
+          "reading_order_edit_distance": 0.75,
+          "teds_structure": 0.962962962962963,
+          "text_edit_distance": 0.29960935115668685,
+          "has_text": 1,
+          "native_heading_count": 1
+        }
+      }
+    }
+  }
+}
