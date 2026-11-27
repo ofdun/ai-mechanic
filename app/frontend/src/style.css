@@ -271,3 +271,5 @@ li + li { margin-top: .35rem; }
 .answer-checks { margin-top: 1rem; border-top: 1px solid var(--line); }
 .answer-checks summary { padding: .75rem 0; cursor: pointer; font-weight: 600; }
 .answer-checks[open] > :not(summary) { margin-block: .4rem; }
+.read-aloud { margin-top: 1rem; }
+.read-aloud[aria-pressed="true"] { border-color: var(--pine); background: var(--tint); color: var(--pine-dark); }

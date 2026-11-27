@@ -154,5 +154,7 @@
   "Сервис занят. Повторите через несколько секунд.": "Xizmat band. Bir necha soniyadan keyin qayta urinib ko‘ring.",
   "Что проверено в этом ответе": "Bu javobda nimalar tekshirildi",
   "Числа, сверенные с этой страницей": "Shu sahifa bilan solishtirilgan sonlar",
-  "Утверждений отсеяно при проверке источников": "Manbalar tekshirilganda chiqarib tashlangan fikrlar soni"
+  "Утверждений отсеяно при проверке источников": "Manbalar tekshirilganda chiqarib tashlangan fikrlar soni",
+  "Прочитать ответ": "Javobni o‘qib berish",
+  "Стоп": "To‘xtatish"
 }
