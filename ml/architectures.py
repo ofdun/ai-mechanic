@@ -23,7 +23,7 @@ from ml.generation.finalizer import find_conflicts
 from ml.generation.generator import ClaimGenerator, diagnosis_context, search_query
 from ml.generation.plain import PlainWriter
 from ml.generation.reasoner import TechnicalReasoner
-from ml.generation.verifier import EvidenceVerifier
+from ml.generation.verifier import EvidenceVerifier, answer_verification
 from ml.pipeline import scope_evidence
 from ml.providers.openrouter import OpenRouterClient
 
@@ -77,14 +77,16 @@ class LLMEvidenceWorkflow:
 
     def valid_claims(
         self, claims: list[TechnicalClaim], plan: SearchPlan, evidence: EvidenceBundle,
-        diagnostic: DiagnosticResult | None, *, include_reviewed: bool = False,
+        diagnostic: DiagnosticResult | None, *, reports, include_reviewed: bool = False,
     ) -> list[TechnicalClaim]:
         """Keep manually reviewed claims and claims that pass the programmatic evidence check."""
         trusted = self.reviewed.generate(plan, evidence, diagnostic).claims
         accepted = list(trusted) if include_reviewed else []
         unchecked = [claim for claim in claims if claim not in trusted]
         verifier = EvidenceVerifier(plan.engine_model, plan.anomaly_type)
-        verified = verifier.verify(TechnicalDraft(claims=unchecked), evidence).claims
+        report = verifier.inspect(TechnicalDraft(claims=unchecked), evidence)
+        reports.append(report)
+        verified = report.accepted
         for claim in claims:
             if (claim in trusted or claim in verified) and claim not in accepted:
                 accepted.append(claim)
@@ -107,7 +109,7 @@ class LLMEvidenceWorkflow:
 
     def find_disagreements(
         self, role: str, model: str, plan: SearchPlan, evidence: EvidenceBundle, diagnostic: DiagnosticResult | None,
-        claims: list[TechnicalClaim],
+        claims: list[TechnicalClaim], reports,
     ) -> list[TechnicalClaim]:
         """Look in the other manuals for what contradicts the answer, so both instructions reach the mechanic."""
         document = {item.evidence_id: item.document_id for item in evidence.items}
@@ -119,7 +121,7 @@ class LLMEvidenceWorkflow:
                  for index, claim in enumerate(claims)]
         note = prompts.DISAGREEMENT_NOTE + json.dumps(known, ensure_ascii=False)
         found = self.valid_claims(self.generate(role, model, plan, evidence, diagnostic, note=note),
-                                  plan, evidence, diagnostic)
+                                  plan, evidence, diagnostic, reports=reports)
         merged = list(claims)
         for claim in found:
             match = re.fullmatch(r'k(\d+)', conflict_group(claim))
@@ -135,14 +137,15 @@ class LLMEvidenceWorkflow:
             merged.append(claim.model_copy(update={'conflict_group': label}))
         return merged
 
-    def outcome(self, plan: SearchPlan, evidence: EvidenceBundle, claims: list[TechnicalClaim]) -> SearchOutcome:
+    def outcome(self, plan: SearchPlan, evidence: EvidenceBundle, claims: list[TechnicalClaim], *, reports=()) -> SearchOutcome:
         summary = ''
         if claims:
             sources = {item.evidence_id: item for item in evidence.items}
             writer = PlainWriter(self.client, self.settings.a_generator_model, language=self.settings.answer_language)
             summary = writer.write(plan.original_query, plan.engine_model, claims,
                                    conflict=bool(find_conflicts(claims, sources)), allow_assessment=plan.anomaly_type is not None)
-        return SearchOutcome(plan=plan, evidence=evidence, claims=claims, summary=summary)
+        return SearchOutcome(plan=plan, evidence=evidence, claims=claims, summary=summary,
+                             verification=answer_verification(plan.engine_model, claims, evidence, reports))
 
     def run(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
         if not self.settings.allow_external_evidence:
@@ -152,16 +155,17 @@ class LLMEvidenceWorkflow:
         evidence = self.search(plan)
         if not evidence.items:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
+        reports = []
         draft = self.valid_claims(self.generate('a_generator', self.settings.a_generator_model, plan, evidence, diagnostic),
-                                  plan, evidence, diagnostic, include_reviewed=True)
+                                  plan, evidence, diagnostic, reports=reports, include_reviewed=True)
         if not draft:
-            return SearchOutcome(plan=plan, evidence=evidence, claims=[])
+            return self.outcome(plan, evidence, [], reports=reports)
         approval = self.client.complete_json('a_verifier_finalizer', self.settings.a_verifier_model, messages(
             prompts.REVIEW, **self.review_payload(plan, evidence, diagnostic, draft),
         ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
         final = approved_indexes(draft, approval.indexes)
-        final = self.find_disagreements('a_disagreement', self.settings.a_generator_model, plan, evidence, diagnostic, final)
-        return self.outcome(plan, evidence, final)
+        final = self.find_disagreements('a_disagreement', self.settings.a_generator_model, plan, evidence, diagnostic, final, reports)
+        return self.outcome(plan, evidence, final, reports=reports)
 
     def run_evidence_grounded(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
         strategy = self.client.complete_json('b_query_strategist', self.settings.b_query_model, messages(
@@ -173,8 +177,9 @@ class LLMEvidenceWorkflow:
         evidence = self.search(plan)
         if not evidence.items:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
+        reports = []
         draft = self.valid_claims(self.generate('b_technical_reasoner', self.settings.b_reasoner_model, plan, evidence, diagnostic),
-                                  plan, evidence, diagnostic, include_reviewed=True)
+                                  plan, evidence, diagnostic, reports=reports, include_reviewed=True)
         critic = self.client.complete_json('b_evidence_critic', self.settings.b_critic_model, messages(
             prompts.CRITIC, **self.review_payload(plan, evidence, diagnostic, draft),
         ), CriticOutput)
@@ -187,13 +192,13 @@ class LLMEvidenceWorkflow:
                 evidence = EvidenceBundle(items=[*evidence.items, *additions])
                 repaired = self.generate('b_repair', self.settings.b_repair_model, plan, evidence, diagnostic,
                                          note=prompts.REPAIR_NOTE)
-                approved = self.valid_claims(repaired, plan, evidence, diagnostic, include_reviewed=True)
+                approved = self.valid_claims(repaired, plan, evidence, diagnostic, reports=reports, include_reviewed=True)
         if not approved:
-            return SearchOutcome(plan=plan, evidence=evidence, claims=[])
+            return self.outcome(plan, evidence, [], reports=reports)
         final = self.client.complete_json('b_finalizer', self.settings.b_finalizer_model, messages(
             prompts.FINAL_SELECTION, question=plan.original_query, search_query=search_query(plan),
             verified_claims=[claim.model_dump() for claim in approved],
         ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
         chosen = approved_indexes(approved, final.indexes)
-        chosen = self.find_disagreements('b_disagreement', self.settings.b_repair_model, plan, evidence, diagnostic, chosen)
-        return self.outcome(plan, evidence, chosen)
+        chosen = self.find_disagreements('b_disagreement', self.settings.b_repair_model, plan, evidence, diagnostic, chosen, reports)
+        return self.outcome(plan, evidence, chosen, reports=reports)

@@ -163,6 +163,16 @@ def exercise(page, base_url, ranked_pages):
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
+    expect(page.get_by_role('tabpanel', name=kk['Заявка']).get_by_role('button', name=kk['Печать'])).to_be_visible()
+    page.get_by_label(kk['Приоритет'], exact=True).select_option('medium')
+    page.emulate_media(media='print')
+    sheet = page.locator('.print-sheet')
+    expect(sheet).to_be_visible()
+    expect(sheet.locator('.print-fields dd').last).to_have_text(kk['Средний'])
+    expect(page.locator('#root')).to_be_hidden()
+    expect(sheet).to_contain_text(draft['vehicle_id'])
+    expect(sheet.locator('.print-checklist').first.locator('li')).to_have_count(len(draft['operations']))
+    page.emulate_media(media='screen')
     with page.expect_response(lambda r: r.url == base_url + route) as draft_page:
         page.get_by_role('tabpanel', name=kk['Заявка']).get_by_role('button', name=re.compile(r'52\b')).first.click()
     assert draft_page.value.ok
