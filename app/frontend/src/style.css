@@ -386,3 +386,18 @@ li + li { margin-top: .35rem; }
 .warning-confirm label { display: flex; gap: .6rem; align-items: flex-start; font-weight: 600; }
 .warning-confirm input { min-height: 0; width: 1.3rem; height: 1.3rem; flex: none; margin-top: .15rem; }
 .warning-confirm button { justify-self: start; }
+/* Service view (#41): shown only with ?service=1. */
+.service-metrics { margin-block: 1rem 1.5rem; padding: 1rem; border: 1px dashed var(--outline); border-radius: 8px; font-size: .9rem; }
+.service-metrics h3 { font-size: 1.05rem; }
+.service-metrics > .meta { margin-top: .35rem; }
+.service-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .5rem 1rem; margin-block: .8rem; }
+.service-totals dt { color: var(--muted); font-size: .8rem; }
+.service-totals dd { margin: 0; font-variant-numeric: tabular-nums; }
+.service-request { border-top: 1px solid var(--line); padding-block: .5rem; }
+.service-request summary { cursor: pointer; font-variant-numeric: tabular-nums; }
+.service-table { overflow-x: auto; margin-top: .5rem; }
+.service-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.service-table th, .service-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.service-table thead th { color: var(--muted); font-weight: 500; font-size: .8rem; }
+.service-table small { color: var(--muted); }
+.service-table .failed th { color: var(--amber); }

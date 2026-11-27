@@ -28,6 +28,7 @@ from ml.retrieval.expansion import fault_query
 from ml.retrieval.fusion import reciprocal_rank_fusion
 from ml.retrieval.reranker import Reranker, windows
 from ml.retrieval.sparse import BM25, Analyzer, tokenizer
+from ml.usage import measured
 
 FORMAT_VERSION = 2
 MANIFEST = 'manifest.json'
@@ -456,6 +457,7 @@ class RetrievalEngine:
         return [self._evidence(page) for page in self.pages.values()
                 if model in page.engine_models and pattern.search(page.text)]
 
+    @measured('retrieval', 'retrieval')
     def search(self, plan: SearchPlan) -> EvidenceBundle:
         model = nfc(plan.engine_model)
         if self.config.context == 'chunk':
