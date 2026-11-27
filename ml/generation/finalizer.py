@@ -22,13 +22,14 @@ logger = logging.getLogger(__name__)
 
 Tone = Literal['ok', 'attention', 'alert', 'repeat', 'info']
 
+# Short labels in the order of the customer's business process: verdict, cause, risk, check, norm, action, source.
 SECTION_TITLES = {
-    'observation': 'Признаки по руководству',
-    'cause': 'Возможные причины — гипотезы, подтвердите проверкой',
-    'risk': 'Риски по руководству',
+    'observation': 'Признаки',
+    'cause': 'Вероятная причина — надо проверить',
+    'risk': 'Риск',
     'check': 'Что проверить',
-    'reference_value': 'Нормативы',
-    'operation': 'Возможный ремонт',
+    'reference_value': 'Норма',
+    'operation': 'Что сделать',
     'spare_part': 'Запчасти',
 }
 STEP_KINDS = {'check', 'operation'}
@@ -171,7 +172,7 @@ class MechanicFinalizer:
         prohibited = [claim for claim in response.claims if prohibits_operation(claim)]
         urgency = urgency_for(result.anomaly_type, result.anomaly_score, prohibited=bool(prohibited))
         profile = PROFILES.get(result.anomaly_type or '')
-        details = [f'Приоритет: {URGENCY_LABELS[urgency]}.', self.metrics(result)]
+        details = [*response.summary.splitlines(), f'Приоритет: {URGENCY_LABELS[urgency]}.', self.metrics(result)]
         if result.description:
             details.append(f'Признаки по записи: {result.description}')
         if profile:

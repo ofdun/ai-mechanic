@@ -79,8 +79,7 @@ def test_anomaly_answer_follows_the_required_order():
     assert lines[1] == 'Приоритет: средний — дефектовка на ближайшем ТО, эксплуатация под наблюдением.'
     assert answer.urgency == 'medium' and answer.tone == 'attention'
     titles = [section.title for section in answer.sections]
-    assert titles[:4] == ['Возможные причины — гипотезы, подтвердите проверкой', 'Что проверить', 'Нормативы',
-                          'Возможный ремонт']
+    assert titles[:4] == ['Вероятная причина — надо проверить', 'Что проверить', 'Норма', 'Что сделать']
     assert '1. Проверить давление начала впрыскивания на стенде. (Fixture РЭ, стр. 31)' in lines
     assert 'Риск (оценка агента, не из руководства)' in answer.text
     assert 'Можно сформировать заявку на дефектовку.' in lines
