@@ -205,6 +205,16 @@ class PastTicket(BaseModel):
     anomaly_type: Text
 
 
+class PartNumber(BaseModel):
+    """A part designation printed on a manual page of this engine; stock and compatibility are not known."""
+    designation: Text
+    context: str
+    manual: Text
+    document_id: Text
+    pdf_page: PageNumber
+    evidence_id: Text
+
+
 class AgentTurn(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -265,6 +275,9 @@ class AgentResponse(BaseModel):
     # B1: comparison with earlier checks of this vehicle and the tickets created for it.
     memory: list[str] = Field(default_factory=list)
     past_tickets: list[PastTicket] = Field(default_factory=list)
+    # Part designations from the pages behind the answer; none is taken from external catalogues.
+    part_numbers: list[PartNumber] = Field(default_factory=list)
+    part_numbers_note: str | None = None
     ticket_draft: TicketDraft | None = None
     limitations: list[str] = Field(default_factory=list)
     language: Language = 'ru'
