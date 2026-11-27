@@ -130,7 +130,7 @@
   "У этой машины пока нет проверок.": "Bu mashinada hali tekshiruvlar yo'q.",
   "У этой машины пока нет проверок. Выберите другое ТС.": "Bu mashinada hali tekshiruvlar yo'q. Boshqa avtotransport vositasini tanlang.",
   "Уверенность ИИ {value}": "AI ishonchi {value}",
-  "Уверенность ИИ выше порога, но помехи могут исказить вывод. Лучше повторить замер.": "AI ishonchi chegaradan yuqori, lekin xalaqitlar xulosani buzishi mumkin. O'lchovni takrorlagan ma'qul.",
+  "Помехи могут исказить вывод. Лучше повторить замер.": "Xalaqitlar xulosani buzishi mumkin. O'lchovni takrorlagan ma'qul.",
   "Хранилище браузера недоступно. Переписка сохранится только до закрытия страницы.": "Brauzer xotirasi mavjud emas. Yozishma faqat sahifa yopilgunga qadar saqlanadi.",
   "Цифровой механик": "Raqamli mexanik",
   "Чат": "Chat",

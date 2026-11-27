@@ -74,7 +74,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
   if (!verified.length && result.action === 'search_manuals') {
     for (const source of sources.values()) pages.set(pageKey(source), source)
   }
-  const details = status && anomalyDetails({ diagnostic, message: answer.message.original || answer.message.text }, status.status, t)
+  const details = status && anomalyDetails({ ...result, message: answer.message.original || answer.message.text }, status.status, t)
   const lines = summary ? answer.summary : []
   const Icon = status?.status === 'normal' ? CheckCircle2 : status?.status === 'check_failed' ? RotateCcw : CircleAlert
   return <article className={report ? 'report report-' + status.status : compact ? 'diagnostic-verdict' : 'reply'} lang={answer.language}>

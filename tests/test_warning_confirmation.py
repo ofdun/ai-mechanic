@@ -89,3 +89,15 @@ def test_server_checks_the_confirmation_again_on_send(tmp_path):
     with pytest.raises(AgentError) as error:
         confirm(clean, unconfirmed)
     assert error.value.code == 'REMEASUREMENT_REQUIRED' and len(tickets) == 1
+
+
+@pytest.mark.parametrize('confirmation_enabled', [False, True])
+def test_relaxed_repeat_policy_does_not_authorize_a_noisy_ticket(tmp_path, confirmation_enabled):
+    noisy = {**BASE, 'signal_quality': 'warning'}
+    pipeline = make_pipeline(tmp_path, noisy, [])
+    pipeline.settings.repeat_on_warning = False
+    pipeline.settings.confirm_signal_warning = confirmation_enabled
+    assert not pipeline.run(turn('diagnose')).can_create_ticket
+    assert pipeline.run(turn('draft_ticket')).ticket_draft is None
+    result = pipeline.run(turn('draft_ticket', accept=True))
+    assert (result.ticket_draft is not None) is confirmation_enabled

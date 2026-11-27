@@ -282,6 +282,7 @@ def main():
     parser.add_argument('--data-dir', type=Path, required=True)
     parser.add_argument('--mock-dir', type=Path, required=True, help='Unpacked directory containing mock_ml and mock_toir')
     parser.add_argument('--index', type=Path, help='Reuse manuals.sqlite3 with its sibling retrieval directory')
+    parser.add_argument('--signal-warning', action='store_true', help='Exercise explicit consent on a controlled ML warning')
     parser.add_argument('--channel')
     parser.add_argument('--backend', type=Path, required=True, help='Compiled Go web server')
     args = parser.parse_args()
@@ -338,7 +339,12 @@ def main():
         browser = pw.chromium.launch(channel=args.channel)
         stack.callback(browser.close)
         page = browser.new_page(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
-        exercise(page, base_url, ranked_pages)
+        if args.signal_warning:
+            from mock_ml.app import SESSIONS
+            from warning_flow import exercise as exercise_warning
+            exercise_warning(page, base_url, SESSIONS)
+        else:
+            exercise(page, base_url, ranked_pages)
 
 
 if __name__ == '__main__':
