@@ -10,6 +10,8 @@ TicketUrgency = Literal['low', 'medium', 'high']
 Score = Annotated[float, Field(ge=0, le=1)]
 PageNumber = Annotated[int, Field(ge=1)]
 Action = Literal['diagnose', 'search_manuals', 'get_diagnostic_history', 'draft_ticket', 'clarify']
+# Answer language for the mechanic: Russian, Uzbek (Latin), Tajik, Kyrgyz, Kazakh. Manuals and tickets stay Russian.
+Language = Literal['ru', 'uz', 'tg', 'ky', 'kk', 'hi']
 
 
 class AgentError(Exception):
@@ -182,6 +184,7 @@ class AgentTurn(BaseModel):
     conversation_id: Text | None = None
     command: Literal['auto', 'diagnose', 'draft_ticket'] = 'auto'
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)] | None = None
+    language: Language = 'ru'
 
 
 class AgentRequest(AgentTurn):
@@ -231,6 +234,32 @@ class AgentResponse(BaseModel):
     history: list[SessionRecord] = Field(default_factory=list)
     ticket_draft: TicketDraft | None = None
     limitations: list[str] = Field(default_factory=list)
+    language: Language = 'ru'
+    # The answer in ``language``; Russian fields above stay the source of truth for checks and the ticket.
+    localized: 'LocalizedAnswer | None' = None
+
+
+class LocalizedText(BaseModel):
+    text: str
+    # The Russian source under a translated line that carries a prohibition, negation or condition,
+    # so the mechanic can check the exact wording of the manual.
+    original: str | None = None
+    # False when the translation failed its checks and ``text`` is the Russian source.
+    translated: bool = True
+
+
+class LocalizedAnswer(BaseModel):
+    language: Language
+    message: LocalizedText
+    summary: list[LocalizedText] = Field(default_factory=list)
+    # Same order and length as AgentResponse.claims.
+    claims: list[LocalizedText] = Field(default_factory=list)
+    limitations: list[LocalizedText] = Field(default_factory=list)
+    # Fixed interface labels for this language: sections, conflict, urgency, notes.
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+AgentResponse.model_rebuild()
 
 
 class Retriever(Protocol):

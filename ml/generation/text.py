@@ -184,7 +184,8 @@ def numbers_stay_with_words(quote: str, alignment: Alignment) -> bool:
 
 # Numbers ------------------------------------------------------------------------------------------
 
-_THOUSANDS = re.compile(r'(?<=\d)[    ](?=\d{3}(?!\d))')
+# «1 500» is one number, «М2 100» is not: the left group is 1–3 digits that do not follow a letter or digit.
+_THOUSANDS = re.compile(r'(?<![^\W_])(\d{1,3})[    ](?=\d{3}(?!\d))')
 _NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
 # A unit exponent (``мин-1``, ``мин⁻¹``, ``с -1``) is not a value; codes such as ``ЕВРО-1`` stay, and next to a number it would be read as a
 # thousands group: ``мин-1 550…650`` must not become 1550.
@@ -212,7 +213,7 @@ def number_list(text: str, *, join_thousands: bool = True) -> list[str]:
     """Numbers in reading order. ``1 500`` is one number unless ``join_thousands`` is off."""
     text = without_exponents(text)
     if join_thousands:
-        text = _THOUSANDS.sub('', text)
+        text = _THOUSANDS.sub(r'\1', text)
     return [canonical_number(match) for match in _NUMBER.findall(text)]
 
 
@@ -253,7 +254,7 @@ _RANGE = re.compile(
 def ranges(text: str) -> list[tuple[str, str]]:
     """Value ranges such as ``196-216``, ``0,25...0,30`` or ``от 118 до 147``."""
     found = []
-    for match in _RANGE.finditer(_THOUSANDS.sub('', without_exponents(text))):
+    for match in _RANGE.finditer(_THOUSANDS.sub(r'\1', without_exponents(text))):
         low, high = (match.group(1), match.group(2)) if match.group(1) else (match.group(3), match.group(4))
         found.append((canonical_number(low), canonical_number(high)))
     return found
