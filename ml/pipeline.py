@@ -14,6 +14,7 @@ from ml.contracts import (
     AgentResponse,
     ConversationContext,
     DiagnosticResult,
+    Evidence,
     EvidenceBundle,
     Generator,
     PastTicket,
@@ -37,7 +38,8 @@ from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
 from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers
-from ml.tools.figures import ReviewedSequence, attach_sequences, figure_note, load_sequences, sequence_figures
+from ml.tools.figures import (FIGURE_PAGE, QUESTION, ReviewedSequence, attach_sequences, figure_note, load_sequences,
+                              sequence_figures)
 from ml.tools.inspections import InspectionStore
 from ml.tools.audit import AuditLog
 from ml.tools.tickets import TicketStore
@@ -200,13 +202,23 @@ class Pipeline:
 
     def link_sequence_figures(self, response: AgentResponse, question: str) -> None:
         """«В каком порядке затягивать…»: the figure goes with the answer; steps only from a reviewed sequence."""
-        figures = sequence_figures(response, question)
+        manual_pages = self.figure_pages(response.engine_model, question)
+        figures = sequence_figures(response, question, manual_pages)
         if not figures:
             return
-        response.figures = attach_sequences(figures, response.evidence.items, self.reviewed_sequences)
+        response.figures = attach_sequences(figures, [*response.evidence.items, *manual_pages], self.reviewed_sequences)
         for figure in response.figures:
             if not figure.sequence:
                 response.limitations.append(figure_note(figure))
+
+    def figure_pages(self, engine_model: str, question: str) -> list[Evidence]:
+        """Pages of this engine with a tightening-order caption or a reference to one: the figure is often a few
+        pages away from the text the search ranked first, so it is not looked for among the answer's pages only."""
+        if not QUESTION.search(question):
+            return []
+        retriever = self.retriever or getattr(self.search_workflow, 'retriever', None)
+        lookup = getattr(retriever, 'figure_pages', None)
+        return lookup(engine_model, FIGURE_PAGE) if lookup else []
 
     def record_inspection(self, request: AgentRequest, vehicle: Vehicle, session: SessionRecord) -> AgentResponse:
         """Stores what the mechanic found. The diagnosis, its context and any ticket stay as they were."""
