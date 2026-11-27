@@ -91,7 +91,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
             const index = result.claims.indexOf(claim)
             return <div key={index}>
               <AnswerLine line={answer.claims[index] || { text: claim.text, translated: false }} />
-              {claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}
+              {claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} quote={claim.quote || claim.text} />)}
             </div>
           })}</div>
         </section>
@@ -139,7 +139,7 @@ export function DiagnosticReport({ result }) {
       {claim.kind === 'spare_part' && t('Запчасти:') + ' '}
       {claim.text.slice(0, lastSpace + 1)}<span className="cited-end">{claim.text.slice(lastSpace + 1)}{[...numbers].map(number => {
         const source = references[number - 1]
-        return <sup key={number}><Source source={source} number={number} /></sup>
+        return <sup key={number}><Source source={source} number={number} quote={claim.quote || claim.text} /></sup>
       })}</span>
     </p>
   }
@@ -209,7 +209,7 @@ export function Response({ result }) {
         if (!group.length) return null
         return <section key={kind} className="claims"><h4>{t(title)}</h4>
           <Entries items={group} render={claim => <>{claim.text}
-            <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}</div>
+            <div>{claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} quote={claim.quote || claim.text} />)}</div>
           </>} /></section>
       })}
     </ManualAnswer>
