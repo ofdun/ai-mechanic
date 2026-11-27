@@ -25,7 +25,7 @@ from ml.retrieval.dense import DenseIndex, embed_chunks, load_dense
 from ml.retrieval.embeddings import Embedder
 from ml.retrieval.expansion import fault_query
 from ml.retrieval.fusion import reciprocal_rank_fusion
-from ml.retrieval.reranker import Reranker
+from ml.retrieval.reranker import Reranker, windows
 from ml.retrieval.sparse import BM25, Analyzer, tokenizer
 
 FORMAT_VERSION = 2
@@ -54,9 +54,16 @@ class RetrievalConfig(BaseModel):
     expand_anomaly: bool = True
     per_query_k: int = Field(30, ge=1)
     rrf_k: int = Field(60, ge=1)
+    sparse_weight: float = Field(1.0, ge=0)
+    dense_weight: float = Field(1.0, ge=0)
     reranker: str | None = None
     rerank_candidates: int = Field(30, ge=1)
     rerank_max_length: int = Field(512, ge=16)
+    rerank_query: Literal['rewritten', 'original', 'both'] = 'rewritten'
+    rerank_context: bool = False
+    rerank_passage_words: int | None = Field(None, ge=16)
+    rerank_passage_overlap: int = Field(40, ge=0)
+    rerank_prior_weight: float = Field(0.0, ge=0)
     top_k: int = Field(8, ge=1)
     context: Literal['chunk', 'page'] = 'page'
     neighbor_pages: int = Field(0, ge=0, le=3)
@@ -82,7 +89,15 @@ class RetrievalConfig(BaseModel):
         if self.mode != 'sparse':
             parts.append(f'dense={self.embedder} max_seq={self.embed_max_seq_length}')
         parts.append(f'expand_anomaly={self.expand_anomaly} per_query_k={self.per_query_k} rrf_k={self.rrf_k}')
-        parts.append(f'rerank={self.reranker}/{self.rerank_candidates}' if self.reranker else 'rerank=none')
+        if self.mode == 'hybrid':
+            parts.append(f'weights sparse={self.sparse_weight} dense={self.dense_weight}')
+        if self.reranker:
+            parts.append(
+                f'rerank={self.reranker}/{self.rerank_candidates} query={self.rerank_query} context={self.rerank_context} '
+                f'passages={self.rerank_passage_words}/{self.rerank_passage_overlap} prior={self.rerank_prior_weight}'
+            )
+        else:
+            parts.append('rerank=none')
         parts.append(f'context={self.context}+{self.neighbor_pages} top_k={self.top_k} budget={self.max_evidence_words}')
         return ', '.join(parts)
 
@@ -246,6 +261,13 @@ def embed_index(path: Path, embedder: Embedder, config: RetrievalConfig) -> int:
 
 
 def load_embedder(config: RetrievalConfig) -> Embedder:
+    from ml.retrieval.cloudflare import is_cloudflare
+
+    if is_cloudflare(config.embedder):
+        from ml.config import Settings
+        from ml.retrieval.cloudflare import CloudflareClient, CloudflareEmbedder
+
+        return CloudflareEmbedder(config.embedder, CloudflareClient(Settings()))
     from ml.retrieval.embeddings import SentenceTransformerEmbedder
 
     return SentenceTransformerEmbedder(config.embedder, device=config.device, batch_size=config.embed_batch_size,
@@ -253,10 +275,25 @@ def load_embedder(config: RetrievalConfig) -> Embedder:
 
 
 def load_reranker(config: RetrievalConfig) -> Reranker:
+    from ml.retrieval.cloudflare import is_cloudflare
+
+    if is_cloudflare(config.reranker):
+        from ml.config import Settings
+        from ml.retrieval.cloudflare import CloudflareClient, CloudflareReranker
+
+        return CloudflareReranker(config.reranker, CloudflareClient(Settings()))
     from ml.retrieval.reranker import CrossEncoderReranker
 
     return CrossEncoderReranker(config.reranker, device=config.device, batch_size=config.embed_batch_size,
                                 max_length=config.rerank_max_length)
+
+
+def rerank_query(plan: SearchPlan, mode: str) -> str:
+    if mode == 'original':
+        return plan.original_query
+    if mode == 'both' and plan.original_query.strip() != plan.rewritten_query.strip():
+        return f'{plan.original_query}\n{plan.rewritten_query}'
+    return plan.rewritten_query
 
 
 @dataclass(frozen=True)
@@ -320,21 +357,46 @@ class RetrievalEngine:
         if not allowed:
             return []
         depth = self.config.per_query_k
-        rankings = []
+        rankings, weights = [], []
         for query in queries(plan, expand_anomaly=self.config.expand_anomaly):
             if self.sparse is not None and (tokens := self.tokenize(query)):
                 rankings.append(self.sparse.top(tokens, depth, allowed))
+                weights.append(self.config.sparse_weight)
             if self.dense is not None:
                 rankings.append(self.dense.top(self.embedder.embed_query(query), depth, allowed))
-        return reciprocal_rank_fusion(rankings, k=self.config.rrf_k)
+                weights.append(self.config.dense_weight)
+        return reciprocal_rank_fusion(rankings, k=self.config.rrf_k, weights=weights)
+
+    def rerank(self, plan: SearchPlan, fused: list[tuple[int, float]], limit: int | None) -> list[tuple[int, float]]:
+        """Cross-encoder over the fused pool. A long page is scored by its best word window (MaxP).
+
+        `rerank_prior_weight` fuses the reranker order with the fused order by weighted RRF, which keeps a
+        confident lexical first place when the cross-encoder is unsure. The tail beyond the pool keeps its order.
+        """
+        config = self.config
+        pool = fused[:max(config.rerank_candidates, limit or 0)]
+        passages, owners = [], []
+        for position, (index, _) in enumerate(pool):
+            chunk = self.chunks[index]
+            header = '\n'.join(filter(None, (chunk.manual if config.rerank_context else None, chunk.section)))
+            for window in windows(chunk.text, config.rerank_passage_words, config.rerank_passage_overlap):
+                passages.append(f'{header}\n{window}' if header else window)
+                owners.append(position)
+        scores = self.reranker.score(rerank_query(plan, config.rerank_query), passages)
+        best: dict[int, float] = {}
+        for position, value in zip(owners, scores):
+            best[position] = max(value, best.get(position, value))
+        reranked = sorted(((pool[p][0], value) for p, value in best.items()), key=lambda item: (-item[1], item[0]))
+        if config.rerank_prior_weight > 0:
+            reranked = reciprocal_rank_fusion([reranked, pool], k=config.rrf_k,
+                                              weights=[1.0, config.rerank_prior_weight])
+        return reranked + list(fused[len(pool):])
 
     def rank(self, plan: SearchPlan, limit: int | None = None) -> list[Hit]:
         """Chunks in final order. `limit=None` returns every fused candidate (evaluation uses it)."""
         fused = self.candidates(plan)
         if self.reranker is not None and fused:
-            pool = fused[:max(self.config.rerank_candidates, limit or 0)]
-            scores = self.reranker.score(plan.rewritten_query, [index_text(self.chunks[i]) for i, _ in pool])
-            fused = sorted(zip((i for i, _ in pool), scores), key=lambda item: (-item[1], item[0]))
+            fused = self.rerank(plan, fused, limit)
         return [Hit(self.chunks[index], score) for index, score in fused[:limit]]
 
     def rank_pages(self, plan: SearchPlan, limit: int) -> list[Hit]:

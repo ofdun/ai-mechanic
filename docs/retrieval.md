@@ -45,8 +45,9 @@ SearchPlan
 | `sparse.py` | Токенизация русского текста (Snowball, `ё`→`е`, `0,25` = `0.25`, стоп-слова) и BM25 в памяти |
 | `embeddings.py` | sentence-transformers. `BAAI/bge-m3` по умолчанию, пресеты Qwen3-Embedding 0.6B/4B/8B и `multilingual-e5-large-instruct`. Векторы нормализованы |
 | `dense.py` | Точный косинус на NumPy. Векторы `dense/<model>.npy` привязаны к фрагментам индекса хешем их ID, устаревшие отклоняются |
-| `fusion.py` | RRF, `k=60` по умолчанию |
-| `reranker.py` | Cross-encoder, например `BAAI/bge-reranker-v2-m3`. Qwen3-Reranker требует отдельного адаптера |
+| `fusion.py` | RRF с весами списков, `k=60` по умолчанию |
+| `reranker.py` | Cross-encoder, например `BAAI/bge-reranker-v2-m3`, окна по словам для MaxP, кэш баллов. Qwen3-Reranker требует отдельного адаптера |
+| `cloudflare.py` | Workers AI: `cf:@cf/baai/bge-m3` для векторов и `cf:@cf/baai/bge-reranker-base` для reranking |
 | `expansion.py` | Запросы по кодам Mock ML F01–F14 словами руководств: узел, детали, «неисправности, причины и методы устранения» |
 | `engine.py` | `RetrievalConfig`, сборка и чтение индекса, `RetrievalEngine` |
 
@@ -81,8 +82,10 @@ Retrieval читает выгрузку `ml/ingestion/export_pages.py` из ве
 | `chunker`, `chunk_words`, `chunk_overlap` | `page`, 300, 50 | RET-01–RET-03. Размер в словах, на русское слово приходится ~1.5–2 токена |
 | `embedder`, `embed_max_seq_length` | `BAAI/bge-m3`, 512 | RET-04, RET-05 |
 | `expand_anomaly` | `true` | plan-expansion: словарь узла по коду F01–F14 для диагностических планов |
-| `per_query_k`, `rrf_k` | 30, 60 | RET-07 |
+| `per_query_k`, `rrf_k`, `sparse_weight`, `dense_weight` | 30, 60, 1, 1 | RET-07 |
 | `reranker`, `rerank_candidates` | `null`, 30 | RET-08 |
+| `rerank_passage_words`, `rerank_passage_overlap` | `null`, 40 | MaxP: страница оценивается лучшим окном, а не первыми 512 токенами |
+| `rerank_query`, `rerank_context`, `rerank_prior_weight` | `rewritten`, `false`, 0 | Запрос реранкера, обозначение руководства перед текстом, вес порядка слияния рядом с реранкером |
 | `context`, `neighbor_pages` | `page`, 0 | RET-09 |
 | `top_k`, `max_evidence_words` | 8, 6000 | RET-10. 6000 слов ≈ 10K токенов |
 
@@ -110,6 +113,42 @@ uv run python -m evaluation.retrieval --golden evaluation/datasets/customer_ques
 `--run-file` готовит JSON в формате журнала #9. Релевантность считается по физическим страницам, фрагменты одной страницы схлопываются. Вопросы без ответа в корпусе в метрики ранжирования не входят.
 
 ## 5. Замеры и ресурсы
+
+### Dev, 140 вопросов с эталонными страницами (Вадим, `ret-comparison-dev-70b1b35`, M3 Pro)
+
+| Вариант | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR | p50 / p95, мс |
+|---|---:|---:|---:|---:|---:|---:|
+| BM25 | 0.593 | 0.764 | 0.843 | 0.900 | 0.691 | 0.19 / 0.60 |
+| BGE-M3 | 0.479 | 0.714 | 0.793 | 0.864 | 0.609 | 24 / 56 |
+| BM25 + BGE-M3, RRF | 0.586 | 0.771 | 0.843 | 0.907 | 0.699 | 25 / 28 |
+| + `bge-reranker-v2-m3` | 0.736 | 0.900 | 0.921 | 0.971 | 0.822 | 2778 / 3090 |
+
+Исходные запросы, страница целиком, без переформулировки. В сквозном прогоне Алексея (`e2e-a-dev-6c02153`, sparse, top_k 3) эталонная страница есть в топ-30 у 139 из 143 вопросов, но в топ-3 — у 107: кандидаты находятся, теряется порядок.
+
+### Как поднять Hit@1 до 0.80
+
+Цель — +9 вопросов на первом месте (103 → 112 из 140). Рычаги в `configs/retrieval-sweep.yaml`, подбор одной командой:
+
+```bash
+uv run --extra dense python -m evaluation.retrieval.sweep --manifest ../data/manifest.json --split dev \
+  --output evaluation/results/sweep-dev.json --misses evaluation/results/sweep-dev-misses.jsonl
+```
+
+1. **MaxP.** Cross-encoder видит 512 токенов, страница длиннее, нужная строка таблицы обрезается. `rerank_passage_words` режет страницу на окна, балл страницы — лучшее окно.
+2. **Вес BM25 в RRF.** В одиночку BM25 сильнее dense, а при равных весах гибрид терял его первые места (Q050, Q111, Q148).
+3. **Порядок слияния как подстраховка.** `rerank_prior_weight` объединяет порядок реранкера и слияния, если cross-encoder не уверен.
+4. **Обозначение руководства перед текстом** (`rerank_context`) и запрос реранкера из вопроса и переформулировки (`rerank_query: both`).
+5. **Переформулировка Planner** (`--rewrites`): в пилоте Вадима Hit@5 BM25 вырос с 26/32 до 29/32.
+
+Баллы реранкера кэшируются в `artifacts/cache/rerank`, поэтому новые варианты считают только новые пары. Диагностика промахов: `hit_at_1_with_neighbour` (первая страница — соседняя с эталонной) и `miss_top1_same_manual` отделяют ошибку ранжирования от вопроса к разметке. Подбирать только на dev, победителя один раз проверить на holdout. Задержку выбранной конфигурации мерить `evaluation.retrieval`, в подборе её нет из-за кэша.
+
+### Cloudflare Workers AI
+
+- `@cf/baai/bge-m3` — те же векторы BGE-M3 без torch и 3 ГБ RAM на сервере: `embedder: cf:@cf/baai/bge-m3`, затем `python -m ml.retrieval embed --model cf:@cf/baai/bge-m3`. Векторы Cloudflare и локальной модели хранятся раздельно и не смешиваются.
+- Из реранкеров в Workers AI есть только `@cf/baai/bge-reranker-base`. Прирост Hit@1 выше дал `bge-reranker-v2-m3`, его там нет. `configs/retrieval-sweep-cloudflare.yaml` сравнивает оба.
+- Эмбеддинг корпуса и reranking отправляют текст руководств в Cloudflare. Без `ALLOW_EXTERNAL_EVIDENCE=true` они отказывают с `RAG_EXTERNAL_DISABLED`. Ключи: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`.
+
+### Ресурсы
 
 Проверено на ноутбуке без GPU: 8 логических ядер, 7.3 ГБ RAM.
 
@@ -167,15 +206,15 @@ uv run python -m evaluation.retrieval --golden evaluation/datasets/customer_ques
 
 ## 7. Открытые вопросы и блокеры
 
-1. Нет комплекта PDF на машине владельца retrieval. C1 на реальной выгрузке (стр. 52 в `EvidenceBundle` и операция в черновике) проверяется прогоном у Вадима.
-2. Ни одна гипотеза RET не измерена на всём наборе. Контрольные точки Вадима на BM25 по умолчанию: Q241 — все три страницы конфликта РЭ/РК в топ-7, Q008 — одна из трёх в топ-8.
+1. Нет комплекта PDF на машине владельца retrieval: в репозитории их нет намеренно. Подбор `evaluation.retrieval.sweep` запускает тот, у кого есть корпус.
+2. Hit@1 0.736 у лучшего варианта при цели 0.80. Реранкер стоит 2.8 с на M3 Pro, на CPU-сервере дольше. Где его запускать для веба, не решено: в Cloudflare есть только `bge-reranker-base`.
 3. Словарь F01–F14 в retrieval дублирует профили `ml.generation.profiles` Алексея. После слияния веток свести к одному источнику.
 4. Векторы и reranker на всём корпусе не замерены по времени и памяти.
 
 ## 8. Следующие шаги
 
-1. Выгрузка ingestion → `build` → `evaluation.retrieval.rewrite` → RET-01 на dev-части `customer_questions.jsonl` в трёх режимах запроса.
-2. `embed` BGE-M3 → сравнение `sparse`, `dense` и `hybrid` (RET-04, RET-06, RET-07).
+1. `evaluation.retrieval.sweep` по `configs/retrieval-sweep.yaml` на dev, разбор промахов Hit@1, победитель — на holdout.
+2. Тот же подбор на Cloudflare (`configs/retrieval-sweep-cloudflare.yaml`) и решение, где работает реранкер.
 3. `structural` с 256/512/1024 токенами, reranker, `neighbor_pages`, подбор `top_k` и бюджета (RET-02, RET-03, RET-08–RET-10).
 4. По результатам — Qwen3-Embedding (RET-04, RET-05).
 5. Каждый прогон — комментарием в журнал #9, итог — в #4.
