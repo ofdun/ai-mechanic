@@ -20,14 +20,29 @@ LEAD_CHARS = 120
 LINE_CHARS = 140
 ASSESSMENT_CHARS = 200
 ASSESSMENT_LABEL = 'Оценка агента, не из руководства'
+# The schema leaves room on purpose: a provider that enforces maxLength cuts the text mid-word («регули-»).
+# Lengths are enforced in code by whole sentences instead.
+OUTPUT_CHARS = 600
+_SENTENCE_END = re.compile(r'[.!?…](?=\s|$)')
 
 
 class PlainOutput(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    lead: str = Field(max_length=LEAD_CHARS)
+    lead: str = Field(max_length=OUTPUT_CHARS)
     lines: list[str] = Field(max_length=MAX_LINES)
-    assessment: str = Field(max_length=ASSESSMENT_CHARS)
+    assessment: str = Field(max_length=OUTPUT_CHARS)
+
+
+def whole_sentences(text: str, limit: int) -> str:
+    """The longest run of complete sentences within ``limit``; empty when even the first is cut or too long."""
+    text = ' '.join(text.split())
+    if not text:
+        return ''
+    if len(text) <= limit and not text.endswith(('-', '‐', '–', ',')):
+        return text
+    ends = [match.end() for match in _SENTENCE_END.finditer(text) if match.end() <= limit]
+    return text[:ends[-1]] if ends else ''
 
 
 def safe_line(line: str, claims: list[TechnicalClaim], engine_model: str) -> bool:
@@ -99,4 +114,5 @@ class PlainWriter:
         except AgentError:
             logger.warning('Plain answer failed; the structured answer stays without a lead', exc_info=True)
             return ''
+        output = output.model_copy(update={'assessment': whole_sentences(output.assessment, ASSESSMENT_CHARS)})
         return plain_text(output, claims, engine_model, conflict=conflict)

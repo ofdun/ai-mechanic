@@ -186,6 +186,9 @@ def numbers_stay_with_words(quote: str, alignment: Alignment) -> bool:
 
 _THOUSANDS = re.compile(r'(?<=\d)[    ](?=\d{3}(?!\d))')
 _NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
+# A unit exponent (``мин-1``, ``мин⁻¹``, ``с -1``) is not a value; codes such as ``ЕВРО-1`` stay, and next to a number it would be read as a
+# thousands group: ``мин-1 550…650`` must not become 1550.
+_UNIT_EXPONENT = re.compile(r'\b(мин|об|с|ч)\s*[-−–⁻]\s*[1¹](?!\d|[.,]\d)')
 _ENGINE_NAME = re.compile(r'(?<!\w)(?:ЯМЗ|ЗМЗ|УМЗ|КамАЗ|МАЗ|ГАЗ|УАЗ)[\s-]*\d[\w.\-]*')
 _FAULT_CODE = re.compile(r'\bF\d{2}\b')
 _PAGE_REFERENCE = re.compile(r'\b(?:стр|с)\.\s*\d+(?:\s*[-–,]\s*\d+)*', re.IGNORECASE)
@@ -201,8 +204,13 @@ def canonical_number(value: str) -> str:
     return text.rstrip('0').rstrip('.') if '.' in text else text
 
 
+def without_exponents(text: str) -> str:
+    return _UNIT_EXPONENT.sub(r'\1 ', text)
+
+
 def number_list(text: str, *, join_thousands: bool = True) -> list[str]:
     """Numbers in reading order. ``1 500`` is one number unless ``join_thousands`` is off."""
+    text = without_exponents(text)
     if join_thousands:
         text = _THOUSANDS.sub('', text)
     return [canonical_number(match) for match in _NUMBER.findall(text)]
@@ -245,7 +253,7 @@ _RANGE = re.compile(
 def ranges(text: str) -> list[tuple[str, str]]:
     """Value ranges such as ``196-216``, ``0,25...0,30`` or ``от 118 до 147``."""
     found = []
-    for match in _RANGE.finditer(_THOUSANDS.sub('', text)):
+    for match in _RANGE.finditer(_THOUSANDS.sub('', without_exponents(text))):
         low, high = (match.group(1), match.group(2)) if match.group(1) else (match.group(3), match.group(4))
         found.append((canonical_number(low), canonical_number(high)))
     return found
@@ -274,6 +282,21 @@ def ranges_kept(claim: str, source: str, *, ignore: tuple[str, ...] = (), join_t
             if high_paired and value == high and (index == 0 or stated[index - 1] != low):
                 return False
     return True
+
+
+_LIST_VALUE = re.compile(r'^\s*[−–—-]\s*[^\W\d_][^\d\n]*?\s(\d+(?:[.,]\d+)?)\s*$', re.MULTILINE)
+_LIST_RANGE = re.compile(r'^\s*[−–—-]\s*[^\W\d_][^\d\n]*?\s\d+(?:[.,]\d+)?\s*[-–]\s*\d+|'
+                         r'^\s*[−–—-]\s*[^\W\d_][^\d\n]*?\s\d+(?:[.,]\d+)?\s*\(', re.MULTILINE)
+
+
+def number_fragments(claim: str, excerpt: str, *, ignore: tuple[str, ...] = ()) -> bool:
+    """A broken table left a lone digit where a range stood: ``− вертикальные 4`` next to
+    ``− горизонтальные 120 (10-12)``. A single-digit value of such a list is not stated by the claim."""
+    stated = set(number_list(_strip_names(claim, ignore)))
+    if not stated or not _LIST_RANGE.search(excerpt):
+        return False
+    lone = {canonical_number(match) for match in _LIST_VALUE.findall(excerpt) if len(match) == 1}
+    return bool(stated & lone)
 
 
 def number_problems(claim: str, excerpt: str, *, ignore: tuple[str, ...] = ()) -> list[str]:

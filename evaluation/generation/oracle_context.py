@@ -222,8 +222,30 @@ class NoReviewedClaims:
         return TechnicalDraft()
 
 
+class TracingClient:
+    """Delegates to the OpenRouter client and keeps every structured reply of one case, in call order."""
+
+    def __init__(self, client: OpenRouterClient):
+        self.client = client
+        self.steps: list[dict] = []
+
+    def complete_json(self, role, model, messages, response_type, **options):
+        result = self.client.complete_json(role, model, messages, response_type, **options)
+        self.steps.append({'stage': role, 'model': model, 'output': result.model_dump()})
+        return result
+
+    def __getattr__(self, name):
+        return getattr(self.client, name)
+
+
+def claim_record(claim, pages: dict[str, tuple[str, int]]) -> dict:
+    return {'kind': claim.kind, 'text': claim.text, 'quote': getattr(claim, 'quote', ''),
+            'conflict_group': getattr(claim, 'conflict_group', ''),
+            'pages': sorted({pages[key] for key in claim.evidence_ids if key in pages})}
+
+
 class RecordingWorkflow(LLMEvidenceWorkflow):
-    """Team workflow A/B that also keeps the first draft for the unsupported-claim metric."""
+    """Team workflow A/B that also keeps the first draft and every verifier decision, for metrics and traces."""
 
     drafts: list | None = None
 
@@ -232,6 +254,15 @@ class RecordingWorkflow(LLMEvidenceWorkflow):
         if self.drafts is None:
             self.drafts = list(claims)
         return claims
+
+    def valid_claims(self, claims, plan, evidence, diagnostic, *, include_reviewed=False):
+        report = EvidenceVerifier(plan.engine_model, plan.anomaly_type).inspect(TechnicalDraft(claims=claims), evidence)
+        pages = {item.evidence_id: (item.document_id, item.pdf_page) for item in evidence.items}
+        if not hasattr(self, 'verifications'):
+            self.verifications = []
+        self.verifications.append([{**claim_record(check.claim, pages), 'rejected': list(check.reasons)}
+                                   for check in report.checks])
+        return super().valid_claims(claims, plan, evidence, diagnostic, include_reviewed=include_reviewed)
 
 
 class JudgeOutput(BaseModel):
@@ -271,35 +302,51 @@ class CaseResult:
     cost: float = 0.0
     calls: int = 0
     answer: str = ''
+    trace: dict = field(default_factory=dict)
 
 
 def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterClient, usage: Usage, *,
              pipeline: Pipeline, model: str | None, distractors: int, seed: int,
              judge_model: str | None) -> CaseResult:
     usage.start(case.id)
-    result = CaseResult(case.id, case.outcome)
     bundle, expected, _ = oracle_bundle(case, corpus, distractors, seed)
-    result.expected_pages = len(expected)
     # Prior facts stand in for the dialogue history that the planner folds into its query.
     query = ' '.join([case.question, *case.prior_facts]) if case.prior_facts else case.question
     plan = SearchPlan(engine_model=case.engine_model, original_query=case.question, rewritten_query=query)
+    return answer_case(case, plan, bundle, expected, settings, client, usage, pipeline=pipeline, model=model,
+                       judge_model=judge_model, page_key=oracle_page)
+
+
+def oracle_page(item: Evidence) -> tuple[str, int]:
+    return item.evidence_id.rsplit('-p', 1)[0], item.pdf_page
+
+
+def answer_case(case: Case, plan: SearchPlan, bundle: EvidenceBundle, expected: set, settings: Settings,
+                client: OpenRouterClient, usage: Usage, *, pipeline: Pipeline, model: str | None,
+                judge_model: str | None, page_key=oracle_page) -> CaseResult:
+    """Generation, verification and judging of one case on a given evidence bundle, with a full trace."""
+    result = CaseResult(case.id, case.outcome)
+    result.expected_pages = len(expected)
+    tracer = TracingClient(client)
+    workflow = None
     started = time.monotonic()
     summary = ''
     try:
         if pipeline in {'generator', 'reasoner'}:
             drafter = TechnicalReasoner if pipeline == 'reasoner' else ClaimGenerator
             default = settings.b_reasoner_model if pipeline == 'reasoner' else settings.a_generator_model
-            drafts = drafter(client, model or default).draft(plan, bundle, None)
+            drafts = drafter(tracer, model or default).draft(plan, bundle, None)
             final = EvidenceVerifier(case.engine_model).verify(TechnicalDraft(claims=drafts), bundle).claims
         else:
             workflow_settings = settings.model_copy(update={'agent_architecture': pipeline})
-            workflow = RecordingWorkflow(workflow_settings, client, OracleRetriever(bundle), NoReviewedClaims())
+            workflow = RecordingWorkflow(workflow_settings, tracer, OracleRetriever(bundle), NoReviewedClaims())
             outcome = workflow.run(plan, None)
             final, summary = outcome.claims, outcome.summary
             drafts = workflow.drafts or []
     except AgentError as error:
         result.error = f'{error.code} ({error})'
         result.seconds = time.monotonic() - started
+        result.trace = {'steps': tracer.steps}
         return finish_usage(result, usage)
     result.seconds = time.monotonic() - started
 
@@ -311,7 +358,7 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
             result.rejected[reason] = result.rejected.get(reason, 0) + 1
 
     sources = {item.evidence_id: item for item in bundle.items}
-    page_of = {item.evidence_id: (item.evidence_id.rsplit('-p', 1)[0], item.pdf_page) for item in bundle.items}
+    page_of = {item.evidence_id: page_key(item) for item in bundle.items}
     cited = set()
     for claim in final:
         pages = {page_of[key] for key in claim.evidence_ids if key in page_of}
@@ -329,6 +376,19 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
                              action='search_manuals', message=summary, summary=summary, search_plan=plan,
                              evidence=bundle, claims=final)
     result.answer = MechanicFinalizer().compose(response)
+    result.trace = {
+        'query': {'question': case.question, 'prior_facts': list(case.prior_facts),
+                  'rewritten_query': plan.rewritten_query, 'subqueries': list(plan.subqueries)},
+        'evidence': [{'page': list(page_key(item)), 'manual': item.manual, 'expected': page_key(item) in expected}
+                     for item in bundle.items],
+        'steps': tracer.steps,
+        'verifier': getattr(workflow, 'verifications', []) if workflow else [
+            [{**claim_record(check.claim, page_of), 'rejected': list(check.reasons)} for check in report.checks]],
+        'summary': summary,
+        'final': result.claims,
+        'answer': result.answer,
+        'reference': {'outcome': case.outcome, 'answer': case.answer, 'pages': sorted(map(list, expected))},
+    }
     generation_calls = len(usage.calls.get(case.id, []))
     if judge_model:
         try:
@@ -342,6 +402,7 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
             result.verdict, result.verdict_reason = verdict.verdict, verdict.reason
         except AgentError as error:
             result.error = f'judge:{error.code} ({error})'
+    result.trace['judge'] = {'model': judge_model, 'verdict': result.verdict, 'reason': result.verdict_reason}
     return finish_usage(result, usage, calls=generation_calls)
 
 
