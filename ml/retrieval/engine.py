@@ -19,6 +19,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ml.contracts import AgentError, Evidence, EvidenceBundle, ParsedDocument, SearchPlan
+from ml.document_ids import document_id_variants
 from ml.retrieval.chunking import CHUNKERS, Chunk, corpus_version, load_documents, nfc, page_chunks
 from ml.retrieval.dense import DenseIndex, embed_chunks, load_dense
 from ml.retrieval.embeddings import Embedder
@@ -354,6 +355,26 @@ class RetrievalEngine:
                 found.append(neighbor)
         return found
 
+    @staticmethod
+    def _evidence(unit: Chunk) -> Evidence:
+        document_id, _ = document_id_variants(unit.document_id)
+        evidence_id = unit.chunk_id
+        if document_id != unit.document_id and evidence_id.startswith(f'{unit.document_id}:'):
+            evidence_id = document_id + evidence_id[len(unit.document_id):]
+        return Evidence(
+            evidence_id=evidence_id, document_id=document_id, manual=unit.manual,
+            engine_models=unit.engine_models, pdf_page=unit.pdf_page, section=unit.section, text=unit.text,
+        )
+
+    def page(self, engine_model: str, document_id: str, pdf_page: int) -> Evidence | None:
+        canonical_id, legacy_id = document_id_variants(document_id)
+        page = self.pages.get(f'{canonical_id}:{pdf_page}')
+        if page is None and legacy_id is not None:
+            page = self.pages.get(f'{legacy_id}:{pdf_page}')
+        if page is None or nfc(engine_model) not in page.engine_models:
+            return None
+        return self._evidence(page)
+
     def search(self, plan: SearchPlan) -> EvidenceBundle:
         model = nfc(plan.engine_model)
         if self.config.context == 'chunk':
@@ -365,16 +386,14 @@ class RetrievalEngine:
                 units.extend(self._neighbors(hit.chunk, model))
         items, ids, words = [], set(), 0
         for unit in units:
-            if unit.chunk_id in ids:
+            item = self._evidence(unit)
+            if item.evidence_id in ids:
                 continue
             size = len(unit.text.split())
             budget = self.config.max_evidence_words
             if items and budget is not None and words + size > budget:
                 break
-            ids.add(unit.chunk_id)
+            ids.add(item.evidence_id)
             words += size
-            items.append(Evidence(
-                evidence_id=unit.chunk_id, document_id=unit.document_id, manual=unit.manual,
-                engine_models=unit.engine_models, pdf_page=unit.pdf_page, section=unit.section, text=unit.text,
-            ))
+            items.append(item)
         return EvidenceBundle(items=items)
