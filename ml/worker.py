@@ -3,16 +3,21 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from ml.api import api_errors
 from ml.config import Settings
 from ml.contracts import AgentError, AgentRequest, ConversationContext, TicketConfirmation, TicketDecision
 from ml.manual_api import manual_router
 from ml.pdf_baseline import PdfPageRetriever, build_manual_pipeline
+from ml.plates import read_plate
 from ml.retrieval import RetrievalConfig, RetrievalEngine
 from ml.tools.fleet_status import fleet_statuses
+
+
+MAX_PLATE_PHOTO = 8 << 20
 
 
 class Run(BaseModel):
@@ -75,6 +80,19 @@ def create_app():
             if pipeline.audit is None:
                 raise AgentError('AUDIT_DISABLED', 'Журнал аудита выключен (AUDIT_ENABLED=false).')
             return {'entries': pipeline.audit.chain(vehicle_id, session_id)}
+
+    @app.post('/plate')
+    async def plate(request: Request):
+        # The photo stays in memory: it is not logged, stored or passed to the agent.
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_PLATE_PHOTO:
+                raise HTTPException(413)
+            data.extend(chunk)
+        if not data:
+            raise HTTPException(400)
+        with api_errors():
+            return await run_in_threadpool(read_plate, bytes(data), list(pipeline.vehicles.vehicles))
 
     @app.post('/run')
     def run(body: Run):
