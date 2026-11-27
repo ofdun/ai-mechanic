@@ -6,20 +6,24 @@ used only when the page text still has the same SHA-256, so another edition or e
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ml.contracts import AgentResponse, Evidence, FigureReference
 
-QUESTION = re.compile(r'(?:порядо?к|последовательност|очерёдност|очередност)\w*.{0,50}(?:затяж|затягив|заворач|закручив)'
-                      r'|(?:затяж|затягив|заворач)\w*.{0,60}(?:порядо?к|последовательност)', re.IGNORECASE | re.DOTALL)
+TIGHTEN = r'(?:затяж|затягив|подтяж|подтягив|заворач|закручив)'
+ORDER = r'(?:порядо?к|последовательност|очерёдност|очередност)'
+QUESTION = re.compile(rf'{ORDER}\w*.{{0,50}}{TIGHTEN}|{TIGHTEN}\w*.{{0,60}}{ORDER}', re.IGNORECASE | re.DOTALL)
 # A caption may go on to the next line when that line starts in lower case («…шпилек\nкрепления … ЯМЗ-238М2»).
 CAPTION = re.compile(r'Рис\.?\s*(\d+[а-я]?)\.?\s*((?:Последовательность|Порядок)\s+(?:затяжки|затягивания)[^\n]*'
                      r'(?:\n[а-яё][^\n]*)?)')
 # «в порядке, указанном на рисунке 3», «в последовательности, указанной на рис.142», «на рисунках 6 и 7».
 MENTION = re.compile(r'(?:порядке|последовательности)[,\s]+указанно\w*\s+на\s+рис(?:\.|унк\w*)\s*(\d+[а-я]?)'
                      r'(?:\s+и\s+(\d+[а-я]?))?', re.IGNORECASE)
+# A page worth reading for figures: a tightening-order caption or text that points to one.
+FIGURE_PAGE = re.compile(f'{CAPTION.pattern}|{MENTION.pattern}', re.IGNORECASE)
 ENGINE = re.compile(r'\b(?:ЯМЗ|ЗМЗ|КАМАЗ|ММЗ|Д)-?\s?\d{3,5}(?:\.\d+)?[А-ЯA-Z0-9]*', re.IGNORECASE)
 SUBJECTS = ('голов', 'картер', 'маховик', 'крышк', 'коллектор', 'шатун', 'коренн', 'дроссел', 'клапан')
 NOTE = ('Порядок затяжки показан на рисунке {figure} ({manual}, стр. {page}) — откройте его. '
@@ -51,13 +55,21 @@ def subject_of(question: str) -> str | None:
     return next((stem for stem in SUBJECTS if stem in lowered), None)
 
 
-def sequence_figures(response: AgentResponse, question: str | None) -> list[FigureReference]:
-    """Figures with a tightening order on the engine's pages behind the answer, closest to the question first."""
+def sequence_figures(response: AgentResponse, question: str | None,
+                     manual_pages: Sequence[Evidence] = ()) -> list[FigureReference]:
+    """Figures with a tightening order on the engine's pages behind the answer, closest to the question first.
+
+    manual_pages are other pages of this engine's manuals with such a figure; they are used only when the question
+    names what is tightened, so a vague question never gets an unrelated figure from elsewhere in the manual."""
     if not question or not QUESTION.search(question):
         return []
     subject = subject_of(question)
     found: dict[tuple[str, str], FigureReference] = {}
     pages = [item for item in response.evidence.items if response.engine_model in item.engine_models]
+    if subject:
+        seen = {item.evidence_id for item in pages}
+        pages += [item for item in manual_pages
+                  if response.engine_model in item.engine_models and item.evidence_id not in seen]
     about: dict[tuple[str, str], str] = {}           # the words around a figure, to match the question's subject
     excluded: set[tuple[str, str]] = set()
     for item in pages:

@@ -3,6 +3,7 @@ import hashlib
 from ml.contracts import AgentResponse, Evidence, EvidenceBundle
 from ml.generation import MechanicFinalizer
 from ml.tools.figures import (
+    FIGURE_PAGE,
     ReviewedSequence,
     attach_sequences,
     figure_note,
@@ -29,8 +30,9 @@ def answer(*pages, engine='ЯМЗ-236М2', claims=()):
                          message='m', evidence=EvidenceBundle(items=list(pages)), claims=list(claims))
 
 
-def found(response, question=QUESTION):
-    return [(figure.figure, figure.pdf_page, figure.caption) for figure in sequence_figures(response, question)]
+def found(response, question=QUESTION, manual_pages=()):
+    return [(figure.figure, figure.pdf_page, figure.caption)
+            for figure in sequence_figures(response, question, manual_pages)]
 
 
 def test_the_figure_of_this_engine_and_subject_only():
@@ -42,6 +44,27 @@ def test_the_figure_of_this_engine_and_subject_only():
     other = page(CAPTIONS, 23, engine='КАМАЗ-740')
     assert found(answer(other)) == []                                    # a page of another engine is not read
     assert found(answer(page(TEXT_PAGE, 180)), 'Какой момент затяжки болтов головки?') == []
+
+
+# The search ranks the torque table first; the table only says «см. рис.42», the figure is pages away (stand case).
+TABLE = ('Болты крепления масляного картера1) 11,8...17,6\n'
+         '1) Болты затягивать в определенной последовательности – см. рис.42')
+FIGURE = 'Рис.42. Последовательность затяжки болтов крепления головки цилиндров\nОтвернуть болты крышек.'
+
+
+def test_a_figure_away_from_the_answer_pages_is_found_in_the_manual():
+    manual = [page(PAN, 185), page(FIGURE, 181), page(FIGURE, 181, engine='КАМАЗ-740', document='kamaz')]
+    assert found(answer(page(TABLE, 231))) == []
+    assert found(answer(page(TABLE, 231)), manual_pages=manual) == [
+        ('42', 181, 'Последовательность затяжки болтов крепления головки цилиндров')]
+    # A question that does not name what is tightened gets no figure from elsewhere in the manual.
+    assert found(answer(page(TABLE, 231)), 'В каком порядке затягивать болты?', manual) == []
+    # The text names figure 42, the manual has its caption: the link goes to the page with the drawing.
+    assert found(answer(page(TEXT_PAGE, 180)), manual_pages=manual) == [
+        ('42', 181, 'Последовательность затяжки болтов крепления головки цилиндров')]
+    assert found(answer(), 'В каком порядке подтягивать гайки крепления головок цилиндров?', manual) == [
+        ('42', 181, 'Последовательность затяжки болтов крепления головки цилиндров')]
+    assert all(FIGURE_PAGE.search(text) for text in (FIGURE, TEXT_PAGE, PAN)) and not FIGURE_PAGE.search(TABLE)
 
 
 def test_a_sequence_only_from_a_reviewed_and_unchanged_page():
@@ -87,3 +110,38 @@ def test_pipeline_points_to_the_figure(tmp_path):
             AgentRequest(actor_id='a', vehicle_id='M1', session_id='S-1', message=QUESTION))
     assert [(figure.figure, figure.pdf_page, figure.sequence) for figure in result.figures] == [('42', 180, [])]
     assert result.limitations[-1].startswith('Порядок затяжки показан на рисунке 42')
+
+
+def test_pipeline_finds_the_figure_the_search_did_not_rank(tmp_path):
+    import json
+
+    import httpx
+
+    from ml.config import Settings
+    from ml.contracts import AgentRequest
+    from ml.pipeline import Pipeline
+
+    vehicles = tmp_path / 'vehicles.json'
+    session = {'vehicle_id': 'M1', 'session_id': 'S-1', 'status': 'normal', 'anomaly_type': None, 'anomaly_title': None,
+               'anomaly_score': 0.1, 'confidence': 0.9, 'signal_quality': 'good', 'description': '',
+               'model_version': 't', 'checked_at': '2026-11-19T10:00:00+03:00'}
+    vehicles.write_text(json.dumps({'vehicles': [{'vehicle_id': 'M1', 'engine_model': 'ЯМЗ-236М2', 'fuel': 'дизель',
+                                                  'sessions': [session]}]}), encoding='utf-8')
+    settings = Settings(_env_file=None, vehicles_path=vehicles, artifacts_dir=tmp_path / 'a', planner_mode='offline')
+    digest = hashlib.sha256(' '.join(FIGURE.split()).encode()).hexdigest()
+    reviewed = tmp_path / 'sequences.json'
+    reviewed.write_text(json.dumps([{'document_id': 'rk', 'figure': '42', 'pdf_page': 181, 'sha256': digest,
+                                     'steps': ['1', '2'], 'reviewed_by': 'Р. Р.'}]), encoding='utf-8')
+
+    class Retriever:
+        def search(self, plan):
+            return EvidenceBundle(items=[page(TABLE, 231)])
+
+        def figure_pages(self, engine_model, pattern):
+            return [item for item in (page(FIGURE, 181), page(PAN, 185)) if pattern.search(item.text)]
+
+    with httpx.Client() as http:
+        pipeline = Pipeline(settings.model_copy(update={'reviewed_sequences_path': reviewed}), http,
+                            retriever=Retriever())
+        result = pipeline.run(AgentRequest(actor_id='a', vehicle_id='M1', session_id='S-1', message=QUESTION))
+    assert [(figure.figure, figure.pdf_page, figure.sequence) for figure in result.figures] == [('42', 181, ['1', '2'])]
