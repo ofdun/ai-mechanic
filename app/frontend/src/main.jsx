@@ -401,7 +401,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         {/* After the verdict: the mechanic first reads why a repeat is needed, then may override it. */}
         {!waitingForTranslation && warningForm}
         {diagnosis?.diagnostic?.status === 'anomaly' && !diagnosis.requires_remeasurement && !diagnosis.recognition_error &&
-          <InspectionForm disabled={!!pending} onSave={found => run('record_inspection', null, false, found)} />}
+          <InspectionForm report={diagnosis} disabled={!!pending} onSave={found => run('record_inspection', null, false, found)} />}
       </div>
       <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
         <header className="dialog-bar">
