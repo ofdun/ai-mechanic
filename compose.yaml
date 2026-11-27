@@ -63,7 +63,7 @@ services:
   speech:
     build: ./app/speech
     restart: unless-stopped
-    mem_limit: 768m
+    mem_limit: 896m
 
   web:
     environment:

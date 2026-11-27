@@ -27,7 +27,11 @@ def recognize(body, language):
     if not pcm:
         raise HTTPException(422)
     samples = np.frombuffer(pcm, dtype='<i2').astype(np.float32) / 32768
-    segments, _ = model.transcribe(samples, language=language, beam_size=1, vad_filter=True,
+    segments, _ = model.transcribe(samples, language=language, beam_size=2, temperature=0, vad_filter=True,
+                                   max_new_tokens=min(224, 16 + len(samples) // 2000),
+                                   initial_prompt=('Запусти диагностику двигателя. Проверь двигатель. Термостат, турбокомпрессор, '
+                                                   'давление масла, момент затяжки, заявка на дефектовку.'
+                                                   if language == 'ru' else None),
                                    condition_on_previous_text=False)
     text = ' '.join(s.text.strip() for s in segments).strip()
     if not text:
