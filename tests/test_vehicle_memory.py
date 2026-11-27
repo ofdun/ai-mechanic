@@ -38,6 +38,7 @@ SESSIONS = [
     {**record('S-4', 'anomaly', 0.9, **F08), 'checked_at': '2026-11-17T10:00:00+03:00'},
 ]
 VEHICLE = Vehicle(vehicle_id='M1', engine_model=ENGINE, fuel='дизель', sessions=SESSIONS)
+RELIABLE = [item for item in VEHICLE.sessions if item.status != 'check_failed']
 
 
 def session(session_id):
@@ -45,32 +46,32 @@ def session(session_id):
 
 
 def test_repeat_of_the_same_fault_names_the_earlier_date():
-    lines = diagnosis_memory(VEHICLE, session('S-4'), session('S-4'), [])
+    lines = diagnosis_memory(VEHICLE, session('S-4'), session('S-4'), [], RELIABLE)
     assert lines == ['Повтор: «Дизельная топливоподача» (F08) уже находили на этой машине 08.10.2026 (S-1).',
                      'Заявок по этой машине агент ещё не создавал.']
 
 
 def test_first_check_says_there_is_nothing_to_compare():
-    assert diagnosis_memory(VEHICLE, session('S-1'), session('S-1'), None) == [
+    assert diagnosis_memory(VEHICLE, session('S-1'), session('S-1'), None, RELIABLE) == [
         'Это первая проверка этой машины в системе: сравнить не с чем.',
         'Журнал заявок сейчас недоступен: прошлые заявки не учтены.']
 
 
 def test_normal_check_lists_earlier_faults_and_tickets():
     tickets = [PastTicket(ticket_id='T-7', session_id='S-1', anomaly_type='F08')]
-    assert diagnosis_memory(VEHICLE, session('S-2'), session('S-2'), tickets) == [
+    assert diagnosis_memory(VEHICLE, session('S-2'), session('S-2'), tickets, RELIABLE) == [
         'Раньше на этой машине находили: F08 «Дизельная топливоподача» — 08.10.2026.',
         'Заявки по этой машине: T-7 — проверка S-1, F08.']
 
 
 def test_history_counts_checks_and_repeats():
-    assert history_memory(VEHICLE, []) == [
+    assert history_memory(VEHICLE, [], RELIABLE) == [
         'Всего проверок: 4 — норма 1, отклонение 2, сбой 1.',
         'Повторялось: «Дизельная топливоподача» (F08) — 2 раза: 08.10.2026 (S-1), 17.11.2026 (S-4).',
         'Заявок по этой машине агент ещё не создавал.',
     ]
     single = VEHICLE.model_copy(update={'sessions': VEHICLE.sessions[:2]})
-    assert history_memory(single, [])[1] == 'Повторов одной и той же неисправности не было.'
+    assert history_memory(single, [], single.sessions)[1] == 'На пригодных проверках повторов одной и той же неисправности не было.'
 
 
 def test_ticket_store_lists_only_created_tickets_of_the_vehicle(tmp_path):
@@ -124,3 +125,14 @@ def test_questions_about_the_past_get_history_not_a_new_draft(pipeline, question
     result = ask(pipeline, 'S-4', message=question)
     assert result.action == 'get_diagnostic_history' and result.ticket_draft is None
     assert result.memory[-1] == 'Заявок по этой машине агент ещё не создавал.'
+
+
+@pytest.mark.parametrize('invalid', [{'confidence': 0.1}, {'signal_quality': 'warning'}])
+def test_unreliable_anomaly_does_not_count_as_a_past_repeat(pipeline, invalid):
+    vehicle = pipeline.vehicles.vehicles['M1']
+    vehicle.sessions[0] = vehicle.sessions[0].model_copy(update=invalid)
+    result = ask(pipeline, 'S-4', command='diagnose')
+    assert 'Повтор:' not in result.memory[0] and 'S-1' not in result.memory[0]
+    history = ask(pipeline, 'S-4', message='Повторялась ли эта неисправность?')
+    assert 'норма 1, отклонение 2, сбой 1' in history.memory[0]
+    assert not any('Повторялось:' in item or 'S-1' in item for item in history.memory)

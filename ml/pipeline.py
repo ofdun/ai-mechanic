@@ -34,7 +34,7 @@ from ml.generation.finalizer import MechanicFinalizer, conflict_notes, ticket_fi
 from ml.generation.translate import Localizer
 from ml.operability import is_release_question, release_outcome, release_query
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
-from ml.planner.local import LocalPlanner, ticket_history_decision
+from ml.planner.local import LocalPlanner, vehicle_history_decision
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
 from ml.tools.tickets import TicketStore
@@ -94,6 +94,10 @@ class Pipeline:
     def ticket_store_for(self, actor_id: str) -> TicketStore:
         return self.tickets
 
+    def reliable_sessions(self, vehicle: Vehicle) -> list[SessionRecord]:
+        return [session for session in vehicle.sessions
+                if not self.measurement_issue(session) and not self.ticket_mismatch(vehicle, session)]
+
     def past_tickets(self, vehicle_id: str) -> list[PastTicket] | None:
         """Tickets of this vehicle, or None when the store is unavailable: memory must not break a diagnosis."""
         try:
@@ -122,7 +126,7 @@ class Pipeline:
             decision = Decision(request.command)
         elif is_release_question(message):
             decision = Decision('search_manuals', release_query(message, recent_messages, diagnostic))
-        elif (decision := ticket_history_decision(message)) is None:
+        elif (decision := vehicle_history_decision(message)) is None:
             if recent_messages:
                 decision = self.planner.plan(message, vehicle.engine_model, diagnostic, recent_messages=recent_messages)
             else:
@@ -146,7 +150,7 @@ class Pipeline:
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
             tickets = self.past_tickets(vehicle.vehicle_id)
-            response.memory = history_memory(vehicle, tickets)
+            response.memory = history_memory(vehicle, tickets, self.reliable_sessions(vehicle))
             response.past_tickets = tickets or []
         response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
         response.language = request.language
@@ -199,7 +203,7 @@ class Pipeline:
             return
         # Memory only for a reliable result: a failed or misread check is not compared with the past.
         tickets = self.past_tickets(vehicle.vehicle_id)
-        response.memory = diagnosis_memory(vehicle, current, result, tickets)
+        response.memory = diagnosis_memory(vehicle, current, result, tickets, self.reliable_sessions(vehicle))
         response.past_tickets = tickets or []
         if result.status == 'normal':
             response.message = 'На записи звук двигателя в пределах нормы.'

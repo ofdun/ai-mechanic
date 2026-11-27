@@ -156,14 +156,14 @@ def exercise(page, base_url, ranked_pages):
     for text, expected_action in (
         ('Как снять топливный фильтр?', 'search_manuals'),
         ('Как приготовить пирог?', 'clarify'),
-        ('Покажи прошлые заявки на эту машину', 'clarify'),
+        ('Покажи прошлые заявки на эту машину', 'get_diagnostic_history'),
     ):
         question.fill(text)
         with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
             question.press('Enter')
         turn = response.value.json()
         assert turn['action'] == expected_action and turn['ticket_draft'] is None and turn['diagnostic'] is None
-    expect(thread).to_contain_text('История ранее созданных заявок пока недоступна.')
+    expect(thread).to_contain_text('Заявок по этой машине агент ещё не создавал.')
     page.get_by_role('tab', name='Результат', exact=True).click()
     language.select_option('kk')
     page.get_by_role('button', name=kk['К заявке'], exact=True).click()
@@ -200,8 +200,26 @@ def exercise(page, base_url, ranked_pages):
     replay = page.request.post(confirmed.url, data=confirmed.request.post_data_json)
     assert replay.ok and replay.json()['ticket_id'] == receipt
 
-    language.select_option('ru')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')):
+        language.select_option('ru')
+    chat.click()
+    question.fill('Покажи прошлые заявки на эту машину')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as past_response:
+        question.press('Enter')
+    past = past_response.value.json()
+    assert past['action'] == 'get_diagnostic_history' and past['ticket_draft'] is None
+    assert [item['ticket_id'] for item in past['past_tickets']] == [receipt]
+    expect(thread.locator('.turn').last).to_contain_text(receipt)
+
     select_vehicle('P456AT178')
+    session.select_option('S-0001')
+    chat.click()
+    question.fill('Покажи прошлые заявки на эту машину')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as other_response:
+        question.press('Enter')
+    other = other_response.value.json()
+    assert not other['past_tickets'] and other['ticket_draft'] is None
+    expect(thread.locator('.turn').last).not_to_contain_text(receipt)
     for measurement, verdict, reason in [('S-0001', 'Норма', 'Заявка на дефектовку не требуется'),
                                          ('S-0003', 'Сбой проверки', 'Повторите замер')]:
         session.select_option(measurement)
@@ -282,9 +300,18 @@ def exercise(page, base_url, ranked_pages):
     page.get_by_role('button', name='К чату').click()
     expect(question).to_be_visible()
     expect(vehicle).to_have_value(target['vehicle_id'])
+    select_vehicle('B418HK98')
+    session.select_option('S-0009')
+    result_tab.click()
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as repeated_response:
+        diagnose.click()
+    repeated = repeated_response.value.json()
+    assert repeated['diagnostic']['anomaly_type'] == 'F01'
+    assert any('Повтор:' in line and '30.10.2026 (S-0008)' in line for line in repeated['memory'])
+    expect(page.locator('#panel-result')).to_contain_text('30.10.2026 (S-0008)')
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert not errors, errors
-    print('PASS: 50 vehicles / 195 sessions, C1–C3, confirmed ticket and replay, team search and cited PDF pages.')
+    print('PASS: 50 vehicles / 195 sessions, C1–C3, B1 history and repeated fault, team search and cited PDF pages.')
 
 
 def main():

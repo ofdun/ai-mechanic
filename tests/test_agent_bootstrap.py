@@ -131,8 +131,8 @@ def test_ticket_history_does_not_call_the_planner_or_prepare_a_draft(setup):
     upstreams, pipeline = setup
     upstreams.planner_call = ('draft_ticket', {})
     result = pipeline.run(utterance(message='Покажи прошлые заявки на эту машину'))
-    assert result.action == 'clarify'
-    assert 'История ранее созданных заявок' in result.message
+    assert result.action == 'get_diagnostic_history'
+    assert result.memory[-1] == 'Заявок по этой машине агент ещё не создавал.'
     assert result.ticket_draft is None and upstreams.requests == []
 
 

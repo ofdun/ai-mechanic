@@ -63,11 +63,15 @@ TICKET_HISTORY = re.compile(
     r'\b(?:какие|сколько)\s+заявк[а-я]*\s+(?:уже\s+)?(?:был|созда|оформ)[а-я]*\b',
 )
 
+FAULT_HISTORY = re.compile(
+    r'\bповторял[а-я]*\s+ли\b|\bбыл[аои]?\s+ли.{0,45}\b(?:поломк[а-я]*|неисправност[а-я]*)\s+раньше\b'
+)
 
-def ticket_history_decision(message: str) -> Decision | None:
+
+def vehicle_history_decision(message: str) -> Decision | None:
     text = message.casefold().replace('ё', 'е')
-    if not TICKET_REQUEST.match(text) and TICKET_HISTORY.search(text):
-        return Decision('clarify', clarification='История ранее созданных заявок пока недоступна.')
+    if not TICKET_REQUEST.match(text) and (TICKET_HISTORY.search(text) or FAULT_HISTORY.search(text)):
+        return Decision('get_diagnostic_history')
     return None
 
 
@@ -117,7 +121,7 @@ class LocalPlanner:
     def plan(self, message, engine_model, diagnostic, *, recent_messages=()):
         if is_release_question(message):
             return Decision('search_manuals', release_query(message, recent_messages, diagnostic))
-        if history := ticket_history_decision(message):
+        if history := vehicle_history_decision(message):
             return history
         followup = is_diagnostic_followup(message)
         if followup and (not diagnostic or diagnostic.status != 'anomaly'):
