@@ -45,7 +45,8 @@ _EXPONENT = re.compile(r'(?<=[^\W\d_])\s*\^?[-−–⁻]\s*[1¹](?!\d|[.,]\d)')
 _CYRILLIC = re.compile('[А-Яа-яЁёҚқҒғҲҳҶҷӢӣӮӯҢңӨөҮүӘәҰұҺһІі]')
 _LATIN = re.compile('[A-Za-z]')
 # Letters the target language has and Russian does not: a line with them is not a Russian echo.
-_OWN_LETTERS = {'tg': re.compile('[ҚқҒғҲҳҶҷӢӣӮӯ]'), 'ky': re.compile('[ҢңӨөҮү]'), 'kk': re.compile('[ӘәҒғҚқҢңӨөҰұҮүҺһІі]')}
+_DEVANAGARI = re.compile('[\u0900-\u097F]')
+_OWN_LETTERS = {'hi': _DEVANAGARI, 'tg': re.compile('[ҚқҒғҲҳҶҷӢӣӮӯ]'), 'ky': re.compile('[ҢңӨөҮү]'), 'kk': re.compile('[ӘәҒғҚқҢңӨөҰұҮүҺһІі]')}
 _PROHIBITION = re.compile(r'запрещ|не\s+допуска|нельзя|не\s+разреша|не\s+рекоменд')
 
 PROMPT = (
@@ -60,7 +61,9 @@ PROMPT = (
     'передавай явно, отдельными словами, а не только окончанием.\n'
     '5. Термины переводи по glossary; если в glossary в скобках дан русский термин, оставь его в скобках.\n'
     '6. Узбекский пиши только латиницей, без единой кириллической буквы: термины без перевода пиши латиницей '
-    '(нутромер → nutromer, форсунка → forsunka) и не добавляй русских слов в скобках. Таджикский, киргизский и казахский — кириллицей своего алфавита.\n'
+    '(нутромер → nutromer, форсунка → forsunka) и не добавляй русских слов в скобках. Таджикский, киргизский и казахский — кириллицей своего алфавита. '
+    'Хинди пиши деванагари, технические термины — как в glossary, без русских слов; цифры только 0–9, '
+    'не ०–९. В узбекском и хинди единицы пиши латиницей (N·m, MPa, kPa, mm, kgf·m, min⁻¹).\n'
     '7. Верни каждый id ровно один раз, в том же порядке.'
 )
 
@@ -121,12 +124,16 @@ def rejection(source: str, target: str, language: str | None = None) -> str | No
         return 'empty'
     if len(target) > max(ITEM_CHARS, len(source) * 3) or len(target) < len(source) * 0.3:
         return 'length'
+    if any(char.isdecimal() and not '0' <= char <= '9' for char in target):
+        return 'digits'  # «२२» is 22 to Python, not to the web page and every check after it
     if not numbers_kept(source, target):
         return 'numbers'
     if looks_russian(source, target, language):
         return 'russian'
-    if language == 'uz' and mixed_script(source, target):
+    if language in ('uz', 'hi') and mixed_script(source, target):
         return 'script'
+    if language == 'hi' and not _DEVANAGARI.search(target):
+        return 'script'  # an English answer passes the number check but is not Hindi
     return None
 
 

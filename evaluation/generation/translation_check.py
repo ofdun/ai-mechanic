@@ -39,7 +39,7 @@ def answer_from_trace(row: dict) -> AgentResponse | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description='Проверка перевода ответов на языки СНГ.')
     parser.add_argument('--traces', type=Path, required=True, help='--cases-output из oracle_context')
-    parser.add_argument('--languages', default='uz,tg,ky,kk')
+    parser.add_argument('--languages', default='uz,tg,ky,kk,hi')
     parser.add_argument('--limit', type=int, default=20)
     parser.add_argument('--model')
     parser.add_argument('--workers', type=int, default=4)

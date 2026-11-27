@@ -11,7 +11,7 @@ Score = Annotated[float, Field(ge=0, le=1)]
 PageNumber = Annotated[int, Field(ge=1)]
 Action = Literal['diagnose', 'search_manuals', 'get_diagnostic_history', 'draft_ticket', 'clarify']
 # Answer language for the mechanic: Russian, Uzbek (Latin), Tajik, Kyrgyz, Kazakh. Manuals and tickets stay Russian.
-Language = Literal['ru', 'uz', 'tg', 'ky', 'kk']
+Language = Literal['ru', 'uz', 'tg', 'ky', 'kk', 'hi']
 
 
 class AgentError(Exception):

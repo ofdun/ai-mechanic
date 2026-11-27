@@ -212,3 +212,18 @@ def test_thousands_join_only_plain_numbers():
     from ml.generation.text import number_list
     assert number_list('ЯМЗ-236М2 составляет 100') == ['236', '2', '100']
     assert number_list('от 1 000 до 2 500 об') == ['1000', '2500']
+
+
+@pytest.mark.parametrize(('target', 'translated'), [
+    ('इंजेक्टर (नोज़ल) के इंजेक्शन शुरू होने का दबाव — 22–23 MPa।', True),
+    ('इंजेक्टर के इंजेक्शन शुरू होने का दबाव — २२–२३ MPa।', False),           # Devanagari digits
+    ('Injector opening pressure — 22–23 MPa.', False),                       # English, not Hindi
+    ('इंजेक्टर का давление — 22–23 MPa।', False),                            # Russian word left in
+])
+def test_hindi_checks(target, translated):
+    assert checked(VALUE['text'], target, 'hi').translated is translated
+
+
+def test_hindi_has_labels_and_glossary():
+    assert labels('hi')['section.operation'] == 'क्या करें' and labels('hi')['page'] == 'पृ.'
+    assert glossary_for('hi', ['Давление масла'])['масл'] == 'ऑयल'
