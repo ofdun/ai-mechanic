@@ -201,6 +201,9 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   const [ticketStatus, setTicketStatus] = useState(null)
   const [diagnosis, setDiagnosis] = useState(null)
   const [ticketHint, setTicketHint] = useState('')
+  // «Понимаю, что запись с помехами»: sent with every turn of this check once given. The worker still refuses
+  // bad and failed records and checks the draft again when the ticket is sent.
+  const acceptWarning = useRef(false)
   const chatBody = useRef(null)
   const composer = useRef(null)
   const focusQuestion = useRef(false)
@@ -268,6 +271,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         return
       }
       const body = kind === 'chat' ? { message: text } : { command: kind }
+      if (acceptWarning.current) body.accept_signal_warning = true
       const result = await request('/agent/run', { ...pair, conversation_id: id, ...(kind !== 'draft_ticket' && language !== 'ru' && { language }), ...body }, controller.signal)
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
@@ -283,7 +287,9 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           const previous = last?.result.diagnostic
           const current = result.diagnostic
           if (sameDiagnostic(previous, current)) {
-            if (last.result.localized?.language === result.localized?.language) return old
+            if (last.result.localized?.language === result.localized?.language &&
+                last.result.signal_warning_accepted === result.signal_warning_accepted &&
+                last.result.requires_remeasurement === result.requires_remeasurement) return old
             return old.map(turn => turn === last ? { ...turn, result } : turn)
           }
           return [...old, verdict]
@@ -330,6 +336,16 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   const translationStatus = <p className="meta translation-status" role="status">
     {t(error && !pending ? 'Получите результат диагностики заново.' : 'Получаем результат')}
   </p>
+  function confirmWarning(event) {
+    event.preventDefault()
+    acceptWarning.current = true
+    run('diagnose')
+  }
+  const warningForm = diagnosis?.warning_confirmable && <form className="warning-confirm" onSubmit={confirmWarning}>
+    <p><strong>{t('Запись с помехами.')}</strong> {t('Помехи могут исказить вывод. Лучше повторить замер.')}</p>
+    <label><input type="checkbox" required disabled={!!pending} /> {t('Понимаю, что запись с помехами и вывод может быть неточным')}</label>
+    <button type="submit" className="secondary" disabled={!!pending}>{t('Продолжить с этой записью')}</button>
+  </form>
   const returnLabels = { result: 'К результату', chat: 'К чату', history: 'К истории', ticket: 'К заявке' }
   return <ManualNavigation sessionKey={id} returnLabel={t(returnLabels[view])}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
@@ -372,6 +388,8 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           title={sessionId ? t('Результат ещё не запрошен') : t('У этой машины пока нет проверок')}>
           {sessionId ? t('Проверьте параметры замера и нажмите «Получить результат диагностики».') : t('Выберите другую машину в списке транспорта.')}
         </EmptyView>}
+        {/* After the verdict: the mechanic first reads why a repeat is needed, then may override it. */}
+        {!waitingForTranslation && warningForm}
       </div>
       <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
         <header className="dialog-bar">
@@ -422,7 +440,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
             <p>{t('Заявка в ТОиР не отправлена. Для ручного оформления используйте этот текст.')}</p>
             <p className="manual-referral">{diagnosis.manual_referral}</p>
           </section>
-          : <EmptyView icon={ClipboardList} title={t('Заявка на дефектовку')}>
+          : warningForm || <EmptyView icon={ClipboardList} title={t('Заявка на дефектовку')}>
             {canDraft ? t('Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.')
               : t(ticketHint) || (sessionId ? t('Сначала получите результат диагностики.') : t('У этой машины пока нет проверок. Выберите другое ТС.'))}</EmptyView>}
       </div>

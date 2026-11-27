@@ -345,3 +345,7 @@ li + li { margin-top: .35rem; }
   .mode-switch button { flex: 1; }
   .mode-switch + .answer-language { margin-left: auto; }
 }
+.warning-confirm { display: grid; gap: .6rem; margin-block: .75rem 1rem; padding: .9rem 1rem; border: 1px solid var(--amber); border-radius: 6px; background: var(--amber-tint); }
+.warning-confirm label { display: flex; gap: .6rem; align-items: flex-start; font-weight: 600; }
+.warning-confirm input { min-height: 0; width: 1.3rem; height: 1.3rem; flex: none; margin-top: .15rem; }
+.warning-confirm button { justify-self: start; }

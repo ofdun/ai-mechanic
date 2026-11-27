@@ -42,6 +42,8 @@ type Turn struct {
 	ID       string  `json:"conversation_id"`
 	Message  *string `json:"message,omitempty"`
 	Command  string  `json:"command,omitempty"`
+	// The mechanic confirmed a noisy recording; the worker still refuses bad or failed ones.
+	AcceptWarning bool `json:"accept_signal_warning,omitempty"`
 }
 
 var ErrInput = errors.New("invalid agent turn")
