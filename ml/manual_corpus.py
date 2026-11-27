@@ -6,6 +6,7 @@ from contextlib import closing
 from pathlib import Path
 
 from ml.config import Settings
+from ml.document_ids import document_id_variants
 
 
 MANIFEST = Path(__file__).with_name('ingestion') / 'manifest.json'
@@ -13,7 +14,7 @@ MANIFEST = Path(__file__).with_name('ingestion') / 'manifest.json'
 
 def document_catalog(manifest: Path | None = None) -> dict[str, dict]:
     entries = json.loads((manifest or MANIFEST).read_text(encoding='utf-8'))['documents']
-    return {entry['document_id']: entry for entry in entries}
+    return {document_id_variants(entry['document_id'])[0]: entry for entry in entries}
 
 
 def build_index(data_dir: Path, output: Path, manifest: Path | None = None) -> int:

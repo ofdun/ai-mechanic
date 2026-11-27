@@ -14,14 +14,13 @@ from ml.config import Settings
 from ml.contracts import (
     AgentError, DiagnosticResult, Evidence, EvidenceBundle, SearchPlan, TechnicalClaim, TechnicalDraft, VerifiedResponse,
 )
+from ml.document_ids import YAMZ_236_OPERATIONS_ID as DOCUMENT_ID, document_id_variants
 from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
 from ml.retrieval.expansion import fault_query
 
 
 ENGINE = 'ЯМЗ-236М2'
-DOCUMENT_ID = 'yamz-236-operations-2010'
-CORPUS_DOCUMENT_ID = 'yamz-236_re_2010'
 MANUAL = '236-3902150-Б РЭ'
 PDF_NAME = 'ЯМЗ_236_руководство по эксплуатации.pdf'
 PDF_SHA256 = '4268a9519e02a668a826fe6d154de0360f6767015868ca2de7410ba570d73dd1'
@@ -94,15 +93,19 @@ class PdfPageRetriever:
     @staticmethod
     def evidence(row) -> Evidence:
         document, manual, engine, page, text = row
+        document, _ = document_id_variants(document)
         return Evidence(evidence_id=f'{document}:{page}', document_id=document, manual=manual,
                         engine_models=[engine], pdf_page=page, text=text)
 
     def page(self, engine_model: str, document_id: str, pdf_page: int) -> Evidence | None:
+        canonical_id, legacy_id = document_id_variants(document_id)
         try:
             with closing(sqlite3.connect(self.index.resolve().as_uri() + '?mode=ro', uri=True)) as db:
                 row = db.execute('SELECT document_id, manual, engine, pdf_page, text FROM manual_pages '
-                                 'WHERE engine=? AND document_id=? AND pdf_page=? AND text != ?', (
-                                     unicodedata.normalize('NFC', engine_model), document_id, pdf_page, '',
+                                 'WHERE engine=? AND document_id IN (?, ?) AND pdf_page=? AND text != ? '
+                                 'ORDER BY (document_id=?) DESC LIMIT 1', (
+                                     unicodedata.normalize('NFC', engine_model), canonical_id, legacy_id, pdf_page, '',
+                                     canonical_id,
                                  )).fetchone()
         except sqlite3.Error as error:
             raise AgentError('RAG_INDEX_UNAVAILABLE', 'Индекс PDF недоступен. Запустите сборку индекса.') from error
@@ -131,7 +134,7 @@ class ReviewedOperations:
     def operations(evidence: EvidenceBundle) -> list[TechnicalClaim]:
         claims = []
         for item in evidence.items:
-            if (item.document_id not in (DOCUMENT_ID, CORPUS_DOCUMENT_ID) or item.manual != MANUAL
+            if (document_id_variants(item.document_id)[0] != DOCUMENT_ID or item.manual != MANUAL
                     or item.pdf_page != FIRST_PAGE or ENGINE not in item.engine_models):
                 continue
             if row := INJECTOR_ROW.search(item.text):
