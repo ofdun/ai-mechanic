@@ -33,8 +33,8 @@ SECTION_TITLES = {
 }
 STEP_KINDS = {'check', 'operation'}
 SIGNAL_LABELS = {'good': 'хорошая', 'warning': 'с помехами', 'bad': 'непригодна'}
-CONFLICT_TITLE = 'Источники расходятся — агент не выбирает сам'
-CONFLICT_NOTE = 'Уточните у специалиста или в документации производителя для вашей модификации двигателя.'
+CONFLICT_TITLE = 'Руководства пишут по-разному'
+CONFLICT_NOTE = 'Уточните у мастера или специалиста, какая инструкция подходит вашему двигателю.'
 DECISION_NOTE = 'Решение о ремонте и выпуске машины принимает механик или ответственный специалист.'
 ML_NOTE = 'Тип неисправности — гипотеза акустической модели, её подтверждает проверка по руководству.'
 PAGE_NOTE = 'Номера страниц указаны по PDF.'
@@ -232,9 +232,17 @@ class MechanicFinalizer:
             return MechanicAnswer(tone='info', verdict='📘 Данных недостаточно.', details=details,
                                   sections=self.closing_sections(response, sources, extra=extra))
         sections = self.claim_sections(response.claims, sources)
-        sections.extend(self.closing_sections(response, sources, extra=extra))
-        return MechanicAnswer(tone='info', verdict=f'📘 Ответ по руководствам для {response.engine_model}',
-                              sections=sections)
+        summary = response.summary.strip()
+        if not summary:
+            sections.extend(self.closing_sections(response, sources, extra=extra))
+            return MechanicAnswer(tone='info', verdict=f'📘 Ответ по руководствам для {response.engine_model}',
+                                  sections=sections)
+        # Plain lead first, then the checked claims with pages; the full source list is already inline.
+        conflict = ' · Руководства расходятся' if find_conflicts(response.claims, sources) else ''
+        technical = f'🔧 {response.engine_model} · {cited_pages(response.claims, sources)}{conflict}'
+        limitations = self.closing_sections(response, sources, extra=extra)
+        sections.extend(section for section in limitations if section.title != 'Источники')
+        return MechanicAnswer(tone='info', verdict=technical, details=summary.splitlines(), sections=sections)
 
     # Shared parts -----------------------------------------------------------------------------
 
@@ -313,6 +321,15 @@ def conflict_notes(response: AgentResponse) -> list[str]:
         wordings = '; '.join(f'«{claim.text.rstrip(".")}» {citation(claim, sources)}'.rstrip() for claim in group)
         notes.append(f'{CONFLICT_PREFIX}: {wordings}. {CONFLICT_NOTE}')
     return notes
+
+
+def cited_pages(claims: list[TechnicalClaim], sources: dict[str, Evidence]) -> str:
+    pages: dict[str, set[int]] = defaultdict(set)
+    for claim in claims:
+        for key in claim.evidence_ids:
+            if key in sources:
+                pages[sources[key].manual].add(sources[key].pdf_page)
+    return ' · '.join(f'{manual} стр. {", ".join(map(str, sorted(numbers)))}' for manual, numbers in pages.items())
 
 
 def citation(claim: TechnicalClaim, sources: dict[str, Evidence]) -> str:

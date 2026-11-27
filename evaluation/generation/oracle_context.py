@@ -284,6 +284,7 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
     query = ' '.join([case.question, *case.prior_facts]) if case.prior_facts else case.question
     plan = SearchPlan(engine_model=case.engine_model, original_query=case.question, rewritten_query=query)
     started = time.monotonic()
+    summary = ''
     try:
         if pipeline in {'generator', 'reasoner'}:
             drafter = TechnicalReasoner if pipeline == 'reasoner' else ClaimGenerator
@@ -293,7 +294,8 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
         else:
             workflow_settings = settings.model_copy(update={'agent_architecture': pipeline})
             workflow = RecordingWorkflow(workflow_settings, client, OracleRetriever(bundle), NoReviewedClaims())
-            final = workflow.run(plan, None).claims
+            outcome = workflow.run(plan, None)
+            final, summary = outcome.claims, outcome.summary
             drafts = workflow.drafts or []
     except AgentError as error:
         result.error = f'{error.code} ({error})'
@@ -324,7 +326,8 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
     result.conflict_shown = bool(find_conflicts(final, sources))
 
     response = AgentResponse(request_id=case.id, vehicle_id='oracle', session_id='oracle', engine_model=case.engine_model,
-                             action='search_manuals', message='', search_plan=plan, evidence=bundle, claims=final)
+                             action='search_manuals', message=summary, summary=summary, search_plan=plan,
+                             evidence=bundle, claims=final)
     result.answer = MechanicFinalizer().compose(response)
     generation_calls = len(usage.calls.get(case.id, []))
     if judge_model:

@@ -155,6 +155,10 @@ class Pipeline:
             response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
             if not response.claims:
                 response.limitations.append('Недостаточно доказательств для технических выводов.')
+            elif outcome.summary and len(response.claims) == len(outcome.claims):
+                response.summary = outcome.summary
+                if response.action == 'search_manuals':
+                    response.message = outcome.summary
             return
         if self.retriever is None:
             response.limitations.append('Retriever ещё не подключён. Доступен поисковый план.')

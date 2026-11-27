@@ -123,6 +123,7 @@ class SearchOutcome(BaseModel):
     plan: SearchPlan
     evidence: EvidenceBundle
     claims: list[TechnicalClaim]
+    summary: str = ''
 
 
 class TicketReference(BaseModel):
@@ -212,6 +213,8 @@ class AgentResponse(BaseModel):
     engine_model: str
     action: Action
     message: str
+    # Plain-language lead written only from the verified claims; empty when generation did not write one.
+    summary: str = ''
     diagnostic: DiagnosticResult | None = None
     requires_remeasurement: bool = False
     can_create_ticket: bool = False

@@ -133,10 +133,10 @@ def test_disagreeing_sources_are_shown_side_by_side():
     note, = conflict_notes(answer)
     assert note == ('Руководства расходятся: «Регулировать зазоры на холодном двигателе» (Fixture РЭ, стр. 31); '
                     '«Регулировать зазоры не ранее чем через 15 мин после остановки» (Fixture РК, стр. 269). '
-                    'Уточните у специалиста или в документации производителя для вашей модификации двигателя.')
+                    'Уточните у мастера или специалиста, какая инструкция подходит вашему двигателю.')
     answer.limitations.append(note)
     text = FINALIZER.compose(answer)
-    assert '⚖️ Источники расходятся — агент не выбирает сам:' in text
+    assert '⚖️ Руководства пишут по-разному:' in text
     assert 'Что проверить' not in text and 'Fixture РК, стр. 269' in text and 'Руководства расходятся' not in text
 
 
@@ -204,3 +204,28 @@ def test_plain_claims_from_older_generators_are_rendered():
     plain = TechnicalClaim(kind='operation', text='Отрегулировать форсунку.', evidence_ids=['re31'])
     text = FINALIZER.compose(response(diagnostic=result(), search_plan=PLAN, evidence=EVIDENCE, claims=[plain]))
     assert '1. Отрегулировать форсунку. (Fixture РЭ, стр. 31)' in text
+
+
+def test_plain_summary_leads_the_answer_with_a_technical_line():
+    marked = [claim('operation', 'Регулировать зазоры на холодном двигателе.', group='c1'),
+              claim('operation', 'Регулировать зазоры не ранее чем через 15 мин после остановки.', 'rk269', 'c1')]
+    summary = 'Регулируйте зазоры на холодном двигателе.\nРуководства пишут по-разному про 15 минут.'
+    answer = FINALIZER.answer(response('search_manuals', search_plan=PLAN, evidence=EVIDENCE, claims=marked,
+                                       summary=summary))
+    assert answer.verdict == '🔧 ЯМЗ-236М2 · Fixture РЭ стр. 31 · Fixture РК стр. 269 · Руководства расходятся'
+    assert answer.details == summary.splitlines()
+    assert 'Источники' not in [section.title for section in answer.sections]
+    assert 'Fixture РК, стр. 269' in answer.text
+
+
+def test_plain_lines_may_only_restate_claims():
+    from ml.generation.plain import PlainOutput, plain_text, safe_line
+    claims = [claim('reference_value', 'Давление масла 400-700 кПа при 2100 об/мин.'),
+              claim('operation', 'Регулировать зазоры не ранее чем через 15 мин после остановки.')]
+    assert safe_line('Давление масла: 400-700 кПа на 2100 об/мин.', claims, ENGINE)
+    assert not safe_line('Давление масла не ниже 350 кПа.', claims, ENGINE)
+    assert not safe_line('Можно продолжать эксплуатацию.', claims[:1], ENGINE)
+    assert not safe_line('Не запускайте двигатель.', claims[:1], ENGINE)
+    assert not safe_line('Для ЯМЗ-536 давление 400-700 кПа.', claims, ENGINE)
+    output = PlainOutput(lead='Давление масла выше 900 кПа.', lines=['Давление масла 400-700 кПа.'])
+    assert plain_text(output, claims, ENGINE) == ''

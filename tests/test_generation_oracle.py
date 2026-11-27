@@ -101,7 +101,8 @@ def test_generator_case_metrics(corpus):
 
 def test_workflow_a_and_abstention(corpus):
     usage = oracle.Usage()
-    replies = iter([{'claims': [GOOD, INVENTED]}, {'indexes': [0]}, {'claims': []}])
+    replies = iter([{'claims': [GOOD, INVENTED]}, {'indexes': [0]}, {'lead': 'Ответ простыми словами.', 'lines': []},
+                    {'claims': []}])
     client, settings, http = client_for(replies, usage)
     with http:
         answered = oracle.run_case(case(), corpus, settings, client, usage, pipeline='a', model=None,
@@ -109,7 +110,8 @@ def test_workflow_a_and_abstention(corpus):
         abstained = oracle.run_case(case('Q2', 'abstain', 'Данных нет.'), corpus, settings, client, usage,
                                     pipeline='a', model=None, distractors=1, seed=7, judge_model=None)
     assert answered.drafted == 2 and answered.rejected_drafts == 1 and len(answered.claims) == 1
-    assert answered.calls == 2 and abstained.calls == 1 and abstained.claims == []
+    assert answered.calls == 3 and abstained.calls == 1 and abstained.claims == []
+    assert answered.answer.splitlines()[1] == 'Ответ простыми словами.'
     summary = oracle.summarize([answered, abstained])
     assert summary['abstention_accuracy'] == 1.0 and summary['answer_correctness'] is None
     assert summary['by_outcome'] == {'answer': {'cases': 1, 'answered': 1}, 'abstain': {'cases': 1, 'answered': 0}}

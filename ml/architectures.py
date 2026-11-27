@@ -1,16 +1,26 @@
 import json
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ml.config import Settings
 from ml.contracts import (
-    AgentError, DiagnosticResult, EvidenceBundle, Generator, Retriever, SearchOutcome, SearchPlan, TechnicalClaim,
-    TechnicalDraft, Text,
+    AgentError,
+    DiagnosticResult,
+    EvidenceBundle,
+    Generator,
+    Retriever,
+    SearchOutcome,
+    SearchPlan,
+    TechnicalClaim,
+    TechnicalDraft,
+    Text,
 )
 from ml.generation import prompts
-from ml.generation.claims import MAX_CLAIMS
+from ml.generation.claims import MAX_CLAIMS, GroundedClaim, conflict_group
 from ml.generation.generator import ClaimGenerator, diagnosis_context, search_query
+from ml.generation.plain import PlainWriter
 from ml.generation.reasoner import TechnicalReasoner
 from ml.generation.verifier import EvidenceVerifier
 from ml.pipeline import scope_evidence
@@ -18,6 +28,8 @@ from ml.providers.openrouter import OpenRouterClient
 
 # Selection replies are only indexes, but a model that reasons by default can spend the whole budget thinking.
 SELECTION_TOKENS = 4000
+# A second look at other manuals may add a few claims on top of a full first draft; review then selects.
+COVERAGE_CLAIMS = 4
 
 
 class QueryOutput(BaseModel):
@@ -92,6 +104,40 @@ class LLMEvidenceWorkflow:
             'claims': [claim.model_dump() for claim in claims],
         }
 
+    def cover_manuals(
+        self, role: str, model: str, plan: SearchPlan, evidence: EvidenceBundle, diagnostic: DiagnosticResult | None,
+        claims: list[TechnicalClaim],
+    ) -> list[TechnicalClaim]:
+        """Ask the manuals the answer does not cite yet, so a disagreement between manuals is not lost."""
+        document = {item.evidence_id: item.document_id for item in evidence.items}
+        cited = {document.get(key) for claim in claims for key in claim.evidence_ids}
+        rest = [item for item in evidence.items if item.document_id not in cited]
+        if not claims or not rest:
+            return claims
+        known = [{'index': index, 'kind': claim.kind, 'text': claim.text} for index, claim in enumerate(claims)]
+        note = prompts.COVERAGE_NOTE + json.dumps(known, ensure_ascii=False)
+        found = self.valid_claims(self.generate(role, model, plan, EvidenceBundle(items=rest), diagnostic, note=note),
+                                  plan, evidence, diagnostic)
+        merged = list(claims)
+        for claim in found[:COVERAGE_CLAIMS]:
+            match = re.fullmatch(r'k(\d+)', conflict_group(claim))
+            if match and int(match[1]) < len(claims):
+                index = int(match[1])
+                label = conflict_group(merged[index]) or f'k{index}'
+                merged[index] = GroundedClaim.model_validate({**merged[index].model_dump(), 'conflict_group': label})
+                claim = claim.model_copy(update={'conflict_group': label})
+            elif match:
+                claim = claim.model_copy(update={'conflict_group': ''})
+            merged.append(claim)
+        return merged
+
+    def outcome(self, plan: SearchPlan, evidence: EvidenceBundle, claims: list[TechnicalClaim]) -> SearchOutcome:
+        summary = ''
+        if claims:
+            writer = PlainWriter(self.client, self.settings.a_generator_model, language=self.settings.answer_language)
+            summary = writer.write(plan.original_query, plan.engine_model, claims)
+        return SearchOutcome(plan=plan, evidence=evidence, claims=claims, summary=summary)
+
     def run(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
         if not self.settings.allow_external_evidence:
             raise AgentError('LLM_EVIDENCE_NOT_ALLOWED', 'Для передачи источников в OpenRouter нужно разрешение. Для локального PDF включите AGENT_ARCHITECTURE=baseline.')
@@ -104,10 +150,11 @@ class LLMEvidenceWorkflow:
                                   plan, evidence, diagnostic, include_reviewed=True)
         if not draft:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
+        draft = self.cover_manuals('a_coverage', self.settings.a_generator_model, plan, evidence, diagnostic, draft)
         approval = self.client.complete_json('a_verifier_finalizer', self.settings.a_verifier_model, messages(
             prompts.REVIEW, **self.review_payload(plan, evidence, diagnostic, draft),
         ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
-        return SearchOutcome(plan=plan, evidence=evidence, claims=approved_indexes(draft, approval.indexes))
+        return self.outcome(plan, evidence, approved_indexes(draft, approval.indexes))
 
     def run_evidence_grounded(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
         strategy = self.client.complete_json('b_query_strategist', self.settings.b_query_model, messages(
@@ -136,8 +183,9 @@ class LLMEvidenceWorkflow:
                 approved = self.valid_claims(repaired, plan, evidence, diagnostic, include_reviewed=True)
         if not approved:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
+        approved = self.cover_manuals('b_coverage', self.settings.b_repair_model, plan, evidence, diagnostic, approved)
         final = self.client.complete_json('b_finalizer', self.settings.b_finalizer_model, messages(
             prompts.FINAL_SELECTION, question=plan.original_query, search_query=search_query(plan),
             verified_claims=[claim.model_dump() for claim in approved],
         ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
-        return SearchOutcome(plan=plan, evidence=evidence, claims=approved_indexes(approved, final.indexes))
+        return self.outcome(plan, evidence, approved_indexes(approved, final.indexes))
