@@ -1,0 +1,93 @@
+{
+  "vehicles": [
+    {
+      "vehicle_id": "DEMO-01",
+      "garage_no": "ДЕМО-01",
+      "make": "Учебный",
+      "model": "Демонстрационный автомобиль",
+      "vehicle_type": "макет",
+      "engine_model": "ДЕМО-Д1",
+      "fuel": "дизель",
+      "sessions": [
+        {
+          "vehicle_id": "DEMO-01",
+          "session_id": "DEMO-00-QA",
+          "checked_at": "2026-11-27T10:00:00+03:00",
+          "status": "anomaly",
+          "signal_quality": "warning",
+          "confidence": 0.82,
+          "anomaly_score": 0.81,
+          "anomaly_type": "F01",
+          "anomaly_title": "Учебный привод клапанного механизма",
+          "description": "На учебной записи отмечены отклонения в работе привода.",
+          "model_version": "demo-d1-v1"
+        },
+        {
+          "vehicle_id": "DEMO-01",
+          "session_id": "DEMO-01-NORM",
+          "checked_at": "2026-11-27T11:00:00+03:00",
+          "status": "normal",
+          "signal_quality": "good",
+          "confidence": 0.97,
+          "anomaly_score": 0.12,
+          "anomaly_type": null,
+          "anomaly_title": null,
+          "description": "Учебная запись без отклонений.",
+          "model_version": "demo-d1-v1"
+        },
+        {
+          "vehicle_id": "DEMO-01",
+          "session_id": "DEMO-02-BAD",
+          "checked_at": "2026-11-27T12:00:00+03:00",
+          "status": "check_failed",
+          "signal_quality": "bad",
+          "confidence": null,
+          "anomaly_score": null,
+          "anomaly_type": null,
+          "anomaly_title": null,
+          "description": "Учебная запись отбракована из-за шума.",
+          "model_version": "demo-d1-v1"
+        },
+        {
+          "vehicle_id": "DEMO-01",
+          "session_id": "DEMO-03-LOW",
+          "checked_at": "2026-11-27T13:00:00+03:00",
+          "status": "anomaly",
+          "signal_quality": "good",
+          "confidence": 0.48,
+          "anomaly_score": 0.55,
+          "anomaly_type": "F08",
+          "anomaly_title": "Учебная топливоподача",
+          "description": "На стенде отмечены перебои подачи топлива.",
+          "model_version": "demo-d1-v2"
+        },
+        {
+          "vehicle_id": "DEMO-01",
+          "session_id": "DEMO-04-WARN",
+          "checked_at": "2026-11-27T14:00:00+03:00",
+          "status": "anomaly",
+          "signal_quality": "warning",
+          "confidence": 0.84,
+          "anomaly_score": 0.84,
+          "anomaly_type": "F08",
+          "anomaly_title": "Учебная топливоподача",
+          "description": "На стенде отмечены перебои подачи топлива.",
+          "model_version": "demo-d1-v2"
+        },
+        {
+          "vehicle_id": "DEMO-01",
+          "session_id": "DEMO-05-MARKS",
+          "checked_at": "2026-11-27T15:00:00+03:00",
+          "status": "anomaly",
+          "signal_quality": "good",
+          "confidence": 0.96,
+          "anomaly_score": 0.97,
+          "anomaly_type": "F01",
+          "anomaly_title": "Учебный привод клапанного механизма",
+          "description": "На учебной записи отмечены отклонения в работе привода.",
+          "model_version": "demo-d1-v1"
+        }
+      ]
+    }
+  ]
+}

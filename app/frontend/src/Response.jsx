@@ -1,10 +1,15 @@
 import { UiLanguage, useUiText } from './uiLanguage'
-import React, { useContext } from 'react'
-import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
+import React, { useContext, useEffect, useState } from 'react'
+import { createPortal, flushSync } from 'react-dom'
+import { CheckCircle2, CircleAlert, Printer, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { AnswerChecks } from './AnswerChecks'
 import { Source } from './ManualReader'
 import { ReadAloud } from './ReadAloud'
+import { ScoreChart, score } from './ScoreChart'
+import { PartNumbers } from './Parts'
+import { TighteningFigures } from './Figures'
+import { InspectionList } from './Inspection'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -45,6 +50,13 @@ function spokenAnswer({ title, warning, details, lead, summary, claims = [], lim
   return [title, warning, details, lead, ...(summary.length ? summary : claims), ...limitations].filter(line => line?.text)
 }
 
+// B1: earlier checks and tickets of this vehicle, written by the agent from its own records.
+function VehicleMemory({ result, className = 'report-row' }) {
+  const t = useUiText()
+  if (!result.memory?.length) return null
+  return <section className={className}><h4>{t('По этой машине')}</h4><div><Entries items={result.memory} /></div></section>
+}
+
 function verdict(result) {
   if (result.recognition_error) return { status: 'recognition_error', title: outcomes.recognition_error }
   if (result.requires_remeasurement && result.diagnostic.status !== 'check_failed')
@@ -53,12 +65,15 @@ function verdict(result) {
   return { status, title: outcomes[status] }
 }
 
-function anomalyDetails({ diagnostic, message }, status, t) {
+function anomalyDetails(result, status, t) {
+  const { diagnostic, message } = result
   if (status !== 'anomaly') return ''
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
   return [
     diagnostic.anomaly_title && !message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
     confidence && !message.includes(confidence) && t('Уверенность ИИ {value}', { value: confidence }),
+    // The threshold the verdict was checked against (MIN_DIAGNOSTIC_CONFIDENCE), so the number above can be read.
+    result.min_confidence != null && t('Порог уверенности {value}', { value: Math.round(result.min_confidence * 100) + '%' }),
   ].filter(Boolean).join(' · ')
 }
 
@@ -77,7 +92,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
   if (!verified.length && result.action === 'search_manuals') {
     for (const source of sources.values()) pages.set(pageKey(source), source)
   }
-  const details = status && anomalyDetails({ diagnostic, message: answer.message.original || answer.message.text }, status.status, t)
+  const details = status && anomalyDetails({ ...result, message: answer.message.original || answer.message.text }, status.status, t)
   const lines = summary ? answer.summary : []
   const Icon = status?.status === 'normal' ? CheckCircle2 : status?.status === 'check_failed' ? RotateCcw : CircleAlert
   const uiLang = useContext(UiLanguage)
@@ -118,8 +133,14 @@ function LocalizedResponse({ result, compact = false, report = false }) {
       {labels['conflict.title'] && result.message.includes('⚖️ ' + labels['conflict.title']) &&
         <p className="limitations"><strong>{labels['conflict.title']}</strong> {labels['conflict.note']}</p>}
       {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
-      {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+      {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
+      <PartNumbers result={result} className={report ? 'report-row' : 'claims'} />
+      <TighteningFigures result={result} className={report ? 'report-row' : 'claims'} />
     </>}
+    {answer.memory?.length > 0 && <section className={report ? 'report-row' : 'claims'}>
+      <h4>{labels.memory || t('По этой машине')}</h4>
+      <div>{answer.memory.map((line, index) => <AnswerLine key={index} line={line} />)}</div>
+    </section>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
       .map((line, index) => <AnswerLine key={index} line={line} />)}
     {readLines && <ReadAloud lines={readLines} />}
@@ -191,6 +212,8 @@ export function DiagnosticReport({ result }) {
       })}
       {!!actions.length && <section className="report-row report-action"><h4>{t('Что делать дальше')}</h4><div>{actions.map(citedClaim)}</div></section>}
     </ManualAnswer>
+    <VehicleMemory result={result} />
+    <PartNumbers result={result} className="report-row" />
     {!!result.limitations?.length && <section className="report-row"><h4>{t('Что осталось уточнить')}</h4><div><Entries items={result.limitations} /></div></section>}
     {!!references.length && <footer className="report-row report-sources"><h4>{t('Руководство')}</h4>
       <div>{references.map((source, index) => <div key={pageKey(source)}>
@@ -217,6 +240,7 @@ export function DiagnosticVerdict({ result }) {
     <p>{message}</p>
     {status === 'normal' && <p>{t('По результату этой проверки можно продолжить эксплуатацию.')}</p>}
     {details && <p className="meta">{details}</p>}
+    <VehicleMemory result={result} className="claims" />
   </div>
 }
 
@@ -259,6 +283,8 @@ export function Response({ result }) {
           </>} /></section>
       })}
     </ManualAnswer>
+    {!repeat && !result.recognition_error && <PartNumbers result={result} />}
+    <TighteningFigures result={result} />
     {!insufficient && limitations.length > 0 && <section className="limitations"><h4>{t('Ограничения')}</h4>
       <Entries items={limitations} /></section>}
     {insufficient && <div className="search-fallback">
@@ -268,10 +294,22 @@ export function Response({ result }) {
     {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? t('Страницы по теме для самостоятельной проверки') : t('Источники ответа')}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
-    {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+    {result.action === 'get_diagnostic_history' && <VehicleMemory result={result} className="claims" />}
+    {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
     <ReadAloud lines={readLines} />
     <AnswerChecks result={result} />
   </article>
+}
+
+function HistoryReply({ result }) {
+  const t = useUiText()
+  return <>
+    <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />
+    {!!result.inspections?.length && <section className="history-report">
+      <h3>{t('Результаты осмотра')}</h3>
+      <InspectionList records={result.inspections} vehicleId={result.vehicle_id} />
+    </section>}
+  </>
 }
 
 export function VehicleHistory({ vehicleId, sessions }) {
@@ -284,10 +322,13 @@ export function VehicleHistory({ vehicleId, sessions }) {
   }
   return <section className="history-report"><h3>{t('История проверок ·')} {vehicleId}</h3>
     {sessions.length ? <>
+      <ScoreChart sessions={sessions} id={'score-trend-' + vehicleId} />
       <ol className="vehicle-history">{sessions.map(row =>
         <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at, language)}</time>
           <small>{t('Замер {id}', { id: row.session_id })}</small></div>
-          <div><strong>{t(outcomes[row.status])}</strong><p>{t(meanings[row.status])}</p></div></li>)}</ol>
+          <div><strong>{t(outcomes[row.status])}</strong>
+            {row.anomaly_score != null && <span className="meta"> · {t('оценка аномалии {value}', { value: score(row.anomaly_score) })}</span>}
+            <p>{t(meanings[row.status])}</p></div></li>)}</ol>
     </> : <p>{t('У этой машины пока нет проверок.')}</p>}
   </section>
 }
@@ -298,11 +339,72 @@ const schedules = {
   medium: 'Запланировать дефектовку на ближайшее ТО. До него машина работает под наблюдением.',
   high: 'Запланировать дефектовку до выпуска в рейс.',
 }
-export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled }) {
+function vehicleName(vehicle) {
+  if (!vehicle) return ''
+  const { make, model } = vehicle
+  return model?.startsWith(make || '') ? model : [make, model].filter(Boolean).join(' ')
+}
+
+function PrintSheet({ draft, urgency, vehicle, diagnosis }) {
+  const t = useUiText()
+  const language = useContext(UiLanguage)
+  const [printedAt, setPrintedAt] = useState(() => new Date())
+  useEffect(() => {
+    const refresh = () => flushSync(() => setPrintedAt(new Date()))
+    window.addEventListener('beforeprint', refresh)
+    return () => window.removeEventListener('beforeprint', refresh)
+  }, [])
+  const { payload } = draft
+  const session = vehicle?.sessions.find(item => item.session_id === payload.session_id)
+  const engine = draft.engine_model || vehicle?.engine_model
+  const sameCheck = diagnosis?.diagnostic && diagnosis.vehicle_id === payload.vehicle_id && diagnosis.session_id === payload.session_id
+  const status = sameCheck && verdict(diagnosis)
+  const details = status && anomalyDetails({ diagnostic: diagnosis.diagnostic, message: payload.conclusion }, status.status, t)
+  return createPortal(<article className="print-sheet" lang={language}>
+    <header className="print-heading">
+      <h1>{t('Лист дефектовки')}</h1>
+      <p>{formatDate(printedAt, language)}</p>
+    </header>
+    <dl className="print-fields">
+      <dt>{t('Транспортное средство')}</dt><dd><strong>{payload.vehicle_id}</strong>{vehicleName(vehicle) && ' · ' + vehicleName(vehicle)}</dd>
+      {engine && <><dt>{t('Двигатель')}</dt><dd>{engine}</dd></>}
+      <dt>{t('Проверка')}</dt><dd>{payload.session_id}{session && ' · ' + formatDate(session.checked_at, language)}</dd>
+      <dt>{t('Диагноз')}</dt><dd>
+        {status && <p><strong>{[t(status.title), details].filter(Boolean).join(' · ')}</strong></p>}
+        <p>{payload.conclusion}</p>
+      </dd>
+      <dt>{t('Приоритет')}</dt><dd><strong>{t(priorities[urgency])}</strong></dd>
+    </dl>
+    <section className="print-section">
+      <h2>{t('Работы')}</h2>
+      <ul className="print-checklist">{payload.operations.map((operation, index) =>
+        <li key={index}><span className="print-box" aria-hidden="true" />{operation}</li>)}</ul>
+    </section>
+    <section className="print-section">
+      <h2>{t('Запчасти')}</h2>
+      {payload.spare_parts.length ? <ul className="print-checklist">{payload.spare_parts.map((part, index) =>
+        <li key={index}><span className="print-box" aria-hidden="true" />{part}</li>)}</ul>
+        : <p>{t('Нет подтверждённых позиций')}</p>}
+    </section>
+    <section className="print-section">
+      <h2>{t('Страницы руководства')}</h2>
+      <ol className="print-references">{payload.references.map((reference, index) =>
+        <li key={index}>{reference.manual}, {t('стр.') + ' ' + reference.pdf_page}</li>)}</ol>
+    </section>
+    <footer className="print-signoff">
+      {['Исполнитель', 'Дата', 'Подпись'].map(label => <p key={label}><span>{t(label)}</span></p>)}
+    </footer>
+  </article>, document.body)
+}
+
+export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled, vehicle, diagnosis, printable = false }) {
   const t = useUiText()
   const { payload } = draft
   return <section className="draft" aria-label={t('Черновик заявки')}>
-    <h3>{t('Черновик заявки на дефектовку')}</h3>
+    <div className="draft-heading">
+      <h3>{t('Черновик заявки на дефектовку')}</h3>
+      <button type="button" onClick={() => window.print()}><Printer aria-hidden="true" />{t('Печать')}</button>
+    </div>
     <dl className="fields">
       <dt>{t('ТС / проверка')}</dt><dd>{payload.vehicle_id} / {payload.session_id}</dd>
       <dt><label htmlFor="ticket-urgency">{t('Приоритет')}</label></dt>
@@ -322,5 +424,6 @@ export function Draft({ draft, evidence, urgency, onUrgencyChange, disabled }) {
         return source ? <Source key={index} source={source} /> : <p key={index}>{reference.manual}, {t('стр.')} {reference.pdf_page}</p>
       })}</dd>
     </dl>
+    {printable && <PrintSheet draft={draft} urgency={urgency} vehicle={vehicle} diagnosis={diagnosis} />}
   </section>
 }

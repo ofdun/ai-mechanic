@@ -161,6 +161,8 @@ def source_items(response: AgentResponse) -> dict[str, str]:
         items[f'c{index}'] = claim.text
     for index, note in enumerate(response.limitations):
         items[f'l{index}'] = note
+    for index, line in enumerate(response.memory):
+        items[f'h{index}'] = line
     return {key: value for key, value in items.items() if value and value.strip()}
 
 
@@ -185,6 +187,7 @@ def assemble(response: AgentResponse, language: Language, translated: dict[str, 
         summary=summary,
         claims=[line(f'c{index}', claim.text) for index, claim in enumerate(response.claims)],
         limitations=[line(f'l{index}', note) for index, note in enumerate(response.limitations)],
+        memory=[line(f'h{index}', note) for index, note in enumerate(response.memory)],
         labels=names,
     )
 

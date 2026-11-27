@@ -1,6 +1,7 @@
 """Retrieval tests on invented manuals. Customer PDFs are not committed to the public repository."""
 
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -98,6 +99,13 @@ def test_engine_filter_is_applied_before_top_k(retriever):
     assert evidence.items[0].evidence_id == 'dvs-100-re:2'
     assert evidence.items[0].manual == '100.0001 РЭ'
     assert retriever.search(plan('НЕИЗВЕСТНЫЙ-1', 'форсунки')).items == []
+
+
+def test_figure_pages_scan_every_page_of_the_engine(retriever):
+    pattern = re.compile('турбокомпрессор|головки цилиндров')
+    assert [item.pdf_page for item in retriever.figure_pages(DIESEL, pattern)] == [3]
+    assert [item.pdf_page for item in retriever.figure_pages(DIESEL_TURBO, pattern)] == [3, 4]
+    assert retriever.figure_pages(PETROL, pattern) == []
 
 
 def test_page_applicability_narrows_document_models(retriever):

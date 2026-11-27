@@ -1,0 +1,39 @@
+{
+  "page": "demo-d1-fuel:1",
+  "sha256": "453c1566a14e12feca1afd782e07da32fe401d0239bdaf658ab92c15adc44bf6",
+  "entries": [
+    {
+      "fault_code": "F08",
+      "claims": [
+        {
+          "kind": "risk",
+          "text": "При засорении фильтра подача топлива на учебном стенде снижается.",
+          "evidence_ids": [
+            "demo-d1-fuel:1"
+          ]
+        },
+        {
+          "kind": "check",
+          "text": "Проверьте учебный топливный фильтр на засорение.",
+          "evidence_ids": [
+            "demo-d1-fuel:1"
+          ]
+        },
+        {
+          "kind": "operation",
+          "text": "Если фильтр засорён, замените его и повторите замер.",
+          "evidence_ids": [
+            "demo-d1-fuel:1"
+          ]
+        },
+        {
+          "kind": "spare_part",
+          "text": "Учебный топливный фильтр 901-2000002.",
+          "evidence_ids": [
+            "demo-d1-fuel:1"
+          ]
+        }
+      ]
+    }
+  ]
+}
