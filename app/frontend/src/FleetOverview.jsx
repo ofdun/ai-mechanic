@@ -7,7 +7,7 @@ import { UiLanguage, useUiText } from './uiLanguage'
 // Labels for the statuses the worker computes in ml/tools/fleet_status.py.
 const states = [
   { id: 'quarantine', label: 'Карантин', rule: 'Надёжное отклонение с высоким приоритетом: дефектовка до выпуска в рейс.' },
-  { id: 'attention', label: 'Требует внимания', rule: 'Отклонение с приоритетом ниже высокого или запись, которой нельзя доверять: сбой, помехи, низкая уверенность ИИ. Такую машину нужно перемерить — это не норма и не доказанная неисправность.' },
+  { id: 'attention', label: 'Требует внимания', rule: 'При надёжном отклонении следуйте рекомендации в строке машины. При сбое записи, помехах или низкой уверенности ИИ повторите замер.' },
   { id: 'normal', label: 'Норма', rule: 'Последняя проверка без отклонений.' },
 ]
 
@@ -46,10 +46,7 @@ export function FleetOverview({ catalog, onOpen }) {
       {states.map(({ id, label }) => <button key={id} type="button" className={'counter ' + id} aria-pressed={filter === id}
         onClick={() => setFilter(filter === id ? '' : id)}><strong>{counts[id]}</strong>{t(label)}</button>)}
     </div>
-    <details className="fleet-rules"><summary>{t('Как считаются статусы и порядок')}</summary>
-      <dl>{states.map(({ id, label, rule }) => <React.Fragment key={id}><dt>{t(label)}</dt><dd>{t(rule)}</dd></React.Fragment>)}</dl>
-      <p>{t('Статус берётся по последней проверке машины. Порядок: карантин, затем отклонения по приоритету, затем перемер, затем норма; внутри группы — по оценке аномалии. Приоритет тот же, что в заявке на дефектовку. Стоимость ремонта и простоя не оценивается.')}</p>
-    </details>
+    <a className="fleet-rules-link" href="#fleet-rules">{t('Как считаются статусы и порядок')}</a>
     <ol className="fleet-list">{shown.map(vehicle => {
       const { fleet_status: status } = vehicle
       return <li key={vehicle.vehicle_id} className={'fleet-row ' + status.state}>
@@ -64,5 +61,9 @@ export function FleetOverview({ catalog, onOpen }) {
         </button>
       </li>
     })}</ol>
+    <section className="fleet-rules" id="fleet-rules"><h3>{t('Как считаются статусы и порядок')}</h3>
+      <dl>{states.map(({ id, label, rule }) => <React.Fragment key={id}><dt>{t(label)}</dt><dd>{t(rule)}</dd></React.Fragment>)}</dl>
+      <p>{t('Очередь строится по последней проверке: карантин, отклонения по приоритету, повторный замер, норма. При равном приоритете выше машина с большей оценкой аномалии. Приоритет заявки уточняется при дефектовке. Стоимость ремонта и простоя не оценивается.')}</p>
+    </section>
   </section>
 }
