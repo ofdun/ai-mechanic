@@ -416,16 +416,17 @@ def trend(sessions: list[SessionRecord]) -> str:
     if len(scores) < 2:
         return 'Для оценки динамики нужны хотя бы две успешные проверки.'
     path = ' → '.join(decimal(score) for score in scores)
-    steps = [later - earlier for earlier, later in zip(scores, scores[1:])]
-    if all(step >= 0 for step in steps) and scores[-1] - scores[0] >= TREND_STEP:
+    # Rounded: 0.30 - 0.20 is 0.0999… in floating point, and a 0.10 rise must count as one.
+    steps = [round(later - earlier, 6) for earlier, later in zip(scores, scores[1:])]
+    if all(step >= 0 for step in steps) and round(scores[-1] - scores[0], 6) >= TREND_STEP:
         return f'Оценка аномалии растёт: {path}. Состояние ухудшается — стоит запланировать дефектовку.'
-    if all(step <= 0 for step in steps) and scores[0] - scores[-1] >= TREND_STEP:
+    if all(step <= 0 for step in steps) and round(scores[0] - scores[-1], 6) >= TREND_STEP:
         return f'Оценка аномалии снижается: {path}.'
     if steps[-1] >= TREND_STEP:
         return f'Оценка аномалии выросла по сравнению с прошлой проверкой: {path}.'
     if steps[-1] <= -TREND_STEP:
         return f'Оценка аномалии снизилась по сравнению с прошлой проверкой: {path}.'
-    if max(scores) - min(scores) >= TREND_STEP:
+    if round(max(scores) - min(scores), 6) >= TREND_STEP:
         return f'Оценка аномалии колеблется: {path}.'
     return f'Оценка аномалии стабильна: {path}.'
 
