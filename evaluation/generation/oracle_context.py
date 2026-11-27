@@ -255,14 +255,14 @@ class RecordingWorkflow(LLMEvidenceWorkflow):
             self.drafts = list(claims)
         return claims
 
-    def valid_claims(self, claims, plan, evidence, diagnostic, *, include_reviewed=False):
+    def valid_claims(self, claims, plan, evidence, diagnostic, *, reports, include_reviewed=False):
         report = EvidenceVerifier(plan.engine_model, plan.anomaly_type).inspect(TechnicalDraft(claims=claims), evidence)
         pages = {item.evidence_id: (item.document_id, item.pdf_page) for item in evidence.items}
         if not hasattr(self, 'verifications'):
             self.verifications = []
         self.verifications.append([{**claim_record(check.claim, pages), 'rejected': list(check.reasons)}
                                    for check in report.checks])
-        return super().valid_claims(claims, plan, evidence, diagnostic, include_reviewed=include_reviewed)
+        return super().valid_claims(claims, plan, evidence, diagnostic, reports=reports, include_reviewed=include_reviewed)
 
 
 class JudgeOutput(BaseModel):

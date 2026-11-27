@@ -38,6 +38,7 @@ def test_manual_candidates_cannot_authorize_a_ticket_or_become_a_norm():
     plan = SearchPlan(engine_model=engine, original_query=question, rewritten_query=question)
     result = workflow.run(plan, None)
     assert not result.claims and result.evidence.items == [page]
+    assert result.verification is None
     fault = workflow.run(plan.model_copy(update={'anomaly_type': 'F04'}), diagnostic())
     assert not fault.claims and not fault.evidence.items
     wrong_engine = workflow.run(plan.model_copy(update={'engine_model': 'Другой мотор'}), None)
@@ -80,6 +81,9 @@ def test_reviewed_norm_requires_all_pages_of_the_selected_engine():
     plan = SearchPlan(engine_model=engine, original_query=question, rewritten_query=question)
     reviewed = workflow.run(plan, None)
     assert reviewed.summary == 'Уточните применимую процедуру.'
+    assert reviewed.verification.engine_model == engine
+    assert reviewed.verification.rejected_claims == 0
+    assert [(p.evidence_id, p.numbers) for p in reviewed.verification.pages] == [('e1', []), ('e2', ['14.2'])]
     claim, = reviewed.claims
     assert (claim.text, claim.evidence_ids) == ('На холодном стенде 14,2 кПа.', ['e1', 'e2'])
     for other in ['Delta-31', 'Atlas-212']:

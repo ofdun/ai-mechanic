@@ -122,11 +122,31 @@ class TechnicalDraft(BaseModel):
     claims: list[TechnicalClaim] = Field(default_factory=list)
 
 
+class CheckedPage(BaseModel):
+    evidence_id: Text
+    numbers: list[str] = Field(default_factory=list)
+
+
+class AnswerVerification(BaseModel):
+    engine_model: Text
+    pages: list[CheckedPage] = Field(default_factory=list)
+    rejected_claims: int | None = Field(default=None, ge=0)
+
+
 class VerifiedResponse(TechnicalDraft):
-    pass
+    verification: AnswerVerification | None = None
+
+    @classmethod
+    def from_reviewed(cls, engine, draft, supported):
+        approved = [claim for claim in draft.claims if claim in supported]
+        keys = dict.fromkeys(key for claim in approved for key in claim.evidence_ids)
+        audit = AnswerVerification(engine_model=engine, pages=[CheckedPage(evidence_id=k) for k in keys],
+                                   rejected_claims=len(draft.claims) - len(approved)) if draft.claims else None
+        return cls(claims=approved, verification=audit)
 
 
 class SearchOutcome(BaseModel):
+    verification: AnswerVerification | None = None
     plan: SearchPlan
     evidence: EvidenceBundle
     claims: list[TechnicalClaim]
@@ -271,6 +291,7 @@ class ConversationContext(BaseModel):
 
 
 class AgentResponse(BaseModel):
+    verification: AnswerVerification | None = None
     request_id: str
     vehicle_id: str
     session_id: str
