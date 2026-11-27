@@ -182,18 +182,28 @@ def exercise(context, base_url):
     expect(answer).to_contain_text(RISK)
     answer.get_by_role('button', name=source_name).tap()
     expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='Текст', exact=True).tap()
+    expect(page.locator('.manual-quote')).to_have_text(RISK)
+    expect(page.locator('.manual-quote')).to_be_in_viewport()
+    page.get_by_role('button', name='Предыдущая страница').tap()
+    expect(page.locator('.manual-text')).to_contain_text('Демонстрационные данные')
+    expect(page.locator('.manual-quote')).to_have_count(0)
+    page.get_by_role('button', name='Следующая страница').tap()
+    expect(page.locator('.manual-quote')).to_have_text(RISK)
     page.get_by_role('button', name='К чату').tap()
     expect(answer.get_by_role('button', name=source_name)).to_be_focused()
     print('PASS — F4, уточнение по предыдущей диагностике с подтверждённым риском и ссылкой')
 
     # The offline backend supplies genuine evidence; stand in only for the optional writer.
     summary = 'Сначала проверьте настройку стенда.\nПосле этого повторите учебный замер.'
+    paraphrase = 'Проверьте настройку учебного стенда перед следующим замером.'
 
     def with_summary(route):
         upstream = route.fetch()
         body = upstream.json()
         assert body['claims'] and body['action'] == 'search_manuals'
-        route.fulfill(response=upstream, json={**body, 'message': summary, 'summary': summary})
+        claims = [{**claim, 'quote': claim['text'], 'text': paraphrase} for claim in body['claims']]
+        route.fulfill(response=upstream, json={**body, 'claims': claims, 'message': summary, 'summary': summary})
 
     page.route('**/agent/run', with_summary, times=1)
     question.fill('Почему это опасно?')
@@ -201,13 +211,37 @@ def exercise(context, base_url):
     generated = thread.get_by_role('article').last
     expect(generated.locator('.manual-answer')).to_have_text(summary)
     expect(generated.get_by_text(summary, exact=True)).to_have_count(1)
-    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
+    expect(generated.get_by_text(paraphrase, exact=False).first).to_be_visible()
     generated.get_by_role('button', name=source_name).tap()
     expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
+    page.get_by_role('button', name='Текст', exact=True).tap()
+    expect(page.locator('.manual-quote')).to_have_text(RISK)
+    assert paraphrase not in page.locator('.manual-text').inner_text()
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.get_by_role('button', name='К чату').tap()
     expect(generated.locator('details')).to_have_count(0)
-    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
+    expect(generated.get_by_text(paraphrase, exact=False).first).to_be_visible()
     print('PASS — один краткий ответ, его источник и видимая формулировка из руководства')
+
+    # A long page must scroll to the quote after asynchronous loading; repeated/missing text stays unmarked.
+    document_path = '**/api/documents/' + DOCUMENT_ID + '/pages/2'
+    for text, expected in [('Вводный раздел.\n' * 100 + RISK, 1),
+                           (RISK + '\n' + RISK, 0), ('Другая формулировка без цитаты.', 0)]:
+        def page_text(route, request, text=text):
+            upstream = route.fetch()
+            route.fulfill(response=upstream, json={**upstream.json(), 'text': text})
+        page.route(document_path, page_text, times=1)
+        generated.get_by_role('button', name=source_name).tap()
+        expect(page.get_by_role('button', name='Текст', exact=True)).to_be_enabled()
+        page.get_by_role('button', name='Текст', exact=True).tap()
+        expect(page.locator('.manual-text')).to_have_text(text)
+        expect(page.locator('.manual-quote')).to_have_count(expected)
+        if expected:
+            expect(page.locator('.manual-quote')).to_be_in_viewport()
+            assert page.locator('.manual-body').evaluate('node => node.scrollTop') > 0
+        page.get_by_role('button', name='К чату').tap()
+    print('PASS — точная исходная цитата, автопрокрутка длинной страницы, нет подсветки при повторе или несовпадении')
+
 
     delayed = []
     page.route('**/agent/run', lambda route: delayed.append(route), times=1)

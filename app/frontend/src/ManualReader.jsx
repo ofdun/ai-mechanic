@@ -2,16 +2,17 @@ import { useUiText } from './uiLanguage'
 import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { request } from './api'
+import { exactQuoteRange } from './quoteHighlight'
 
 const OpenManual = createContext(null)
 
-export function Source({ source, number, pageLabel }) {
+export function Source({ source, number, pageLabel, quote = '' }) {
   const t = useUiText()
   const open = useContext(OpenManual)
   const title = source.manual + ', ' + (pageLabel || t('стр.')) + '\u00a0' + source.pdf_page
   return <button type="button" className={number ? 'citation' : 'source'}
     aria-label={number ? t('Источник {number}, {title}', { number, title }) : title}
-    onClick={event => open(source, event.currentTarget)}>
+    onClick={event => open({ ...source, quote }, event.currentTarget)}>
     {number ? `[${number}]` : <><BookOpen aria-hidden="true" />{title}</>}
   </button>
 }
@@ -50,7 +51,7 @@ export function ManualNavigation({ children, sessionKey, returnLabel }) {
         <button type="button" ref={back} onClick={() => history.back()}><ArrowLeft aria-hidden="true" />{returnLabel}</button>
         <h2 id="manual-title">{source.manual}</h2>
       </header>
-      <ManualPage source={source} />
+      <ManualPage key={JSON.stringify([source.document_id, source.pdf_page, source.quote])} source={source} />
     </section>}
   </OpenManual.Provider>
 }
@@ -65,6 +66,7 @@ function ManualPage({ source }) {
   const [attempt, setAttempt] = useState(0)
   const url = '/api/documents/' + encodeURIComponent(source.document_id) + '/pages/' + number
   const body = useRef(null)
+  const highlighted = useRef(null)
   useEffect(() => {
     const controller = new AbortController()
     setError('')
@@ -76,11 +78,17 @@ function ManualPage({ source }) {
     })
     return () => controller.abort()
   }, [url, attempt])
-  useLayoutEffect(() => {
-    body.current.scrollTop = 0
-  }, [number, mode])
   const current = data?.page === number ? data : null
   const textMode = mode === 'text' && !!current?.text.trim()
+  const match = number === source.pdf_page ? exactQuoteRange(current?.text, source.quote) : null
+  useLayoutEffect(() => {
+    const pane = body.current
+    pane.scrollTop = 0
+    if (textMode && match && highlighted.current) {
+      const offset = highlighted.current.getBoundingClientRect().top - pane.getBoundingClientRect().top
+      pane.scrollTop = Math.max(0, offset - Math.min(80, pane.clientHeight / 3))
+    }
+  }, [number, textMode, current?.text, match?.start, match?.end])
   return <>
     <div className="manual-tools">
       <div className="page-turn">
@@ -98,7 +106,9 @@ function ManualPage({ source }) {
         <p>{t(error || 'Изображение страницы не загрузилось.')}</p>
         <button onClick={() => { setImageFailed(false); setError(''); setAttempt(n => n + 1) }}>{t('Повторить')}</button>
       </div> : !current ? <p role="status">{t('Открываем страницу…')}</p>
-        : textMode ? <div className="manual-text">{current.text}</div>
+        : textMode ? <div className="manual-text">{match ? <>
+          {current.text.slice(0, match.start)}<mark ref={highlighted} className="manual-quote">{current.text.slice(match.start, match.end)}</mark>{current.text.slice(match.end)}
+        </> : current.text}</div>
         : <img key={url + ':' + attempt} src={url + '?view=image'} alt={source.manual + ', ' + t('страница') + ' ' + number}
           onError={() => setImageFailed(true)} />}
     </div>
