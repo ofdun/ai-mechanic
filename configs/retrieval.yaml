@@ -1,0 +1,36 @@
+# Параметры retrieval (владелец — Валерий). Значения экспериментальные, см. RET-01…RET-10.
+# Сборка индекса: chunker, chunk_words, chunk_overlap, analyzer. Остальное применяется при поиске.
+
+mode: sparse              # sparse (BM25, RET-01) | dense | hybrid (BM25 + dense через RRF, RET-06/07)
+
+# Chunking (RET-02, RET-03). Фрагмент не пересекает физическую страницу PDF.
+chunker: page             # page | structural
+chunk_words: 300          # для structural; ~1.5–2 токена на русское слово
+chunk_overlap: 50
+
+# BM25
+analyzer: stem            # stem — Snowball, plain — без нормализации
+bm25_k1: 1.2
+bm25_b: 0.75
+
+# Dense (RET-04, RET-05). Векторы: python -m ml.retrieval embed
+embedder: BAAI/bge-m3
+embed_max_seq_length: 512
+embed_batch_size: 8
+device: cpu
+
+# Диагностический план: словарь узла по коду F01–F14 в rewritten и отдельным запросом (plan-expansion)
+expand_anomaly: true
+
+# Слияние и reranking (RET-07, RET-08)
+per_query_k: 30           # кандидатов на каждый запрос и каждый метод до RRF
+rrf_k: 60
+reranker: null            # например BAAI/bge-reranker-v2-m3
+rerank_candidates: 30
+rerank_max_length: 512
+
+# Контекст для генерации (RET-09, RET-10)
+top_k: 8                  # страниц (context: page) или фрагментов (context: chunk)
+context: page             # page — родительская страница целиком, chunk — только фрагмент
+neighbor_pages: 0         # соседние страницы того же руководства для многостраничных процедур
+max_evidence_words: 6000  # бюджет EvidenceBundle, ~10K токенов

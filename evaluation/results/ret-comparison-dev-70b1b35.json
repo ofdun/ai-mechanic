@@ -1,0 +1,651 @@
+{
+  "retrieval_commit": "70b1b35bfc2bac7dec4bb81aac8db5e611e70501",
+  "ingestion_commit": "c905a1b441e4235b0013f2d278418a314dcc1afe",
+  "dataset": "evaluation/datasets/customer_questions.jsonl",
+  "dataset_sha256": "2ee3e6f4467d73e76710e2f9ae2a2b770c2e4844e3036dacd0d6846864d9afc2",
+  "hardware": "Apple M3 Pro, 18 GB, PyTorch 2.15.0 with MPS for neural models, FP32",
+  "embedding_revision": "5617a9f61b028005a4858fdac845db406aefb181",
+  "reranker_revision": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+  "offline_embedding": {
+    "seconds": 123.69102966599166,
+    "pages": 1711
+  },
+  "arms": {
+    "bm25": {
+      "corpus_version": "bdbfa9defc94b824",
+      "config": {
+        "mode": "sparse",
+        "chunker": "page",
+        "chunk_words": 300,
+        "chunk_overlap": 50,
+        "analyzer": "stem",
+        "bm25_k1": 1.2,
+        "bm25_b": 0.75,
+        "embedder": "BAAI/bge-m3",
+        "embed_max_seq_length": 512,
+        "embed_batch_size": 8,
+        "device": "cpu",
+        "expand_anomaly": true,
+        "per_query_k": 30,
+        "rrf_k": 60,
+        "reranker": null,
+        "rerank_candidates": 30,
+        "rerank_max_length": 512,
+        "top_k": 8,
+        "context": "page",
+        "neighbor_pages": 0,
+        "max_evidence_words": 6000
+      },
+      "split": "dev",
+      "query_mode": "original",
+      "questions": 142,
+      "rewrites": 0,
+      "answerable": 140,
+      "unanswerable": 2,
+      "ks": [
+        1,
+        3,
+        5,
+        10
+      ],
+      "hit_at_k": {
+        "1": 0.5929,
+        "3": 0.7643,
+        "5": 0.8429,
+        "10": 0.9
+      },
+      "recall_at_k": {
+        "1": 0.491,
+        "3": 0.6777,
+        "5": 0.7651,
+        "10": 0.8573
+      },
+      "mrr": 0.6912,
+      "ndcg_at_k": {
+        "1": 0.5929,
+        "3": 0.6463,
+        "5": 0.6772,
+        "10": 0.715
+      },
+      "latency_p50_ms": 0.189,
+      "latency_p95_ms": 0.598,
+      "multipage_count": 42,
+      "multipage_recall_5": 0.5503968253968254,
+      "document_conflicts": {
+        "Q008": 0.3333333333333333,
+        "Q241": 0.6666666666666666
+      }
+    },
+    "bge-m3": {
+      "corpus_version": "bdbfa9defc94b824",
+      "config": {
+        "mode": "dense",
+        "chunker": "page",
+        "chunk_words": 300,
+        "chunk_overlap": 50,
+        "analyzer": "stem",
+        "bm25_k1": 1.2,
+        "bm25_b": 0.75,
+        "embedder": "BAAI/bge-m3",
+        "embed_max_seq_length": 512,
+        "embed_batch_size": 8,
+        "device": "mps",
+        "expand_anomaly": true,
+        "per_query_k": 30,
+        "rrf_k": 60,
+        "reranker": null,
+        "rerank_candidates": 30,
+        "rerank_max_length": 512,
+        "top_k": 8,
+        "context": "page",
+        "neighbor_pages": 0,
+        "max_evidence_words": 6000
+      },
+      "split": "dev",
+      "query_mode": "original",
+      "questions": 142,
+      "rewrites": 0,
+      "answerable": 140,
+      "unanswerable": 2,
+      "ks": [
+        1,
+        3,
+        5,
+        10
+      ],
+      "hit_at_k": {
+        "1": 0.4786,
+        "3": 0.7143,
+        "5": 0.7929,
+        "10": 0.8643
+      },
+      "recall_at_k": {
+        "1": 0.3411,
+        "3": 0.6113,
+        "5": 0.7097,
+        "10": 0.8004
+      },
+      "mrr": 0.6087,
+      "ndcg_at_k": {
+        "1": 0.4786,
+        "3": 0.558,
+        "5": 0.5914,
+        "10": 0.6236
+      },
+      "latency_p50_ms": 24.332,
+      "latency_p95_ms": 56.468,
+      "multipage_count": 42,
+      "multipage_recall_5": 0.6514739229024943,
+      "document_conflicts": {
+        "Q008": 0.6666666666666666,
+        "Q241": 0.3333333333333333
+      }
+    },
+    "hybrid": {
+      "corpus_version": "bdbfa9defc94b824",
+      "config": {
+        "mode": "hybrid",
+        "chunker": "page",
+        "chunk_words": 300,
+        "chunk_overlap": 50,
+        "analyzer": "stem",
+        "bm25_k1": 1.2,
+        "bm25_b": 0.75,
+        "embedder": "BAAI/bge-m3",
+        "embed_max_seq_length": 512,
+        "embed_batch_size": 8,
+        "device": "mps",
+        "expand_anomaly": true,
+        "per_query_k": 30,
+        "rrf_k": 60,
+        "reranker": null,
+        "rerank_candidates": 30,
+        "rerank_max_length": 512,
+        "top_k": 8,
+        "context": "page",
+        "neighbor_pages": 0,
+        "max_evidence_words": 6000
+      },
+      "split": "dev",
+      "query_mode": "original",
+      "questions": 142,
+      "rewrites": 0,
+      "answerable": 140,
+      "unanswerable": 2,
+      "ks": [
+        1,
+        3,
+        5,
+        10
+      ],
+      "hit_at_k": {
+        "1": 0.5857,
+        "3": 0.7714,
+        "5": 0.8429,
+        "10": 0.9071
+      },
+      "recall_at_k": {
+        "1": 0.4423,
+        "3": 0.6619,
+        "5": 0.7617,
+        "10": 0.8753
+      },
+      "mrr": 0.6992,
+      "ndcg_at_k": {
+        "1": 0.5857,
+        "3": 0.6393,
+        "5": 0.6707,
+        "10": 0.7121
+      },
+      "latency_p50_ms": 24.824,
+      "latency_p95_ms": 27.875,
+      "multipage_count": 42,
+      "multipage_recall_5": 0.6104308390022676,
+      "document_conflicts": {
+        "Q008": 0.3333333333333333,
+        "Q241": 1.0
+      }
+    },
+    "hybrid-reranked": {
+      "corpus_version": "bdbfa9defc94b824",
+      "config": {
+        "mode": "hybrid",
+        "chunker": "page",
+        "chunk_words": 300,
+        "chunk_overlap": 50,
+        "analyzer": "stem",
+        "bm25_k1": 1.2,
+        "bm25_b": 0.75,
+        "embedder": "BAAI/bge-m3",
+        "embed_max_seq_length": 512,
+        "embed_batch_size": 8,
+        "device": "mps",
+        "expand_anomaly": true,
+        "per_query_k": 30,
+        "rrf_k": 60,
+        "reranker": "BAAI/bge-reranker-v2-m3",
+        "rerank_candidates": 30,
+        "rerank_max_length": 512,
+        "top_k": 8,
+        "context": "page",
+        "neighbor_pages": 0,
+        "max_evidence_words": 6000
+      },
+      "split": "dev",
+      "query_mode": "original",
+      "questions": 142,
+      "rewrites": 0,
+      "answerable": 140,
+      "unanswerable": 2,
+      "ks": [
+        1,
+        3,
+        5,
+        10
+      ],
+      "hit_at_k": {
+        "1": 0.7357,
+        "3": 0.9,
+        "5": 0.9214,
+        "10": 0.9714
+      },
+      "recall_at_k": {
+        "1": 0.5866,
+        "3": 0.7974,
+        "5": 0.8585,
+        "10": 0.929
+      },
+      "mrr": 0.8219,
+      "ndcg_at_k": {
+        "1": 0.7357,
+        "3": 0.7758,
+        "5": 0.795,
+        "10": 0.8234
+      },
+      "latency_p50_ms": 2777.664,
+      "latency_p95_ms": 3089.991,
+      "multipage_count": 42,
+      "multipage_recall_5": 0.694954648526077,
+      "document_conflicts": {
+        "Q008": 0.6666666666666666,
+        "Q241": 1.0
+      }
+    }
+  },
+  "paired_comparisons": {
+    "bm25 → bge-m3": {
+      "top5_gained": [
+        [
+          "Q005",
+          null,
+          2
+        ],
+        [
+          "Q009",
+          9,
+          1
+        ],
+        [
+          "Q061",
+          6,
+          3
+        ],
+        [
+          "Q062",
+          7,
+          1
+        ],
+        [
+          "Q065",
+          null,
+          2
+        ],
+        [
+          "Q079",
+          8,
+          5
+        ],
+        [
+          "Q080",
+          null,
+          2
+        ],
+        [
+          "Q132",
+          null,
+          1
+        ],
+        [
+          "Q193",
+          6,
+          1
+        ],
+        [
+          "Q195",
+          null,
+          3
+        ],
+        [
+          "Q201",
+          6,
+          1
+        ],
+        [
+          "Q206",
+          null,
+          4
+        ],
+        [
+          "Q207",
+          null,
+          1
+        ],
+        [
+          "Q220",
+          null,
+          5
+        ]
+      ],
+      "top5_lost": [
+        [
+          "Q006",
+          3,
+          null
+        ],
+        [
+          "Q050",
+          1,
+          null
+        ],
+        [
+          "Q052",
+          1,
+          7
+        ],
+        [
+          "Q054",
+          5,
+          null
+        ],
+        [
+          "Q060",
+          3,
+          null
+        ],
+        [
+          "Q071",
+          2,
+          null
+        ],
+        [
+          "Q076",
+          1,
+          null
+        ],
+        [
+          "Q092",
+          1,
+          null
+        ],
+        [
+          "Q095",
+          1,
+          7
+        ],
+        [
+          "Q098",
+          2,
+          10
+        ],
+        [
+          "Q100",
+          3,
+          null
+        ],
+        [
+          "Q103",
+          1,
+          null
+        ],
+        [
+          "Q106",
+          5,
+          null
+        ],
+        [
+          "Q111",
+          1,
+          null
+        ],
+        [
+          "Q126",
+          5,
+          6
+        ],
+        [
+          "Q134",
+          4,
+          null
+        ],
+        [
+          "Q148",
+          1,
+          null
+        ],
+        [
+          "Q154",
+          1,
+          6
+        ],
+        [
+          "Q164",
+          4,
+          null
+        ],
+        [
+          "Q166",
+          1,
+          7
+        ],
+        [
+          "Q178",
+          4,
+          10
+        ]
+      ]
+    },
+    "bm25 → hybrid": {
+      "top5_gained": [
+        [
+          "Q005",
+          null,
+          2
+        ],
+        [
+          "Q009",
+          9,
+          4
+        ],
+        [
+          "Q061",
+          6,
+          4
+        ],
+        [
+          "Q062",
+          7,
+          4
+        ],
+        [
+          "Q079",
+          8,
+          5
+        ],
+        [
+          "Q080",
+          null,
+          4
+        ],
+        [
+          "Q082",
+          10,
+          5
+        ],
+        [
+          "Q132",
+          null,
+          5
+        ],
+        [
+          "Q193",
+          6,
+          2
+        ],
+        [
+          "Q201",
+          6,
+          1
+        ]
+      ],
+      "top5_lost": [
+        [
+          "Q050",
+          1,
+          null
+        ],
+        [
+          "Q054",
+          5,
+          null
+        ],
+        [
+          "Q060",
+          3,
+          8
+        ],
+        [
+          "Q071",
+          2,
+          9
+        ],
+        [
+          "Q100",
+          3,
+          null
+        ],
+        [
+          "Q106",
+          5,
+          null
+        ],
+        [
+          "Q111",
+          1,
+          8
+        ],
+        [
+          "Q134",
+          4,
+          6
+        ],
+        [
+          "Q148",
+          1,
+          null
+        ],
+        [
+          "Q164",
+          4,
+          null
+        ]
+      ]
+    },
+    "hybrid → hybrid-reranked": {
+      "top5_gained": [
+        [
+          "Q022",
+          null,
+          2
+        ],
+        [
+          "Q050",
+          null,
+          1
+        ],
+        [
+          "Q054",
+          null,
+          2
+        ],
+        [
+          "Q058",
+          10,
+          1
+        ],
+        [
+          "Q060",
+          8,
+          1
+        ],
+        [
+          "Q065",
+          6,
+          3
+        ],
+        [
+          "Q071",
+          9,
+          2
+        ],
+        [
+          "Q111",
+          8,
+          2
+        ],
+        [
+          "Q112",
+          8,
+          4
+        ],
+        [
+          "Q134",
+          6,
+          4
+        ],
+        [
+          "Q148",
+          null,
+          1
+        ],
+        [
+          "Q206",
+          8,
+          1
+        ],
+        [
+          "Q207",
+          10,
+          2
+        ]
+      ],
+      "top5_lost": [
+        [
+          "Q082",
+          5,
+          6
+        ],
+        [
+          "Q161",
+          2,
+          null
+        ]
+      ]
+    }
+  },
+  "latency_method": {
+    "bm25": "warmed CPU search",
+    "bge-m3": "warmed BGE-M3 MPS query embedding and CPU search",
+    "hybrid": "warmed BGE-M3 MPS query embedding and CPU search",
+    "hybrid-reranked": "CPU hybrid retrieval with cached query embedding plus MPS reranking, with measured BGE-M3 query embedding time added per query"
+  }
+}

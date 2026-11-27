@@ -4,8 +4,11 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "httpx>=0.27,<1",
+    "numpy>=1.24",
     "pydantic>=2.8,<3",
     "pydantic-settings>=2.5,<3",
+    "pyyaml>=6,<7",
+    "snowballstemmer>=2.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -14,6 +17,9 @@ api = [
     "pillow>=10,<14",
     "pypdfium2>=4.30,<6",
     "uvicorn>=0.30,<1",
+]
+dense = [
+    "sentence-transformers>=3.0,<6",
 ]
 
 [dependency-groups]

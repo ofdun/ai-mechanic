@@ -66,7 +66,7 @@ def test_b_performs_one_corrective_lookup_and_finalizer_can_only_select_claims()
         {'rewritten_query': 'Проверка форсунок', 'subqueries': []},
         {'claims': [original]},
         {'indexes': [0], 'corrective_query': 'Герметичность соединения'},
-        {'claims': [extra]},
+        {'claims': [original, extra]},
         {'indexes': [1, 0, 99, -1, 1]},
     ])
     workflow, http, requests, queries = configured_workflow('b', replies, corrective_page=True)
@@ -80,6 +80,35 @@ def test_b_performs_one_corrective_lookup_and_finalizer_can_only_select_claims()
     assert requests[1]['reasoning'] == {'effort': 'low'}
     assert [c.model_dump() for c in result.claims] == [extra, original]
     assert [item.evidence_id for item in result.evidence.items] == ['p52', 'p53']
+
+
+def test_b_reconsiders_earlier_instruction_when_corrective_lookup_finds_conflict():
+    manual_a = PAGE.model_copy(update={'text': 'Начать проверку раньше 10 минут.'})
+    manual_b = EXTRA.model_copy(update={
+        'document_id': 'other-guide', 'manual': 'РК', 'text': 'Начать проверку не раньше 10 минут.',
+    })
+    first = claim('Начать проверку раньше 10 минут.')
+    conflict = {
+        'kind': 'observation',
+        'text': 'Первый источник требует начать раньше 10 минут, второй — не раньше 10 минут. Уточните у специалиста.',
+        'evidence_ids': ['p52', 'p53'],
+    }
+    replies = iter([
+        {'rewritten_query': 'Условия проверки', 'subqueries': []},
+        {'claims': [first]},
+        {'indexes': [0], 'corrective_query': 'Условия в ремонтном руководстве'},
+        {'claims': [conflict]},
+        {'indexes': [0, 1]},
+    ])
+    workflow, http, requests, _ = configured_workflow('b', replies)
+    results = iter([EvidenceBundle(items=[manual_a]), EvidenceBundle(items=[manual_b])])
+    workflow.retriever = SimpleNamespace(search=lambda plan: next(results))
+    with http:
+        result = workflow.run(PLAN, None)
+
+    repair_input = json.loads(requests[-2]['messages'][-1]['content'])
+    assert [source['evidence_id'] for source in repair_input['sources']] == ['p52', 'p53']
+    assert [item.model_dump() for item in result.claims] == [conflict]
 
 
 def test_architectures_require_permission_to_send_evidence():

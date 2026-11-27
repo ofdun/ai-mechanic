@@ -102,6 +102,42 @@ DATA_DIR=../data uv run python -m ml confirm \
   --vehicle M333YK47 --session S-0005 --draft-id ID_ИЗ_ЧЕРНОВИКА --confirm
 ```
 
+### Retrieval по всем руководствам
+
+Состояние, контракты и что учесть другим участникам — в [docs/retrieval.md](docs/retrieval.md).
+
+`ml.retrieval.RetrievalEngine` реализует `Retriever`. Путь запроса: `SearchPlan → фильтр модели → BM25 и exact dense на каждый запрос плана → RRF → cross-encoder → родительские страницы и соседи → бюджет → EvidenceBundle`. Фильтр модели двигателя применяется до любого top-k, `DocumentPage.engine_models` сужает применимость страницы. Параметры и гипотезы RET-01…RET-10 лежат в `configs/retrieval.yaml`.
+
+| Модуль | Что делает |
+|---|---|
+| `chunking` | Загрузка `ParsedDocument`, `page` (страница целиком) и `structural` (абзацы внутри страницы, строки таблиц сохраняются). Фрагмент не пересекает физическую страницу |
+| `sparse` | Snowball для русского, `0,25` = `0.25`, BM25 |
+| `embeddings`, `dense` | sentence-transformers (`BAAI/bge-m3` по умолчанию, пресеты Qwen3-Embedding и e5-instruct), точный косинус на NumPy. Векторы привязаны к фрагментам индекса по хешу ID |
+| `fusion` | Reciprocal Rank Fusion запросов плана и методов |
+| `reranker` | Cross-encoder, например `BAAI/bge-reranker-v2-m3` |
+| `engine` | Сборка и чтение индекса, режимы `sparse`, `dense`, `hybrid`, контекст `page` или `chunk`, соседние страницы, бюджет слов |
+
+Источник корпуса — выгрузка ingestion (`ml/ingestion/export_pages.py`): `DATA_DIR/pages.jsonl` с записью на физическую страницу и каталог `DATA_DIR/manifest.json`. Из каталога берётся `manual` для ссылок и заявки — обозначение руководства, а если его нет, название. `build --source` также принимает каталог файлов `ParsedDocument`. Строки `models` должны совпадать с `vehicles.json`, `build` предупреждает о моделях ТС без руководств.
+
+```bash
+DATA_DIR=../data uv run python -m ml.retrieval build                 # → artifacts/indexes/manuals
+uv sync --extra dense
+uv run --extra dense python -m ml.retrieval embed                    # векторы config.embedder, на CPU десятки минут
+uv run python -m ml.retrieval search --engine ЯМЗ-536 --query 'момент затяжки болтов головки цилиндров'
+uv run python -m ml --retrieval-index artifacts/indexes/manuals run --vehicle M333YK47 --session S-0005 \
+  --message 'Как проверить форсунки?'
+```
+
+Для `mode: dense` или `hybrid` и для `reranker` нужен `--extra dense`. Сравнение эмбеддеров: `embed --model Qwen/Qwen3-Embedding-0.6B` кладёт векторы рядом, выбор — полем `embedder` в конфиге. Смена `chunker` требует `build` и повторного `embed`, устаревшие векторы отклоняются.
+
+Формат golden set описан в [evaluation/datasets](evaluation/datasets/README.md). `evaluation.retrieval` считает Hit@K, Recall@K, MRR, nDCG@K по физическим страницам и задержку поиска, `--run-file` готовит JSON прогона для журнала экспериментов. Для сравнения конфигураций передайте разные `--config`.
+
+```bash
+uv run python -m evaluation.retrieval --golden evaluation/datasets/retrieval.jsonl --split dev \
+  --output evaluation/results/ret-01.json --run-file evaluation/results/ret-01-run.json \
+  --run-id ret-01-bm25-page-<commit> --commit <commit> --dataset 'golden v1, dev'
+```
+
 ### Архитектуры A и B через OpenRouter
 
 С `--pdf-index` и `PLANNER_MODE=llm` по умолчанию выбрана архитектура A. Для B задайте `AGENT_ARCHITECTURE=b`. Для отправки фрагментов в OpenRouter используйте `ALLOW_EXTERNAL_EVIDENCE=true` после разрешения владельца данных. `--verbose` логирует этапы, модели, число токенов и стоимость. Ключ и текст запроса в лог не попадают.
