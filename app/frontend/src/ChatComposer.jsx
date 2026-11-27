@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Mic, Send, Square } from 'lucide-react'
+import { recordSpeech } from './dictation'
 import { useUiText } from './uiLanguage'
 
 const unsupported = 'Голосовой ввод недоступен. Введите текст.'
@@ -12,56 +13,55 @@ export function ChatComposer({ input, question, setQuestion, language, disabled,
   const consent = useRef(false)
   const [listening, setListening] = useState(false)
   const [status, setStatus] = useState('')
-  useEffect(() => {
-    return () => {
-      const recognition = active.current
-      active.current = null
-      recognition?.abort()
-    }
-  }, [])
+  const [busy, setBusy] = useState(false)
+  const stopRecording = useRef(null)
+  useEffect(() => () => active.current?.abort(), [])
 
-  function dictate() {
+  async function dictate() {
     if (active.current) {
-      active.current.stop()
+      stopRecording.current?.()
       return
     }
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!Recognition || !window.isSecureContext) {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       setStatus(unsupported)
       return
     }
-    if (!consent.current && !window.confirm(t('Браузер может отправить голос своему сервису распознавания. Разрешить диктовку?'))) return
+    if (!consent.current && !window.confirm(t('Отправить запись на сервер «Цифрового механика» для распознавания?'))) return
     consent.current = true
-    let recognition
+    const controller = new AbortController()
+    active.current = controller
+    setBusy(true)
+    setStatus('')
     try {
-      recognition = new Recognition()
-      recognition.lang = language
-      active.current = recognition
-      let result = noSpeech
-      recognition.onresult = event => {
-        if (active.current !== recognition) return
-        const words = Array.from(event.results).filter(item => item.isFinal).map(item => item[0].transcript.trim()).join(' ').trim()
-        if (!words) return
-        setQuestion(previous => [previous.trimEnd(), words].filter(Boolean).join(' ').slice(0, 8000))
-        result = 'Проверьте текст и нажмите «Отправить».'
-      }
-      recognition.onerror = event => {
-        result = ['not-allowed', 'audio-capture', 'service-not-allowed'].includes(event.error) ? denied
-          : event.error === 'no-speech' ? noSpeech : unsupported
-      }
-      recognition.onend = () => {
-        if (active.current !== recognition) return
-        active.current = null
-        setListening(false)
-        setStatus(result)
-      }
-      recognition.start()
-      setListening(true)
-      setStatus('Говорите. Нажмите ещё раз, чтобы остановить.')
-    } catch {
-      active.current = null
+      const audio = await recordSpeech(controller.signal, stop => {
+        stopRecording.current = stop
+        setListening(true)
+        setStatus('Говорите. Нажмите ещё раз, чтобы остановить.')
+      })
+      if (controller.signal.aborted) return
+      stopRecording.current = null
       setListening(false)
-      setStatus(unsupported)
+      setStatus('Распознаём речь…')
+      const response = await fetch('/agent/audio?language=' + encodeURIComponent(language), {
+        method: 'POST', body: audio, signal: controller.signal,
+      })
+      if (!response.ok) {
+        setStatus(response.status === 422 ? noSpeech : response.status === 429 ? 'Сервис занят. Повторите через несколько секунд.' : unsupported)
+        return
+      }
+      const { text } = await response.json()
+      if (!text?.trim()) { setStatus(noSpeech); return }
+      setQuestion(previous => [previous.trimEnd(), text.trim()].filter(Boolean).join(' ').slice(0, 8000))
+      setStatus('Проверьте текст и нажмите «Отправить».')
+    } catch (error) {
+      if (!controller.signal.aborted) setStatus(['NotAllowedError', 'NotFoundError', 'NotReadableError'].includes(error.name) ? denied : unsupported)
+    } finally {
+      if (!controller.signal.aborted) {
+        active.current = null
+        stopRecording.current = null
+        setBusy(false)
+        setListening(false)
+      }
     }
   }
 
@@ -77,10 +77,10 @@ export function ChatComposer({ input, question, setQuestion, language, disabled,
     <div className="compose-row">
       <input ref={input} aria-label={t('Вопрос по двигателю')} placeholder={t('Вопрос по двигателю…')} value={question}
         maxLength={8000} disabled={disabled} onChange={event => setQuestion(event.target.value)} autoComplete="off" />
-      <button type="button" aria-label={micLabel} title={micLabel} aria-pressed={listening} disabled={disabled || pending} onClick={dictate}>
+      <button type="button" aria-label={micLabel} title={micLabel} aria-pressed={listening} disabled={disabled || pending || (busy && !listening)} onClick={dictate}>
         {listening ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
       </button>
-      <button type="submit" className="submit" aria-label={t('Отправить')} disabled={disabled || !question.trim() || pending || listening}>
+      <button type="submit" className="submit" aria-label={t('Отправить')} disabled={disabled || !question.trim() || pending || busy}>
         <Send aria-hidden="true" /><span>{t('Отправить')}</span>
       </button>
     </div>

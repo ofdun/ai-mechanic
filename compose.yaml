@@ -60,8 +60,14 @@ services:
       timeout: 5s
       retries: 10
 
+  speech:
+    build: ./app/speech
+    restart: unless-stopped
+    mem_limit: 768m
+
   web:
     environment:
+      SPEECH_URL: ${SPEECH_URL:-http://speech:8003}
       AGENT_URL: ${AGENT_URL:-}
       WEB_AGENT_TIMEOUT: ${WEB_AGENT_TIMEOUT:-}
       LISTEN_ADDR: ":${WEB_LISTEN_PORT:-8080}"
@@ -74,6 +80,8 @@ services:
       - ${STATE_DIR:-state}:/state
     restart: unless-stopped
     depends_on:
+      speech:
+        condition: service_started
       agent:
         condition: service_healthy
     ports:

@@ -12,9 +12,9 @@ import (
 const HealthPath = "/health"
 
 type Server struct {
-	Service *mechanic.Service
-	Worker  *url.URL
-	Fleet   json.RawMessage
+	Service        *mechanic.Service
+	Worker, Speech *url.URL
+	Fleet          json.RawMessage
 }
 
 func (s *Server) Routes(dist string) http.Handler {
@@ -31,6 +31,7 @@ func (s *Server) Routes(dist string) http.Handler {
 
 	session := router.Group("/", s.resolveSession)
 	session.Match(read, "/api/vehicles", s.vehicles)
+	session.POST("/agent/audio", s.audio)
 	session.POST("/agent/run", s.run)
 	session.POST("/agent/tickets/confirm", s.confirm)
 
