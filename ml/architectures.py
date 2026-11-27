@@ -19,6 +19,7 @@ from ml.contracts import (
 )
 from ml.generation import prompts
 from ml.generation.claims import MAX_CLAIMS, GroundedClaim, conflict_group
+from ml.generation.finalizer import find_conflicts
 from ml.generation.generator import ClaimGenerator, diagnosis_context, search_query
 from ml.generation.plain import PlainWriter
 from ml.generation.reasoner import TechnicalReasoner
@@ -28,7 +29,7 @@ from ml.providers.openrouter import OpenRouterClient
 
 # Selection replies are only indexes, but a model that reasons by default can spend the whole budget thinking.
 SELECTION_TOKENS = 4000
-# A second look at other manuals may add a few claims on top of a full first draft; review then selects.
+# The disagreement check may add a few claims from other manuals on top of the selected answer.
 COVERAGE_CLAIMS = 4
 
 
@@ -104,38 +105,43 @@ class LLMEvidenceWorkflow:
             'claims': [claim.model_dump() for claim in claims],
         }
 
-    def cover_manuals(
+    def find_disagreements(
         self, role: str, model: str, plan: SearchPlan, evidence: EvidenceBundle, diagnostic: DiagnosticResult | None,
         claims: list[TechnicalClaim],
     ) -> list[TechnicalClaim]:
-        """Ask the manuals the answer does not cite yet, so a disagreement between manuals is not lost."""
+        """Look in the other manuals for what contradicts the answer, so both instructions reach the mechanic."""
         document = {item.evidence_id: item.document_id for item in evidence.items}
-        cited = {document.get(key) for claim in claims for key in claim.evidence_ids}
-        rest = [item for item in evidence.items if item.document_id not in cited]
-        if not claims or not rest:
+        manual = {item.evidence_id: item.manual for item in evidence.items}
+        if not claims or len(set(document.values())) < 2:
             return claims
-        known = [{'index': index, 'kind': claim.kind, 'text': claim.text} for index, claim in enumerate(claims)]
-        note = prompts.COVERAGE_NOTE + json.dumps(known, ensure_ascii=False)
-        found = self.valid_claims(self.generate(role, model, plan, EvidenceBundle(items=rest), diagnostic, note=note),
+        known = [{'index': index, 'kind': claim.kind, 'text': claim.text,
+                  'manual': manual.get(claim.evidence_ids[0], '') if claim.evidence_ids else ''}
+                 for index, claim in enumerate(claims)]
+        note = prompts.DISAGREEMENT_NOTE + json.dumps(known, ensure_ascii=False)
+        found = self.valid_claims(self.generate(role, model, plan, evidence, diagnostic, note=note),
                                   plan, evidence, diagnostic)
         merged = list(claims)
-        for claim in found[:COVERAGE_CLAIMS]:
+        for claim in found:
             match = re.fullmatch(r'k(\d+)', conflict_group(claim))
-            if match and int(match[1]) < len(claims):
-                index = int(match[1])
-                label = conflict_group(merged[index]) or f'k{index}'
-                merged[index] = GroundedClaim.model_validate({**merged[index].model_dump(), 'conflict_group': label})
-                claim = claim.model_copy(update={'conflict_group': label})
-            elif match:
-                claim = claim.model_copy(update={'conflict_group': ''})
-            merged.append(claim)
+            if not match or int(match[1]) >= len(claims) or len(merged) - len(claims) >= COVERAGE_CLAIMS:
+                continue
+            index = int(match[1])
+            target = merged[index]
+            own = {document.get(key) for key in target.evidence_ids}
+            if not claim.evidence_ids or document.get(claim.evidence_ids[0]) in own or claim in merged:
+                continue  # Only another manual can disagree with an instruction.
+            label = conflict_group(target) or f'k{index}'
+            merged[index] = GroundedClaim.model_validate({**target.model_dump(), 'conflict_group': label})
+            merged.append(claim.model_copy(update={'conflict_group': label}))
         return merged
 
     def outcome(self, plan: SearchPlan, evidence: EvidenceBundle, claims: list[TechnicalClaim]) -> SearchOutcome:
         summary = ''
         if claims:
+            sources = {item.evidence_id: item for item in evidence.items}
             writer = PlainWriter(self.client, self.settings.a_generator_model, language=self.settings.answer_language)
-            summary = writer.write(plan.original_query, plan.engine_model, claims)
+            summary = writer.write(plan.original_query, plan.engine_model, claims,
+                                   conflict=bool(find_conflicts(claims, sources)))
         return SearchOutcome(plan=plan, evidence=evidence, claims=claims, summary=summary)
 
     def run(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
@@ -150,11 +156,12 @@ class LLMEvidenceWorkflow:
                                   plan, evidence, diagnostic, include_reviewed=True)
         if not draft:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
-        draft = self.cover_manuals('a_coverage', self.settings.a_generator_model, plan, evidence, diagnostic, draft)
         approval = self.client.complete_json('a_verifier_finalizer', self.settings.a_verifier_model, messages(
             prompts.REVIEW, **self.review_payload(plan, evidence, diagnostic, draft),
         ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
-        return self.outcome(plan, evidence, approved_indexes(draft, approval.indexes))
+        final = approved_indexes(draft, approval.indexes)
+        final = self.find_disagreements('a_disagreement', self.settings.a_generator_model, plan, evidence, diagnostic, final)
+        return self.outcome(plan, evidence, final)
 
     def run_evidence_grounded(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
         strategy = self.client.complete_json('b_query_strategist', self.settings.b_query_model, messages(
@@ -183,9 +190,10 @@ class LLMEvidenceWorkflow:
                 approved = self.valid_claims(repaired, plan, evidence, diagnostic, include_reviewed=True)
         if not approved:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
-        approved = self.cover_manuals('b_coverage', self.settings.b_repair_model, plan, evidence, diagnostic, approved)
         final = self.client.complete_json('b_finalizer', self.settings.b_finalizer_model, messages(
             prompts.FINAL_SELECTION, question=plan.original_query, search_query=search_query(plan),
             verified_claims=[claim.model_dump() for claim in approved],
         ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
-        return self.outcome(plan, evidence, approved_indexes(approved, final.indexes))
+        chosen = approved_indexes(approved, final.indexes)
+        chosen = self.find_disagreements('b_disagreement', self.settings.b_repair_model, plan, evidence, diagnostic, chosen)
+        return self.outcome(plan, evidence, chosen)

@@ -102,7 +102,8 @@ def test_b_reconsiders_earlier_instruction_when_corrective_lookup_finds_conflict
         {'indexes': [0], 'corrective_query': 'Условия в ремонтном руководстве'},
         {'claims': [earlier, later]},
         {'indexes': [0, 1]},
-        {'lead': 'Руководства пишут по-разному.', 'lines': [], 'assessment': ''},
+        {'claims': []},
+        {'lead': 'Можно начинать.', 'lines': ['Да, можно сразу.', 'Начать проверку раньше 10 минут.'], 'assessment': ''},
     ])
     workflow, http, requests, _ = configured_workflow('b', replies)
     results = iter([EvidenceBundle(items=[manual_a]), EvidenceBundle(items=[manual_b])])
@@ -110,9 +111,11 @@ def test_b_reconsiders_earlier_instruction_when_corrective_lookup_finds_conflict
     with http:
         result = workflow.run(PLAN, None)
 
-    repair_input = json.loads(requests[-3]['messages'][-1]['content'])
+    repair_input = json.loads(requests[-4]['messages'][-1]['content'])
     assert [source['evidence_id'] for source in repair_input['sources']] == ['p52', 'p53']
     assert [item.model_dump() for item in result.claims] == [earlier, later]
+    # With disagreeing manuals the lead is neutral and lines that pick a side are dropped.
+    assert result.summary == 'Руководства пишут по-разному. Ниже обе инструкции.\nНачать проверку раньше 10 минут.'
 
 
 def test_architectures_require_permission_to_send_evidence():
@@ -124,33 +127,35 @@ def test_architectures_require_permission_to_send_evidence():
     assert requests == queries == []
 
 
-def test_a_asks_the_other_manual_and_keeps_both_sides_of_a_disagreement():
+def test_a_finds_the_other_manual_disagreeing_with_the_selected_answer():
     manual_a = PAGE.model_copy(update={'text': 'Регулировать зазоры менее чем через 15 минут после остановки.'})
     manual_b = EXTRA.model_copy(update={
         'document_id': 'other-guide', 'manual': 'РК', 'text': 'Регулировать зазоры не ранее чем через 15 минут.',
     })
     first = claim('Регулировать зазоры менее чем через 15 минут после остановки.', kind='operation')
+    same_manual = {**claim('Регулировать зазоры менее чем через 15 минут после остановки.', kind='operation'),
+                   'conflict_group': 'k0'}
     other = {**claim('Регулировать зазоры не ранее чем через 15 минут.', 'p53', kind='operation'),
              'conflict_group': 'k0'}
     replies = iter([
         {'claims': [first]},
-        {'claims': [other]},
-        {'indexes': [0, 1]},
-        {'lead': 'Руководства пишут по-разному про 15 минут.', 'lines': ['Регулируйте зазоры через 20 минут.'], 'assessment': ''},
+        {'indexes': [0]},
+        {'claims': [same_manual, other]},
+        {'lead': 'Через 15 минут можно.', 'lines': [], 'assessment': ''},
     ])
     workflow, http, requests, _ = configured_workflow('a', replies)
     workflow.retriever = SimpleNamespace(search=lambda plan: EvidenceBundle(items=[manual_a, manual_b]))
     with http:
         result = workflow.run(PLAN, None)
 
-    coverage_input = json.loads(requests[1]['messages'][-1]['content'])
-    assert [source['evidence_id'] for source in coverage_input['sources']] == ['p53']
-    assert 'known' in requests[1]['messages'][0]['content']
+    assert 'known' in requests[2]['messages'][0]['content']
+    known = requests[2]['messages'][0]['content'].split('known: ')[-1]
+    assert json.loads(known)[0]['manual'] == 'РЭ'
     assert [(c.evidence_ids, c.conflict_group) for c in result.claims] == [(['p52'], 'k0'), (['p53'], 'k0')]
-    assert result.summary == 'Руководства пишут по-разному про 15 минут.'
+    assert result.summary == 'Руководства пишут по-разному. Ниже обе инструкции.'
 
 
-def test_a_skips_the_second_look_when_every_manual_is_cited():
+def test_a_skips_the_disagreement_check_with_one_manual():
     replies = iter([{'claims': [claim('Проверить регулировку форсунки.')]}, {'indexes': [0]},
                     {'lead': 'Проверьте регулировку форсунки.', 'lines': [], 'assessment': ''}])
     workflow, http, requests, _ = configured_workflow('a', replies)

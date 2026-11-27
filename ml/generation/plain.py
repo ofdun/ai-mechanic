@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,14 +54,23 @@ def safe_assessment(text: str, claims: list[TechnicalClaim], engine_model: str) 
     return claim_numbers(text) <= stated and not mentions_other_engine(text, engine_model)
 
 
-def plain_text(output: PlainOutput, claims: list[TechnicalClaim], engine_model: str) -> str:
+CONFLICT_LEAD = 'Руководства пишут по-разному. Ниже обе инструкции.'
+# With disagreeing manuals the agent does not pick a side: no yes/no, no «suitable option».
+_CHOOSES = re.compile(r'(?:^|\s)(?:да|нет|можно|нельзя|подходит|выбирайте|правильн[а-я]*|верн[а-я]*)(?=[\s,.:!—-]|$)')
+
+
+def plain_text(output: PlainOutput, claims: list[TechnicalClaim], engine_model: str, *, conflict: bool = False) -> str:
     """The checked lead, lines and labelled assessment as chat text; an unsafe lead drops the whole summary."""
-    if not safe_line(output.lead, claims, engine_model):
+    lead = ' '.join(output.lead.split())
+    if conflict:
+        lead = CONFLICT_LEAD
+    elif not safe_line(lead, claims, engine_model):
         return ''
-    lines = [' '.join(line.split()) for line in output.lines[:MAX_LINES] if safe_line(line, claims, engine_model)]
+    lines = [' '.join(line.split()) for line in output.lines[:MAX_LINES] if safe_line(line, claims, engine_model)
+             and not (conflict and (_CHOOSES.search(fold(line)) or 'по-разному' in fold(line)))]
     if safe_assessment(output.assessment, claims, engine_model):
         lines.append(f'⚠️ {ASSESSMENT_LABEL}: {" ".join(output.assessment.split())}')
-    return '\n'.join([' '.join(output.lead.split()), *dict.fromkeys(lines)])
+    return '\n'.join([lead, *dict.fromkeys(lines)])
 
 
 class PlainWriter:
@@ -71,7 +81,7 @@ class PlainWriter:
         self.model = model
         self.language = language
 
-    def write(self, question: str, engine_model: str, claims: list[TechnicalClaim]) -> str:
+    def write(self, question: str, engine_model: str, claims: list[TechnicalClaim], *, conflict: bool = False) -> str:
         if not claims:
             return ''
         payload = {
@@ -87,4 +97,4 @@ class PlainWriter:
         except AgentError:
             logger.warning('Plain answer failed; the structured answer stays without a lead', exc_info=True)
             return ''
-        return plain_text(output, claims, engine_model)
+        return plain_text(output, claims, engine_model, conflict=conflict)
