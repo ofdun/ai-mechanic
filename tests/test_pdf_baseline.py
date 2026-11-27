@@ -1,3 +1,5 @@
+import re
+
 from ml.contracts import SearchPlan, TechnicalDraft
 from ml.pdf_baseline import ENGINE, FIRST_PAGE, PdfPageRetriever, ReviewedOperations, build_index
 
@@ -17,6 +19,8 @@ def test_page_index_filters_engine_and_keeps_the_whole_approved_operation(monkey
     evidence = retriever.search(plan)
     assert [item.pdf_page for item in evidence.items] == [FIRST_PAGE, FIRST_PAGE + 1]
     assert retriever.search(plan.model_copy(update={'engine_model': 'ЯМЗ-536'})).items == []
+    assert [item.pdf_page for item in retriever.figure_pages(ENGINE, re.compile('охлажден'))] == [FIRST_PAGE + 2]
+    assert retriever.figure_pages('ЯМЗ-536', re.compile('охлажден')) == []
 
     operations = ReviewedOperations()
     approved, = operations.operations(evidence)

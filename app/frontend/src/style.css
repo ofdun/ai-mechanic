@@ -310,3 +310,56 @@ li + li { margin-top: .35rem; }
 .inspection-comment { flex-direction: column; align-items: stretch !important; gap: .25rem !important; font-weight: 600; }
 .inspection-comment textarea { font: inherit; padding: .5rem; border: 1px solid var(--outline); border-radius: 6px; min-height: 3.5rem; }
 .inspection-form button { justify-self: start; }
+.tightening-figures ol { margin: .3rem 0 .5rem; padding-left: 1.4rem; }
+.tightening-figures > div > div + div { margin-top: .75rem; }
+.part-numbers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.part-numbers li { display: grid; gap: .2rem; justify-items: start; }
+.part-numbers code { font-family: var(--mono); font-size: 1.05rem; font-weight: 650; }
+.copy-code { min-height: 36px; padding: .2rem .55rem; gap: .35rem; font-size: .85rem; }
+.part-numbers li:has(> code) { grid-template-columns: max-content auto; align-items: center; }
+.part-numbers .copy-code { justify-self: start; }
+.part-numbers li > p, .part-numbers li > .source { grid-column: 1 / -1; }
+.part-numbers li:has(> code) { column-gap: .6rem; }
+.score-chart { margin: .75rem 0 1rem; max-width: 26rem; }
+.score-chart svg { display: block; width: 100%; height: auto; overflow: visible; font-size: 12px; font-variant-numeric: tabular-nums; }
+.score-chart .grid line { stroke: var(--line); stroke-width: 1; }
+.score-chart text { fill: var(--muted); }
+.score-chart .score-line { fill: none; stroke: var(--pine); stroke-width: 2; }
+.score-chart circle { fill: var(--pine); stroke: var(--paper); stroke-width: 1.5; }
+.score-chart .anomaly circle { fill: var(--amber); }
+.score-chart .gap { stroke: var(--outline); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.score-chart figcaption { margin-top: .35rem; font-weight: 600; }
+.mode-switch { display: inline-flex; gap: .25rem; margin-left: auto; }
+.mode-switch button { min-height: 40px; color: var(--paper); background: transparent; border-color: #4d6b5e; font-size: .9rem; }
+.mode-switch button[aria-pressed="true"] { color: var(--ink); background: var(--lime); border-color: var(--lime); }
+.fleet { padding-block: 1rem 2rem; }
+.fleet h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); margin-bottom: .75rem; }
+.fleet-counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-bottom: .75rem; }
+.fleet-counters .counter { flex-direction: column; align-items: flex-start; gap: 0; min-height: 4.5rem; background: var(--paper); text-align: left; font-weight: 600; }
+.fleet-counters .counter strong { font-size: 1.7rem; line-height: 1.1; }
+.fleet-counters .counter[aria-pressed="true"] { outline: 3px solid var(--pine); outline-offset: -3px; }
+.counter.quarantine strong, .fleet-state.quarantine { color: #8f1d1d; }
+.counter.attention strong, .fleet-state.attention { color: var(--amber); }
+.counter.normal strong, .fleet-state.normal { color: var(--pine); }
+.fleet-rules-link { display: inline-block; padding-block: .75rem; }
+.fleet-rules { margin-top: 1rem; color: var(--muted); font-size: .9rem; }
+.fleet-rules h3 { color: var(--ink); }
+.fleet-rules dt { font-weight: 650; color: var(--ink); margin-top: .4rem; }
+.fleet-rules p { margin-top: .5rem; }
+.fleet-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+.fleet-row button { width: 100%; justify-content: flex-start; gap: .8rem; text-align: left; background: var(--paper); border-left-width: 5px; font-weight: 400; }
+.fleet-row.quarantine button { border-left-color: #8f1d1d; }
+.fleet-row.attention button { border-left-color: var(--amber); }
+.fleet-row.normal button { border-left-color: var(--pine); }
+.fleet-row svg { flex: none; margin-left: auto; }
+.fleet-rank { flex: none; min-width: 1.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fleet-main { display: grid; gap: .1rem; min-width: 0; }
+.fleet-state { font-weight: 700; }
+@media (max-width: 34rem) { .fleet-counters .counter { font-size: .8rem; } }
+.mode-switch + .answer-language { margin-left: 0; }
+@media (max-width: 34rem) {
+  /* Phone: brand and language on the first row, the mode switch as a full-width second row. */
+  .mode-switch { order: 3; width: 100%; margin-left: 0; }
+  .mode-switch button { flex: 1; }
+  .mode-switch + .answer-language { margin-left: auto; }
+}

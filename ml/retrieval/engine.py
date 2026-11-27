@@ -8,6 +8,7 @@ are cited) and dense/<model>.npy vectors built by `python -m ml.retrieval embed`
 """
 
 import json
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -448,6 +449,12 @@ class RetrievalEngine:
         if page is None or nfc(engine_model) not in page.engine_models:
             return None
         return self._evidence(page)
+
+    def figure_pages(self, engine_model: str, pattern: re.Pattern) -> list[Evidence]:
+        """Every page of this engine whose text matches, in manual order (figure captions are not ranked)."""
+        model = nfc(engine_model)
+        return [self._evidence(page) for page in self.pages.values()
+                if model in page.engine_models and pattern.search(page.text)]
 
     def search(self, plan: SearchPlan) -> EvidenceBundle:
         model = nfc(plan.engine_model)

@@ -12,6 +12,7 @@ from ml.contracts import AgentRequest, ConversationContext, TicketConfirmation, 
 from ml.manual_api import manual_router
 from ml.pdf_baseline import PdfPageRetriever, build_manual_pipeline
 from ml.retrieval import RetrievalConfig, RetrievalEngine
+from ml.tools.fleet_status import fleet_statuses
 
 
 class Run(BaseModel):
@@ -51,10 +52,15 @@ def create_app():
 
     @app.get('/fleet')
     def fleet():
-        return {'vehicles': [vehicle.model_dump(include={
+        vehicles = list(pipeline.vehicles.vehicles.values())
+        # B3: the chief mechanic's status and order, by the same rules as diagnosis and ticket urgency.
+        statuses = fleet_statuses(vehicles, pipeline)
+        return {'vehicles': [{**vehicle.model_dump(include={
             'vehicle_id': True, 'engine_model': True, 'make': True, 'model': True,
-            'sessions': {'__all__': {'session_id', 'checked_at', 'status'}},
-        }) for vehicle in pipeline.vehicles.vehicles.values()]}
+            # anomaly_score feeds the score chart (B2); a failed check has none and is drawn as a gap.
+            'sessions': {'__all__': {'session_id', 'checked_at', 'status', 'anomaly_score', 'anomaly_type',
+                                     'anomaly_title'}},
+        }), 'fleet_status': statuses[vehicle.vehicle_id].model_dump()} for vehicle in vehicles]}
 
     @app.get('/inspections')
     def inspections():
