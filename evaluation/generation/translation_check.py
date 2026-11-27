@@ -31,7 +31,7 @@ def answer_from_trace(row: dict) -> AgentResponse | None:
         request_id=row['id'], vehicle_id='trace', session_id='trace', engine_model='', action='search_manuals',
         message=trace.get('summary', '').splitlines()[0] if trace.get('summary') else 'Ответ по руководству.',
         summary='\n'.join(trace.get('summary', '').splitlines()[1:]),
-        claims=[TechnicalClaim(kind=claim['kind'], text=claim['text'], evidence_ids=[]) for claim in final],
+        claims=[TechnicalClaim(kind=claim['kind'], text=claim['text'], evidence_ids=['trace']) for claim in final],
     )
 
 
