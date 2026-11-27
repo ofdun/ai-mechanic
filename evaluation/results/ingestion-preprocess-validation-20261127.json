@@ -1,0 +1,60 @@
+{
+  "gold_sha256": "95bc88891a41176cded6fbb26adaecbfe19e2468aecce0defaf09297ae4d654f",
+  "profiles": [
+    {
+      "config": {
+        "id": "base",
+        "mode": "paddleocr"
+      },
+      "summary": {
+        "has_text": 1,
+        "reading_order_edit_distance": 0.0,
+        "seconds": 0.7199321250081994,
+        "text_edit_distance": 0.0
+      },
+      "cases": [
+        {
+          "id": "rk278-starter-check-new",
+          "seconds": 0.7199321250081994,
+          "has_text": true,
+          "text_edit_distance": 0.0,
+          "reading_order_edit_distance": 0.0
+        }
+      ]
+    },
+    {
+      "config": {
+        "id": "padding-64",
+        "mode": "paddleocr",
+        "padding": 64
+      },
+      "summary": {
+        "has_text": 1,
+        "reading_order_edit_distance": 0.0,
+        "seconds": 0.9193326250097016,
+        "text_edit_distance": 0.0
+      },
+      "cases": [
+        {
+          "id": "rk278-starter-check-new",
+          "seconds": 0.9193326250097016,
+          "has_text": true,
+          "text_edit_distance": 0.0,
+          "reading_order_edit_distance": 0.0
+        }
+      ]
+    }
+  ],
+  "source_commit": "6addf05",
+  "scope": "3 previously used text regions for tuning; 1 new text region for validation. Same manual pages, no document-level holdout.",
+  "protocol": "Macro mean of per-region normalized edit distances. Models loaded before timing, one pass per profile.",
+  "runtime": {
+    "paddleocr": "3.7.0",
+    "paddlepaddle": "3.3.1",
+    "recognizer": "cyrillic_PP-OCRv5_mobile_rec",
+    "detector": "PP-OCRv5_mobile_det",
+    "dpi": 250,
+    "device": "CPU arm64"
+  },
+  "selected_before_validation": "padding-64"
+}

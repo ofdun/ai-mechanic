@@ -77,14 +77,19 @@ def table_text(html):
 
 
 class PageOCR:
-    def __init__(self, mode, dpi=250, table_html="model"):
+    def __init__(self, mode, dpi=250, table_html="model", padding=0):
         if table_html not in {"model", "cells"}:
             raise ValueError("Неизвестный способ сборки HTML таблиц.")
         if table_html == "cells" and mode != "pp-structure":
             raise ValueError("--table-html cells требует --ocr pp-structure.")
+        if type(padding) is not int or padding < 0:
+            raise ValueError("--ocr-padding должен быть целым неотрицательным числом.")
+        if padding and mode != "paddleocr":
+            raise ValueError("--ocr-padding поддерживается с --ocr paddleocr.")
         self.mode = mode
         self.dpi = dpi
         self.table_html = table_html
+        self.padding = padding
 
     @cached_property
     def pipeline(self):
@@ -112,6 +117,9 @@ class PageOCR:
         image = page.get_pixmap(dpi=self.dpi, clip=clip, alpha=False)
         # PaddleOCR's ndarray input expects BGR.
         pixels = np.frombuffer(image.samples, dtype=np.uint8).reshape(image.height, image.width, 3)
+        if self.padding:
+            pixels = np.pad(pixels, ((self.padding, self.padding), (self.padding, self.padding), (0, 0)),
+                            mode="constant", constant_values=255)
         options = {}
         if self.mode == "pp-structure":
             options["use_wired_table_cells_trans_to_html"] = self.table_html == "cells"
@@ -122,10 +130,10 @@ class PageOCR:
             # Map model pixels back to points on the displayed PDF page.
             x0, y0, x1, y1 = map(float, box)
             return [
-                max(area.x0, (image.x + x0) * 72 / self.dpi),
-                max(area.y0, (image.y + y0) * 72 / self.dpi),
-                min(area.x1, (image.x + x1) * 72 / self.dpi),
-                min(area.y1, (image.y + y1) * 72 / self.dpi),
+                min(area.x1, max(area.x0, (image.x + x0 - self.padding) * 72 / self.dpi)),
+                min(area.y1, max(area.y0, (image.y + y0 - self.padding) * 72 / self.dpi)),
+                min(area.x1, max(area.x0, (image.x + x1 - self.padding) * 72 / self.dpi)),
+                min(area.y1, max(area.y0, (image.y + y1 - self.padding) * 72 / self.dpi)),
             ]
 
         if self.mode == "paddleocr":

@@ -111,3 +111,34 @@ def test_table_html_mode_reaches_the_recognition_pipeline(mixed):
                      {"use_wired_table_cells_trans_to_html": True}]
     with pytest.raises(ValueError, match="pp-structure"):
         PageOCR("paddleocr", table_html="cells")
+
+
+def test_padding_is_white_and_coordinates_stay_on_the_original_page(mixed):
+    import numpy as np
+
+    _, source, _ = mixed
+    padding = 64
+    reader = PageOCR("paddleocr", padding=padding)
+
+    class Pipeline:
+        def predict(self, input, **options):
+            assert (input[:padding] == 255).all()
+            assert (input[-padding:] == 255).all()
+            assert (input[:, :padding] == 255).all()
+            assert (input[:, -padding:] == 255).all()
+            return [{"rec_texts": ["Detected"], "rec_scores": [0.9],
+                     "rec_boxes": np.array([[padding, padding, padding + 50, padding + 20]])}]
+
+    reader.pipeline = Pipeline()
+    with pymupdf.open(source) as pdf:
+        clip = pymupdf.Rect(30, 100, 330, 220)
+        result = reader.read(pdf[0], clip)
+        x0, y0, x1, y1 = result.blocks[0]["bbox"]
+        assert x0 == pytest.approx(30)
+        assert y0 == pytest.approx(100)
+        assert x1 == pytest.approx(44.352, abs=0.3)
+        assert y1 == pytest.approx(105.696, abs=0.3)
+    with pytest.raises(ValueError, match="paddleocr"):
+        PageOCR("pp-structure", padding=64)
+    with pytest.raises(ValueError, match="неотрицательным"):
+        PageOCR("paddleocr", padding=-1)

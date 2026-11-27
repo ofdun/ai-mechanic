@@ -195,6 +195,7 @@ def read_document_pages(document, source, *, text_engine="pdfium", ocr=None, mix
                             "extraction": {
                                 "ocr_engine": ocr.mode, "dpi": ocr.dpi,
                                 "table_html": getattr(ocr, "table_html", "model"),
+                                "padding_pixels": getattr(ocr, "padding", 0),
                                 "coordinate_system": "displayed_pdf_points",
                                 "page_size": list(mu_pdf[page_index].rect)[2:],
                                 "regions": len(regions),
@@ -306,6 +307,8 @@ def main():
                         help="Дополнительно распознавать растровые области страниц с текстом.")
     parser.add_argument("--table-html", choices=("model", "cells"), default="model",
                         help="Сборка HTML по структуре модели или по ячейкам линованной таблицы.")
+    parser.add_argument("--ocr-padding", type=int, default=0,
+                        help="Ширина белых полей вокруг изображения для PaddleOCR, в пикселях.")
     parser.add_argument(
         "--output", type=Path,
         help="Файл pages.jsonl для pages или каталог artifacts/parsed для parsed.",
@@ -319,9 +322,11 @@ def main():
                 from .page_ocr import PageOCR
             else:
                 from page_ocr import PageOCR
-            ocr = PageOCR(args.ocr, table_html=args.table_html)
+            ocr = PageOCR(args.ocr, table_html=args.table_html, padding=args.ocr_padding)
         elif args.table_html != "model":
             raise ValueError("--table-html cells требует --ocr pp-structure.")
+        elif args.ocr_padding:
+            raise ValueError("--ocr-padding требует --ocr paddleocr.")
         options = {"data_dir": args.data_dir, "text_engine": args.text_engine, "ocr": ocr,
                    "mixed_ocr": args.mixed_ocr}
         if args.format == "parsed":

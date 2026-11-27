@@ -14,16 +14,42 @@ from ml.ingestion.page_ocr import PageOCR
 
 
 class PredictionOptions:
-    def __init__(self, pipeline, options, grayscale=False):
+    def __init__(self, pipeline, options, grayscale=False, preprocessing=None, padding=0):
         self.pipeline = pipeline
         self.options = options
         self.grayscale = grayscale
+        self.preprocessing = preprocessing
+        self.padding = padding
 
     def predict(self, input, **options):
+        if self.preprocessing:
+            import cv2
+            gray = cv2.cvtColor(input, cv2.COLOR_BGR2GRAY)
+            if self.preprocessing == "clahe":
+                gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+            elif self.preprocessing == "unsharp":
+                gray = cv2.addWeighted(gray, 1.6, cv2.GaussianBlur(gray, (0, 0), 1.0), -0.6, 0)
+            elif self.preprocessing == "otsu":
+                _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            elif self.preprocessing == "adaptive":
+                gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                             cv2.THRESH_BINARY, 31, 11)
+            else:
+                raise ValueError(f"Unknown preprocessing: {self.preprocessing}")
+            input = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
         if self.grayscale:
             import cv2
             input = cv2.cvtColor(cv2.cvtColor(input, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
-        return self.pipeline.predict(input=input, **{**options, **self.options})
+        if self.padding:
+            import cv2
+            input = cv2.copyMakeBorder(input, self.padding, self.padding, self.padding, self.padding,
+                                       cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        results = list(self.pipeline.predict(input=input, **{**options, **self.options}))
+        if self.padding:
+            for result in results:
+                # This experiment uses PaddleOCR. Map its boxes back to the original image.
+                result["rec_boxes"] = result["rec_boxes"].astype(float) - self.padding
+        return results
 
 
 class TableRouter:
@@ -82,7 +108,10 @@ def main():
             else:
                 pipelines[key] = PageOCR(mode).pipeline
         reader = PageOCR(mode, dpi=config.get("dpi", 250))
-        reader.pipeline = PredictionOptions(pipelines[key], config.get("predict", {}), config.get("grayscale", False))
+        reader.pipeline = PredictionOptions(
+            pipelines[key], config.get("predict", {}), config.get("grayscale", False),
+            config.get("preprocessing"), config.get("padding", 0),
+        )
         if config.get("route_text", False):
             text = PageOCR("paddleocr")
             text_key = ("paddleocr", "PP-OCRv5_mobile_det", False)
