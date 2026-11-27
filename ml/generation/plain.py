@@ -48,13 +48,15 @@ def safe_line(line: str, claims: list[TechnicalClaim], engine_model: str) -> boo
 def safe_assessment(text: str, claims: list[TechnicalClaim], engine_model: str) -> bool:
     """The agent's own view may warn, but never permits operation or brings numbers the claims lack."""
     text = ' '.join(text.split())
-    if not text or len(text) > ASSESSMENT_CHARS or grants_permission(text):
+    if not text or len(text) > ASSESSMENT_CHARS or grants_permission(text) or _CATEGORICAL.search(fold(text)):
         return False
     stated = set().union(*(claim_numbers(claim.text) for claim in claims))
     return claim_numbers(text) <= stated and not mentions_other_engine(text, engine_model)
 
 
 CONFLICT_LEAD = 'Руководства пишут по-разному. Ниже обе инструкции.'
+# Only the manual may forbid outright (customer rule); the agent's own view stays a warning.
+_CATEGORICAL = re.compile(r'нельзя|запрещ|категорич|недопустим|ни в коем')
 # With disagreeing manuals the agent does not pick a side: no yes/no, no «suitable option».
 _CHOOSES = re.compile(r'(?:^|\s)(?:да|нет|можно|нельзя|подходит|выбирайте|правильн[а-я]*|верн[а-я]*)(?=[\s,.:!—-]|$)')
 
