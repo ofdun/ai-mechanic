@@ -48,6 +48,12 @@ def exercise(page, base_url, ranked_pages):
 
     expect(vehicle).to_be_disabled()
     select_vehicle('M333YK47')
+    language = page.locator('#ui-language')
+    agent_requests = []
+    page.on('request', lambda req: agent_requests.append(req.post_data_json) if req.url.endswith('/agent/run') else None)
+    language.select_option('uz')
+    language.select_option('ru')
+    assert not agent_requests
     open_ticket.click()
     expect(ticket).to_be_focused()
     expect(page.get_by_role('tabpanel', name='Заявка')).to_contain_text('Сначала получите результат диагностики')
@@ -64,22 +70,25 @@ def exercise(page, base_url, ranked_pages):
     expect(page.get_by_role('heading', name='Отклонение', exact=True)).to_be_visible()
     chat.click()
     expect(thread).to_contain_text('Отклонение')
-    language = page.locator('#ui-language')
     dictionaries = Path('app/frontend/src/locales')
     uz = json.loads((dictionaries / 'uz.json').read_text())
     kk = json.loads((dictionaries / 'kk.json').read_text())
-    hi = json.loads((dictionaries / 'hi.json').read_text())
     question.fill('Почему это опасно?')
     assert set(language.locator('option').evaluate_all('options => options.map(option => option.value)')) == set(get_args(Language))
-    language.select_option('hi')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as hindi:
-        page.get_by_role('button', name=hi['Получить результат диагностики']).click()
+        language.select_option('hi')
     hindi_answer = hindi.value.json()['localized']
     assert hindi_answer['language'] == 'hi'
     expect(thread).to_contain_text(hindi_answer['labels']['untranslated'])
+    held = []
+    page.route('**/agent/run', lambda route: held.append(route), times=1)
+    with page.expect_request(lambda r: r.url.endswith('/agent/run')):
+        language.select_option('tg')
+    language.select_option('kk')
     language.select_option('uz')
-    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as localized:
-        page.get_by_role('button', name=uz['Получить результат диагностики']).click()
+    with page.expect_response(lambda r: r.url.endswith('/agent/run') and r.request.post_data_json.get('language') == 'uz') as localized:
+        held[0].continue_()
+    assert [req.get('language', 'ru') for req in agent_requests] == ['ru', 'hi', 'tg', 'uz']
     answer = localized.value.json()['localized']
     assert answer['language'] == 'uz' and not answer['message']['translated']
     expect(thread.locator('.turn')).to_have_count(1)
@@ -122,7 +131,8 @@ def exercise(page, base_url, ranked_pages):
     expect(page.get_by_text(uz['Страница {page} из {total}'].format(page=52,total=172))).to_be_visible()
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
     page.get_by_role('button', name=uz['К чату']).click()
-    language.select_option('ru')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')):
+        language.select_option('ru')
     question.fill('Можно ли своим ходом перегнать машину на базу?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
         question.press('Enter')

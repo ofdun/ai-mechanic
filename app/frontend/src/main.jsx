@@ -1,5 +1,5 @@
 import { UiLanguage, translator, useUiText } from './uiLanguage'
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Send, Trash2, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
@@ -158,6 +158,11 @@ function VehicleOptions({ vehicles }) {
   })
 }
 
+function sameDiagnostic(previous, current) {
+  return previous && Object.keys(previous).length === Object.keys(current).length &&
+    Object.keys(current).every(key => previous[key] === current[key])
+}
+
 function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
   const t = useUiText()
   const { id, turns, setTurns, reset, warning } = useChatHistory(vehicle?.vehicle_id, sessionId)
@@ -198,11 +203,18 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   const running = useRef(null)
   useEffect(() => () => running.current?.abort(), [])
   const pair = { vehicle_id: vehicle?.vehicle_id, session_id: sessionId }
-  async function run(kind, turn) {
+  const lastRequestedLanguage = useRef(language)
+  const refreshDiagnosis = useEffectEvent(() => run('diagnose', undefined, true))
+  useEffect(() => {
+    if (!pending && diagnosis && lastRequestedLanguage.current !== language) refreshDiagnosis()
+  }, [language, pending, diagnosis])
+
+  async function run(kind, turn, languageRefresh = false) {
     const text = turn?.question ?? question.trim()
     const retryId = turn?.id
     if (running.current || !sessionId || !id || (kind === 'chat' && historyLocked)) return
     const controller = new AbortController()
+    if (kind === 'diagnose') lastRequestedLanguage.current = language
     running.current = controller
     setPending(kind)
     setError('')
@@ -236,15 +248,17 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
-      if (result.diagnostic) setDiagnosis(result)
+      if (result.diagnostic) {
+        if (kind !== 'diagnose' && !diagnosis) lastRequestedLanguage.current = language
+        setDiagnosis(result)
+      }
       if (kind === 'diagnose' && result.diagnostic) {
         const verdict = { id: conversationId(), kind: 'verdict', result }
         setTurns(old => {
           const last = old.findLast(turn => turn.kind === 'verdict')
           const previous = last?.result.diagnostic
           const current = result.diagnostic
-          if (previous && Object.keys(previous).length === Object.keys(current).length &&
-              Object.keys(current).every(key => previous[key] === current[key])) {
+          if (sameDiagnostic(previous, current)) {
             if (last.result.localized?.language === result.localized?.language) return old
             return old.map(turn => turn === last ? { ...turn, result } : turn)
           }
@@ -256,6 +270,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       if (result.diagnostic || result.action === 'draft_ticket') {
         setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
+        if (languageRefresh && draft && result.can_create_ticket && sameDiagnostic(diagnosis?.diagnostic, result.diagnostic)) return
         setDraft(result.ticket_draft && !ticketStatus ? {
           value: result.ticket_draft, evidence: result.evidence.items, urgency: result.ticket_draft.payload.urgency,
         } : null)
