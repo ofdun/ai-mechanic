@@ -1,0 +1,4 @@
+interface:
+  display_name: "Локальная проверка стенда"
+  short_description: "Запуск и проверка Compose с комплектом заказчика"
+  default_prompt: "Используй $local-stand-testing, чтобы проверить веб на локальном комплекте в конфигурации стенда."
