@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     vehicles_path: Path | None = None
     manual_manifest_path: Path | None = None
     reviewed_evidence_path: Path | None = None
+    web_retrieval_mode: Literal['legacy', 'team'] = 'legacy'
+    retrieval_config_path: Path | None = None
     artifacts_dir: Path = Path('artifacts')
     ml_api_url: AnyHttpUrl = 'http://127.0.0.1:8001'
     maintenance_api_url: AnyHttpUrl = 'http://127.0.0.1:8002'

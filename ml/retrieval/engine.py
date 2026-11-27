@@ -354,6 +354,19 @@ class RetrievalEngine:
                 found.append(neighbor)
         return found
 
+    @staticmethod
+    def _evidence(unit: Chunk) -> Evidence:
+        return Evidence(
+            evidence_id=unit.chunk_id, document_id=unit.document_id, manual=unit.manual,
+            engine_models=unit.engine_models, pdf_page=unit.pdf_page, section=unit.section, text=unit.text,
+        )
+
+    def page(self, engine_model: str, document_id: str, pdf_page: int) -> Evidence | None:
+        page = self.pages.get(f'{document_id}:{pdf_page}')
+        if page is None or nfc(engine_model) not in page.engine_models:
+            return None
+        return self._evidence(page)
+
     def search(self, plan: SearchPlan) -> EvidenceBundle:
         model = nfc(plan.engine_model)
         if self.config.context == 'chunk':
@@ -373,8 +386,5 @@ class RetrievalEngine:
                 break
             ids.add(unit.chunk_id)
             words += size
-            items.append(Evidence(
-                evidence_id=unit.chunk_id, document_id=unit.document_id, manual=unit.manual,
-                engine_models=unit.engine_models, pdf_page=unit.pdf_page, section=unit.section, text=unit.text,
-            ))
+            items.append(self._evidence(unit))
         return EvidenceBundle(items=items)

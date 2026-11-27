@@ -1,5 +1,7 @@
 **
 !Dockerfile
+!configs/
+!configs/retrieval.yaml
 !pyproject.toml
 !uv.lock
 !ml/

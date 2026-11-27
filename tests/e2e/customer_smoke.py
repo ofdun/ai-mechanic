@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
+from ml.retrieval import RetrievalEngine
 from ml.worker import create_app
 import socket
 import subprocess
@@ -19,7 +20,7 @@ from urllib.error import URLError
 from mobile_smoke import serve
 
 
-def exercise(page, base_url):
+def exercise(page, base_url, ranked_pages):
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(base_url)
@@ -67,6 +68,10 @@ def exercise(page, base_url):
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
+    page.get_by_role('tabpanel', name='Заявка').get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+    expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
+    page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
+    page.get_by_role('button', name='К заявке').click()
     page.get_by_label('Приоритет', exact=True).select_option('high')
     with page.expect_response(lambda r: r.url.endswith('/agent/tickets/confirm')) as response:
         page.get_by_role('button', name='Подтвердить заявку').click()
@@ -122,6 +127,25 @@ def exercise(page, base_url):
     expect(vehicle.locator('option')).to_have_count(sum(v['engine_model'] == target['engine_model'] for v in catalog))
     vehicle.select_option(target['vehicle_id'])
     chat.click()
+    query = 'Как проверить термостат?'
+    question.fill(query)
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
+        question.press('Enter')
+    search = response.value.json()
+    assert search['action'] == 'search_manuals' and search['engine_model'] == target['engine_model']
+    candidates = ranked_pages.get((target['engine_model'], query), set())
+    assert candidates, 'The browser question did not reach the team retrieval engine'
+    sources = search['evidence']['items']
+    assert sources and all(s['evidence_id'] in candidates and target['engine_model'] in s['engine_models']
+                           for s in sources)
+    source = sources[0]
+    route = f"/api/documents/{source['document_id']}/pages/{source['pdf_page']}"
+    with page.expect_response(lambda r: r.url == base_url + route) as physical_page:
+        thread.get_by_role('button', name=re.compile(rf"стр\. {source['pdf_page']}$")).first.click()
+    assert physical_page.value.ok and physical_page.value.json()['page'] == source['pdf_page']
+    page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
+    page.get_by_role('button', name='К чату').click()
+
     question.fill('Какой момент затяжки крышек коренных подшипников?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
         question.press('Enter')
@@ -141,14 +165,14 @@ def exercise(page, base_url):
     expect(vehicle).to_have_value(target['vehicle_id'])
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert not errors, errors
-    print('PASS: 50 vehicles / 195 sessions, C1 ticket and replay, C2, C3, normal, engine-specific source on PDF page 137.')
+    print('PASS: 50 vehicles / 195 sessions, C1–C3, confirmed ticket and replay, team search and cited PDF pages.')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data-dir', type=Path, required=True)
     parser.add_argument('--mock-dir', type=Path, required=True, help='Unpacked directory containing mock_ml and mock_toir')
-    parser.add_argument('--index', type=Path, required=True)
+    parser.add_argument('--index', type=Path, help='Reuse manuals.sqlite3 with its sibling retrieval directory')
     parser.add_argument('--channel')
     parser.add_argument('--backend', type=Path, required=True, help='Compiled Go web server')
     args = parser.parse_args()
@@ -158,14 +182,29 @@ def main():
 
     with ExitStack() as stack:
         state = Path(stack.enter_context(TemporaryDirectory()))
-        (state / 'manuals.sqlite3').symlink_to(args.index.resolve(strict=True))
         stack.enter_context(patch.dict(os.environ, {
             'DATA_DIR': str(args.data_dir), 'VEHICLES_PATH': str(args.mock_dir / 'data' / 'vehicles.json'),
             'ARTIFACTS_DIR': str(state), 'PLANNER_MODE': 'local', 'AGENT_ARCHITECTURE': 'baseline',
+            'WEB_RETRIEVAL_MODE': 'team', 'REPEAT_ON_WARNING': 'true',
             'ALLOW_EXTERNAL_EVIDENCE': 'false', 'MIN_DIAGNOSTIC_CONFIDENCE': '0.70',
             'ML_API_URL': stack.enter_context(serve(mock_ml)),
             'MAINTENANCE_API_URL': stack.enter_context(serve(mock_toir)),
         }))
+        if args.index and (args.index.parent / 'retrieval').is_dir():
+            (state / 'manuals.sqlite3').symlink_to(args.index.resolve(strict=True))
+            (state / 'retrieval').symlink_to((args.index.parent / 'retrieval').resolve(strict=True))
+        else:
+            subprocess.run([sys.executable, '-m', 'ml.manual_corpus'], check=True)
+
+        ranked_pages = {}
+        search = RetrievalEngine.search
+
+        def record_search(engine, plan):
+            evidence = search(engine, plan)
+            ranked_pages[(plan.engine_model, plan.original_query)] = {s.evidence_id for s in evidence.items}
+            return evidence
+
+        stack.enter_context(patch.object(RetrievalEngine, 'search', record_search))
         agent_url = stack.enter_context(serve(create_app()))
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0))
@@ -190,7 +229,7 @@ def main():
         browser = pw.chromium.launch(channel=args.channel)
         stack.callback(browser.close)
         page = browser.new_page(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
-        exercise(page, base_url)
+        exercise(page, base_url, ranked_pages)
 
 
 if __name__ == '__main__':

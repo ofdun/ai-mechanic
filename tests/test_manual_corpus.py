@@ -7,7 +7,9 @@ import pytest
 pytest.importorskip('pypdfium2')
 
 from ml import manual_corpus
+from ml.contracts import SearchPlan
 from ml.pdf_baseline import PdfPageRetriever
+from ml.retrieval import RetrievalEngine
 
 
 def test_shared_manual_index_is_scoped_numbered_and_rolls_back_bad_rebuild(tmp_path):
@@ -21,7 +23,11 @@ def test_shared_manual_index_is_scoped_numbered_and_rolls_back_bad_rebuild(tmp_p
     manifest.write_text(json.dumps({'documents': [guide]}))
     assert manual_corpus.document_catalog(manifest) == {'stand': guide}
     index = tmp_path / 'manuals.sqlite3'
-    assert manual_corpus.build_index(tmp_path, index, manifest) == 2
+    team = tmp_path / 'retrieval'
+    assert manual_corpus.build_index(tmp_path, index, manifest, retrieval_dir=team) == 2
+    plan = SearchPlan(engine_model='Мотор Б', original_query='маркировку', rewritten_query='маркировку')
+    matches = RetrievalEngine.load(team).search(plan).items
+    assert any((hit.document_id, hit.pdf_page) == ('stand', 2) for hit in matches)
     retriever = PdfPageRetriever(index)
     for engine in guide['models']:
         page = retriever.page(engine, 'stand', 2)
@@ -33,6 +39,7 @@ def test_shared_manual_index_is_scoped_numbered_and_rolls_back_bad_rebuild(tmp_p
     second.write_bytes(b'other edition')
     manifest.write_text(json.dumps({'documents': [guide, {**guide, 'file': second.name, 'document_id': 'changed'}]}))
     with pytest.raises(ValueError, match='SHA-256'):
-        manual_corpus.build_index(tmp_path, index, manifest)
+        manual_corpus.build_index(tmp_path, index, manifest, retrieval_dir=team)
     assert retriever.page('Мотор А', 'stand', 2) == page.model_copy(update={'engine_models': ['Мотор А']})
     assert retriever.page('Мотор А', 'changed', 2) is None
+    assert RetrievalEngine.load(team).search(plan).items == matches

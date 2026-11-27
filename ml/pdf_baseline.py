@@ -17,6 +17,7 @@ from ml.contracts import (
 )
 from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
+from ml.retrieval import RetrievalEngine
 from ml.retrieval.expansion import fault_query
 
 
@@ -177,7 +178,10 @@ class ReviewedOperations:
 
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:
-    retriever = PdfPageRetriever(index)
+    return build_manual_pipeline(settings, http, PdfPageRetriever(index))
+
+
+def build_manual_pipeline(settings: Settings, http: httpx.Client, retriever: PdfPageRetriever | RetrievalEngine) -> Pipeline:
     if settings.planner_mode == 'local':
         from ml.local_evidence import LocalEvidence
         from ml.manual_corpus import document_catalog
