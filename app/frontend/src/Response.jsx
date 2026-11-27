@@ -244,7 +244,7 @@ export function Response({ result }) {
       <Entries items={limitations} /></section>}
     {insufficient && <div className="search-fallback">
       <Entries items={limitations.length ? limitations : [t('Ответ по руководству подтвердить не удалось.')]} />
-      {' ' + t('Рекомендуется дефектовка.')}
+      {!limitations.length && ' ' + t('Рекомендуется дефектовка.')}
     </div>}
     {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? t('Страницы по теме для самостоятельной проверки') : t('Источники ответа')}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}

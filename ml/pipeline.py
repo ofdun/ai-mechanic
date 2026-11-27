@@ -32,6 +32,7 @@ from ml.contracts import (
     Verifier,
 )
 from ml.generation.finalizer import MechanicFinalizer, conflict_notes, ticket_fields
+from ml.generation.profiles import PROFILES, mentions_unit
 from ml.generation.translate import Localizer
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
 from ml.planner.local import LocalPlanner
@@ -54,6 +55,20 @@ def scope_evidence(evidence: EvidenceBundle, engine_model: str) -> EvidenceBundl
     if len({item.evidence_id for item in items}) != len(items):
         raise AgentError('RAG_SCHEMA_ERROR', 'Поиск вернул повторяющиеся идентификаторы источников.')
     return EvidenceBundle(items=items)
+
+
+def manual_next_step(response: AgentResponse, diagnostic: DiagnosticResult | None) -> str:
+    if response.evidence.items:
+        page = response.evidence.items[0]
+        return f'Для самостоятельной проверки откройте «{page.manual}», стр. {page.pdf_page} (PDF).'
+    question = response.search_plan.original_query
+    if diagnostic and diagnostic.status == 'anomaly':
+        code = diagnostic.anomaly_type
+        if code in PROFILES and mentions_unit(code, question):
+            return (f'Оформите дефектовку узла «{PROFILES[code].unit}». '
+                    'В листе осмотра укажите наблюдаемый признак и условия его появления.')
+    return ('Для дефектовки укажите в листе осмотра, какой узел вы проверяете, '
+            'что наблюдаете и при каких условиях это проявляется.')
 
 
 def percentage(value: float) -> str:
@@ -179,6 +194,8 @@ class Pipeline:
                 rewritten_query=decision.rewritten_query or message, subqueries=decision.subqueries,
             ), diagnostic)
             self.link_sequence_figures(response, message)
+            if not response.claims and not response.figures and not response.summary:
+                response.limitations.append(manual_next_step(response, diagnostic))
         elif decision.action == 'get_diagnostic_history':
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]

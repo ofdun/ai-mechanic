@@ -138,6 +138,34 @@ def test_search_builds_rewritten_plan_for_selected_engine(setup):
     assert not upstreams.calls('/diagnose')
 
 
+def test_unanswered_question_points_to_a_candidate_page_without_claiming_a_repair(setup):
+    upstreams, pipeline = setup
+    upstreams.planner_call = ('search_manuals', {'rewritten_query': 'Проверка форсунок'})
+    pipeline.verifier = None
+    answer = pipeline.run(utterance(message='Как проверить форсунки?'))
+    assert not answer.claims and not answer.can_create_ticket
+    assert answer.limitations[-1] == 'Для самостоятельной проверки откройте «Fixture», стр. 3 (PDF).'
+    assert len(answer.evidence.items) == 1 and answer.evidence.items[0].pdf_page == 3
+
+
+def test_defect_inspection_suggestion_uses_only_a_related_reliable_diagnosis(setup):
+    upstreams, pipeline = setup
+    diagnosis = pipeline.run(utterance(command='diagnose', conversation_id='chat')).diagnostic
+    context = ConversationContext(actor_id='mechanic', vehicle_id=VEHICLE, session_id=SESSION,
+                                  conversation_id='chat', engine_model=ENGINE, diagnostic=diagnosis)
+    class NoPages:
+        def search(self, plan):
+            return EvidenceBundle()
+    pipeline.retriever = NoPages()
+    upstreams.planner_call = ('search_manuals', {'rewritten_query': 'Проверка форсунок'})
+    for question, named_unit in [('Как проверить форсунки?', True), ('Как проверить термостат?', False)]:
+        answer = pipeline.run(utterance(message=question, conversation_id='chat'), context=context)
+        assert 'В руководстве по этому двигателю ответ не найден.' in answer.limitations
+        assert 'в листе осмотра' in answer.limitations[-1].lower()
+        assert ('дизельная топливная аппаратура' in answer.limitations[-1]) == named_unit
+        assert not answer.claims and not answer.can_create_ticket and not answer.evidence.items
+
+
 def test_follow_up_uses_backend_context_instead_of_archived_anomaly(setup):
     upstreams, pipeline = setup
     upstreams.result = diagnostic('check_failed', signal='bad')

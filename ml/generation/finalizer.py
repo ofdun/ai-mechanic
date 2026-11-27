@@ -237,8 +237,7 @@ class MechanicFinalizer:
         question = response.search_plan.original_query if response.search_plan else ''
         extra = [DECISION_NOTE] if _RELEASE_QUESTION.search(fold(question)) else []
         if not response.claims:
-            details = [f'В руководствах для {response.engine_model} нет подтверждённого ответа на этот вопрос.',
-                       'Не буду придумывать: уточните у специалиста или проведите дефектовку.']
+            details = [f'В руководствах для {response.engine_model} нет подтверждённого ответа на этот вопрос.']
             return MechanicAnswer(tone='info', verdict='📘 Данных недостаточно.', details=details,
                                   sections=self.closing_sections(response, sources, extra=extra))
         sections = self.claim_sections(response.claims, sources)
