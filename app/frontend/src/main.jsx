@@ -78,8 +78,8 @@ const pendingLabels = { diagnose: 'Получаем результат', chat: '
 const views = [
   { id: 'result', label: 'Результат', icon: FileText },
   { id: 'chat', label: 'Чат', icon: MessageSquare },
-  { id: 'history', label: 'История', icon: History },
   { id: 'ticket', label: 'Заявка', icon: ClipboardList },
+  { id: 'history', label: 'История', icon: History },
 ]
 
 function EmptyView({ icon: Icon, title, children }) {
