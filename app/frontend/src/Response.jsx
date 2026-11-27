@@ -54,13 +54,13 @@ function anomalyDetails({ diagnostic, message }, status, t) {
   ].filter(Boolean).join(' · ')
 }
 
-function AnswerLine({ line, labels }) {
-  return <p><span lang={line.translated === false ? 'ru' : undefined}>{line.text}</span>
+function AnswerLine({ line, labels, className }) {
+  return <p className={className}><span lang={line.translated === false ? 'ru' : undefined}>{line.text}</span>
     {line.original && <small className="original-line">{labels.original} · <span lang="ru">{line.original}</span></small>}
   </p>
 }
 
-function LocalizedResponse({ result, compact = false }) {
+function LocalizedResponse({ result, compact = false, report = false }) {
   const t = useUiText()
   const { localized: answer, diagnostic } = result
   const { labels } = answer
@@ -73,26 +73,28 @@ function LocalizedResponse({ result, compact = false }) {
   }
   const details = status && anomalyDetails({ diagnostic, message: answer.message.original || answer.message.text }, status.status, t)
   const lines = summary ? answer.summary : []
-  return <article className={compact ? 'diagnostic-verdict' : 'reply'} lang={answer.language}>
-    {status && <div className={'verdict ' + status.status}><h3>{t(status.title)}</h3>
-      {recordingWarnings[diagnostic.signal_quality] && <span>{t(recordingWarnings[diagnostic.signal_quality])}</span>}
+  const Icon = status?.status === 'normal' ? CheckCircle2 : status?.status === 'check_failed' ? RotateCcw : CircleAlert
+  return <article className={report ? 'report report-' + status.status : compact ? 'diagnostic-verdict' : 'reply'} lang={answer.language}>
+    {status && <div className={report ? 'report-heading' : 'verdict ' + status.status}><h3>{report && <Icon aria-hidden="true" />}{t(status.title)}</h3>
+      {report ? <p className="report-reading">{[t(recordingWarnings[diagnostic.signal_quality]), details].filter(Boolean).join(' · ')}</p>
+        : recordingWarnings[diagnostic.signal_quality] && <span>{t(recordingWarnings[diagnostic.signal_quality])}</span>}
     </div>}
     {(compact || !lines.length || result.action !== 'search_manuals') &&
-      <AnswerLine line={answer.message} labels={labels} />}
-    {details && <p className="meta">{details}</p>}
+      <AnswerLine className={report ? 'report-lead' : undefined} line={answer.message} labels={labels} />}
+    {!report && details && <p className="meta">{details}</p>}
     {!compact && <>
       {lines.map((line, index) => <AnswerLine key={index} line={line} labels={labels} />)}
       {showClaims && Object.entries(sections).map(([kind, title]) => {
         const claims = verified.filter(claim => claim.kind === kind)
-        return claims.length > 0 && <section className="claims" key={kind}>
+        return claims.length > 0 && <section className={report ? ['operation', 'check'].includes(kind) ? 'report-row report-action' : 'report-row' : 'claims'} key={kind}>
           <h4>{labels['section.' + kind] || title}</h4>
-          {claims.map(claim => {
+          <div>{claims.map(claim => {
             const index = result.claims.indexOf(claim)
             return <div key={index}>
               <AnswerLine line={answer.claims[index] || { text: claim.text, translated: false }} labels={labels} />
               {claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}
             </div>
-          })}
+          })}</div>
         </section>
       })}
       {labels['conflict.title'] && result.message.includes('⚖️ ' + labels['conflict.title']) &&
@@ -107,7 +109,7 @@ function LocalizedResponse({ result, compact = false }) {
 
 export function DiagnosticReport({ result }) {
   const t = useUiText()
-  if (result.localized) return <LocalizedResponse result={result} />
+  if (result.localized) return <LocalizedResponse result={result} report />
   const { diagnostic } = result
   const { sources, verified, summary } = verifiedClaims(result)
   const { status, title: statusTitle } = verdict(result)

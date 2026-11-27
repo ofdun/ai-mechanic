@@ -84,6 +84,11 @@ def exercise(page, base_url, ranked_pages):
     page.route('**/agent/run', lambda route: held.append(route), times=1)
     with page.expect_request(lambda r: r.url.endswith('/agent/run')):
         language.select_option('tg')
+    expect(thread.locator('.diagnostic-verdict')).to_have_count(0)
+    page.locator('#tab-result').click()
+    expect(page.locator('#panel-result .report')).to_have_count(0)
+    expect(page.locator('#panel-result .translation-status')).to_be_visible()
+    page.locator('#tab-chat').click()
     language.select_option('kk')
     language.select_option('uz')
     with page.expect_response(lambda r: r.url.endswith('/agent/run') and r.request.post_data_json.get('language') == 'uz') as localized:
@@ -97,6 +102,12 @@ def exercise(page, base_url, ranked_pages):
     report = page.get_by_role('tabpanel', name=uz['Результат'], exact=True)
     expect(report.get_by_role('heading', name=answer['labels']['section.operation'])).to_be_visible()
     expect(report).to_contain_text(answer['claims'][0]['text'])
+    expect(report.locator('.report-lead')).to_be_visible()
+    expect(report.locator('.report-action').first).to_be_visible()
+    for width in (320, 390, 1440):
+        page.set_viewport_size({'width': width, 'height': 844})
+        assert report.evaluate('el => el.scrollWidth <= el.clientWidth + 1')
+    page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('tab', name=uz['Чат'], exact=True).click()
     canonical = 'yamz-236-operations-2010'
     legacy = 'yamz-236_re_2010'

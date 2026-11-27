@@ -248,8 +248,8 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
-      if (result.diagnostic) {
-        if (kind !== 'diagnose' && !diagnosis) lastRequestedLanguage.current = language
+      if (result.diagnostic && !(kind === 'draft_ticket' && sameDiagnostic(diagnosis?.diagnostic, result.diagnostic))) {
+        if (kind !== 'diagnose') lastRequestedLanguage.current = result.language || 'ru'
         setDiagnosis(result)
       }
       if (kind === 'diagnose' && result.diagnostic) {
@@ -301,6 +301,11 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
     }
   }
 
+  const waitingForTranslation = diagnosis && (diagnosis.language || 'ru') !== language
+  const latestVerdict = turns.findLast(turn => turn.kind === 'verdict')
+  const translationStatus = <p className="meta translation-status" role="status">
+    {t(error && !pending ? 'Получите результат диагностики заново.' : 'Получаем результат')}
+  </p>
   const returnLabels = { result: 'К результату', chat: 'К чату', history: 'К истории', ticket: 'К заявке' }
   return <ManualNavigation sessionKey={id} returnLabel={t(returnLabels[view])}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
@@ -339,7 +344,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         </EmptyView>
       </div> : <>
       <div className="pane" hidden={view !== 'result'} id="panel-result" aria-labelledby="tab-result" role="tabpanel" tabIndex={0}>
-        {diagnosis ? <DiagnosticReport result={diagnosis} /> : <EmptyView icon={ScanLine}
+        {waitingForTranslation ? translationStatus : diagnosis ? <DiagnosticReport result={diagnosis} /> : <EmptyView icon={ScanLine}
           title={sessionId ? t('Результат ещё не запрошен') : t('У этой машины пока нет проверок')}>
           {sessionId ? t('Проверьте параметры замера и нажмите «Получить результат диагностики».') : t('Выберите другую машину в списке транспорта.')}
         </EmptyView>}
@@ -366,7 +371,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         </EmptyView>}
         <div role="log" aria-label={t('Сообщения')}>
         {!historyLocked && turns.map(({ id, kind, result, question, error: turnError }) => kind === 'verdict'
-          ? <div className="turn" key={id || 'verdict'}><DiagnosticVerdict result={result} /></div>
+          ? <div className="turn" key={id || 'verdict'}>{latestVerdict?.result === result && waitingForTranslation ? translationStatus : <DiagnosticVerdict result={result} />}</div>
           : <div className="turn" key={id}>
           <div className="question"><strong>{t('Вы')}</strong><p>{question}</p></div>
           {turnError || (!result && id !== sendingTurn.current) ? <div className="chat-error"><p>{t('Ответ не получен.')} {t(turnError) || t('Отправка прервалась.')}</p>
