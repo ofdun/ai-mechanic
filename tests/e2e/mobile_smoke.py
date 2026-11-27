@@ -340,6 +340,31 @@ def main():
         second_ticket = confirmation.value.json()['ticket_id']
         assert first_ticket != second_ticket and len(ticket_posts) == 2
         expect(guest_page.get_by_text(re.compile(re.escape(second_ticket)))).to_be_visible()
+        def open_guest_chat():
+            guest_page.get_by_label('Двигатель', exact=True).select_option('Учебный Д-01')
+            guest_page.get_by_label('Транспортное средство').select_option('ДЕМО-01')
+            guest_page.get_by_role('tab', name='Чат', exact=True).click()
+
+        def ask_history():
+            field = guest_page.get_by_label('Вопрос по двигателю')
+            field.fill('Покажи историю проверок')
+            with guest_page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
+                guest_page.get_by_role('button', name='Отправить', exact=True).click()
+            return response.value.json()['conversation_id']
+
+        guest_page.get_by_role('tab', name='Чат', exact=True).click()
+        before = ask_history()
+        guest_page.reload()
+        open_guest_chat()
+        log = guest_page.get_by_role('log')
+        expect(log.get_by_text('Покажи историю проверок', exact=True)).to_have_count(1)
+        expect(log.locator('.vehicle-history')).to_be_visible()
+        assert ask_history() == before
+        guest_page.once('dialog', lambda prompt: prompt.accept())
+        guest_page.get_by_role('button', name='Сбросить диалог').click()
+        expect(log.locator('.turn')).to_have_count(0)
+        assert ask_history() != before
+        print('PASS — переписка и контекст восстановлены после перезагрузки, сброс начинает новый диалог')
         print('PASS — второй посетитель может пройти учебную диагностику со своей заявкой')
 
 

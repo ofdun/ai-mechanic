@@ -4,6 +4,7 @@ import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, Messag
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } from './Response'
 import { ManualNavigation } from './ManualReader'
+import { useChatHistory } from './chatHistory'
 import './style.css'
 
 function App() {
@@ -102,8 +103,8 @@ function VehicleOptions({ vehicles }) {
 }
 
 function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
-  const [id] = useState(conversationId)
-  const [turns, setTurns] = useState([])
+  const { id, turns, setTurns, reset, warning } = useChatHistory(vehicle?.vehicle_id, sessionId)
+  const sendingTurn = useRef(null)
   const [question, setQuestion] = useState('')
   const [pending, setPending] = useState('')
   const [error, setError] = useState('')
@@ -141,12 +142,13 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
   async function run(kind, turn) {
     const text = turn?.question ?? question.trim()
     const retryId = turn?.id
-    if (running.current || !sessionId) return
+    if (running.current || !sessionId || !id) return
     const controller = new AbortController()
     running.current = controller
     setPending(kind)
     setError('')
     const turnId = kind === 'chat' ? retryId ?? conversationId() : null
+    sendingTurn.current = turnId
     function updateTurn(fields) {
       setTurns(old => old.map(turn => turn.id === turnId ? { ...turn, ...fields } : turn))
     }
@@ -238,7 +240,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         {!vehicle?.sessions.length && <option value="">{vehicle ? 'Нет проверок' : 'Сначала выберите машину'}</option>}
         {vehicle?.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
       </select></div>
-      <button className="primary" disabled={!sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики<ArrowRight aria-hidden="true" /></button>
+      <button className="primary" disabled={!id || !sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики<ArrowRight aria-hidden="true" /></button>
       </div>
     </aside>
     <section className="chat" aria-label="Протокол проверки">
@@ -261,6 +263,15 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         </EmptyView>}
       </div>
       <div className="pane" hidden={view !== 'chat'} ref={chatBody} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
+        {warning && <p role="status">{warning}</p>}
+        {!!turns.length && <button className="reset-chat" disabled={!!pending} onClick={() => {
+          if (window.confirm('Сбросить переписку по этой машине и замеру? Сообщения исчезнут из этого браузера.')) {
+            reset()
+            setQuestion('')
+            setError('')
+            composer.current?.focus()
+          }
+        }}>Сбросить диалог</button>}
         {!turns.length && <EmptyView icon={MessageSquare} title="Что хотите уточнить?">
           Спросите о замере или нормативе из руководства для двигателя {vehicle.engine_model}.
         </EmptyView>}
@@ -269,7 +280,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
           ? <div className="turn" key="verdict"><DiagnosticVerdict result={result} /></div>
           : <div className="turn" key={id}>
           <div className="question"><strong>Вы</strong><p>{question}</p></div>
-          {turnError ? <div className="chat-error"><p>Ответ не получен. {turnError}</p>
+          {turnError || (!result && id !== sendingTurn.current) ? <div className="chat-error"><p>Ответ не получен. {turnError || 'Отправка прервалась.'}</p>
             <button disabled={!!pending} onClick={() => run('chat', { id, question })}>Повторить</button></div>
             : !result ? <p className="meta">Ищем ответ<span className="pending-dots">…</span></p>
             : result.ticket_draft
@@ -303,7 +314,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         {view === 'chat' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) { composer.current?.focus(); run('chat') } }}>
           <div className="compose-row"><input ref={composer} aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю…" value={question}
             maxLength={8000} disabled={!sessionId} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
-            <button type="submit" className="submit" disabled={!question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>Отправить</span></button></div>
+            <button type="submit" className="submit" disabled={!id || !question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>Отправить</span></button></div>
         </form>}
         {view === 'ticket' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
           onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? 'Отправлено в ТОиР' : 'Отправка заблокирована'
