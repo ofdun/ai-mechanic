@@ -1,0 +1,114 @@
+{
+  "gold_sha256": "6d35596300db4c626323cbdb5a13b76b356e64b7d984a22ac476b3a45985320d",
+  "profiles": [
+    {
+      "config": {
+        "id": "ocr-250",
+        "mode": "paddleocr",
+        "dpi": 250
+      },
+      "summary": {
+        "has_text": 1,
+        "reading_order_edit_distance": 0.5,
+        "seconds": 1.2320711670035962,
+        "text_edit_distance": 0.2527075812274368
+      },
+      "cases": [
+        {
+          "id": "rk278-fuel-leak-validation",
+          "seconds": 1.2320711670035962,
+          "has_text": true,
+          "text_edit_distance": 0.2527075812274368,
+          "reading_order_edit_distance": 0.5
+        }
+      ]
+    },
+    {
+      "config": {
+        "id": "structure-base",
+        "mode": "pp-structure",
+        "dpi": 250,
+        "predict": {}
+      },
+      "summary": {
+        "detected_tables": 1,
+        "has_text": 1,
+        "reading_order_edit_distance": 1.0,
+        "seconds": 5.96432210450439,
+        "teds": 0.917481884057971,
+        "teds_structure": 0.9375,
+        "text_edit_distance": 0.148014440433213
+      },
+      "cases": [
+        {
+          "id": "rk278-fuel-leak-validation",
+          "seconds": 6.058804041997064,
+          "has_text": true,
+          "text_edit_distance": 0.148014440433213,
+          "reading_order_edit_distance": 1.0
+        },
+        {
+          "id": "rk280-table611-validation",
+          "seconds": 5.869840167011716,
+          "has_text": true,
+          "detected_tables": 1,
+          "teds": 0.917481884057971,
+          "teds_structure": 0.9375
+        }
+      ]
+    },
+    {
+      "config": {
+        "id": "route-cells",
+        "mode": "pp-structure",
+        "route_text": true,
+        "predict": {
+          "use_wired_table_cells_trans_to_html": true
+        }
+      },
+      "summary": {
+        "detected_tables": 1,
+        "has_text": 1,
+        "reading_order_edit_distance": 0.5,
+        "seconds": 5.141926083495491,
+        "teds": 0.979981884057971,
+        "teds_structure": 1.0,
+        "text_edit_distance": 0.2527075812274368
+      },
+      "cases": [
+        {
+          "id": "rk278-fuel-leak-validation",
+          "seconds": 6.409440874995198,
+          "has_text": true,
+          "text_edit_distance": 0.2527075812274368,
+          "reading_order_edit_distance": 0.5
+        },
+        {
+          "id": "rk280-table611-validation",
+          "seconds": 3.8744112919957843,
+          "has_text": true,
+          "detected_tables": 1,
+          "teds": 0.979981884057971,
+          "teds_structure": 1.0
+        }
+      ]
+    }
+  ],
+  "source_commit": "01f0533",
+  "scope": "3 dev regions and 2 previously unused validation regions from the same manual pages. No document-level holdout.",
+  "protocol": "OCR models initialized before timing. Single pass per profile, not a latency distribution.",
+  "model_versions": {
+    "paddleocr": "3.7.0",
+    "paddlepaddle": "3.3.1",
+    "pymupdf": "1.28.2",
+    "recognizer": "cyrillic_PP-OCRv5_mobile_rec",
+    "device": "CPU arm64"
+  },
+  "selection": {
+    "selected_before_validation": "route-cells",
+    "reason": "Highest development table TEDS and unchanged best text OCR via routing",
+    "tuning_regions": 3,
+    "validation_regions": 2,
+    "validation_scope": "Previously unused crops from the same manual pages; not an independent document-level holdout"
+  }
+}

@@ -132,7 +132,9 @@ def verify_source(document, source):
         raise ValueError(f"SHA-256 отличается от каталога: {source.name}")
 
 
-def read_document_pages(document, source, *, text_engine="pdfium", ocr=None):
+def read_document_pages(document, source, *, text_engine="pdfium", ocr=None, mixed_ocr=False):
+    if mixed_ocr and ocr is None:
+        raise ValueError("Распознавание смешанных страниц требует --ocr.")
     verify_source(document, source)
     sections = document.get("sections", [])
     offset = document.get("printed_page_offset")
@@ -164,13 +166,43 @@ def read_document_pages(document, source, *, text_engine="pdfium", ocr=None):
                 finally:
                     page.close()
             printed_page, text = page_content(raw_text, pdf_page, offset)
-            if ocr is not None and not text:
+            structures = {}
+            if ocr is not None:
                 try:
-                    recognized = ocr.read(mu_pdf[page_index])
+                    if not text:
+                        regions = [None]
+                    elif mixed_ocr and pdf_page not in reviewed_pages:
+                        if __package__:
+                            from .page_ocr import raster_regions
+                        else:
+                            from page_ocr import raster_regions
+                        regions = raster_regions(mu_pdf[page_index])
+                    else:
+                        regions = []
+                    extra_text, blocks = [], []
+                    for region in regions:
+                        recognized = ocr.read(mu_pdf[page_index], region)
+                        ocr_folio, recognized_text = page_content(recognized.text, pdf_page, offset)
+                        printed_page = printed_page or ocr_folio
+                        if recognized_text:
+                            extra_text.append(recognized_text)
+                        blocks.extend(recognized.blocks)
+                    if extra_text:
+                        text = "\n\n".join(part for part in (text, *extra_text) if part)
+                    if blocks:
+                        structures = {
+                            "blocks": blocks,
+                            "extraction": {
+                                "ocr_engine": ocr.mode, "dpi": ocr.dpi,
+                                "table_html": getattr(ocr, "table_html", "model"),
+                                "padding_pixels": getattr(ocr, "padding", 0),
+                                "coordinate_system": "displayed_pdf_points",
+                                "page_size": list(mu_pdf[page_index].rect)[2:],
+                                "regions": len(regions),
+                            },
+                        }
                 except (RuntimeError, ValueError) as error:
                     raise ValueError(f"{document['document_id']}, физическая стр. {pdf_page}: {error}") from error
-                ocr_folio, text = page_content(recognized.text, pdf_page, offset)
-                printed_page = printed_page or ocr_folio
             section = next(
                 (item["title"] for item in sections if item["first_page"] <= pdf_page <= item["last_page"]),
                 None,
@@ -180,10 +212,11 @@ def read_document_pages(document, source, *, text_engine="pdfium", ocr=None):
                 "printed_page": printed_page,
                 "section": section,
                 "text": text,
+                **structures,
             }
 
 
-def export_pages(manifest_path, output, *, data_dir=None, text_engine="pdfium", ocr=None):
+def export_pages(manifest_path, output, *, data_dir=None, text_engine="pdfium", ocr=None, mixed_ocr=False):
     documents = list(read_manifest(manifest_path, data_dir))
     input_paths = {manifest_path.resolve(), *(source.resolve() for _, source in documents)}
     if output.resolve() in input_paths:
@@ -200,7 +233,8 @@ def export_pages(manifest_path, output, *, data_dir=None, text_engine="pdfium", 
             page_count = 0
             for document, source in documents:
                 manual = manual_name(document)
-                for page in read_document_pages(document, source, text_engine=text_engine, ocr=ocr):
+                for page in read_document_pages(document, source, text_engine=text_engine, ocr=ocr,
+                                                mixed_ocr=mixed_ocr):
                     record = {
                         "document_id": document["document_id"],
                         "manual": manual,
@@ -217,7 +251,7 @@ def export_pages(manifest_path, output, *, data_dir=None, text_engine="pdfium", 
     return len(documents), page_count
 
 
-def export_parsed_documents(manifest_path, output, *, data_dir=None, text_engine="pdfium", ocr=None):
+def export_parsed_documents(manifest_path, output, *, data_dir=None, text_engine="pdfium", ocr=None, mixed_ocr=False):
     documents = list(read_manifest(manifest_path, data_dir))
     input_paths = {manifest_path.resolve(), *(source.resolve() for _, source in documents)}
     filenames = []
@@ -241,7 +275,8 @@ def export_parsed_documents(manifest_path, output, *, data_dir=None, text_engine
         for (document, source), filename in zip(documents, filenames):
             pages = [
                 {key: value for key, value in page.items() if value is not None}
-                for page in read_document_pages(document, source, text_engine=text_engine, ocr=ocr)
+                for page in read_document_pages(document, source, text_engine=text_engine, ocr=ocr,
+                                                mixed_ocr=mixed_ocr)
             ]
             parsed_document = {
                 "document_id": document["document_id"],
@@ -268,6 +303,12 @@ def main():
     parser.add_argument("--text-engine", choices=("pdfium", "pymupdf"), default="pdfium")
     parser.add_argument("--ocr", choices=("paddleocr", "pp-structure"),
                         help="Локальное OCR для страниц без текста после очистки.")
+    parser.add_argument("--mixed-ocr", action="store_true",
+                        help="Дополнительно распознавать растровые области страниц с текстом.")
+    parser.add_argument("--table-html", choices=("model", "cells"), default="model",
+                        help="Сборка HTML по структуре модели или по ячейкам линованной таблицы.")
+    parser.add_argument("--ocr-padding", type=int, default=0,
+                        help="Ширина белых полей вокруг изображения для PaddleOCR, в пикселях.")
     parser.add_argument(
         "--output", type=Path,
         help="Файл pages.jsonl для pages или каталог artifacts/parsed для parsed.",
@@ -281,8 +322,13 @@ def main():
                 from .page_ocr import PageOCR
             else:
                 from page_ocr import PageOCR
-            ocr = PageOCR(args.ocr)
-        options = {"data_dir": args.data_dir, "text_engine": args.text_engine, "ocr": ocr}
+            ocr = PageOCR(args.ocr, table_html=args.table_html, padding=args.ocr_padding)
+        elif args.table_html != "model":
+            raise ValueError("--table-html cells требует --ocr pp-structure.")
+        elif args.ocr_padding:
+            raise ValueError("--ocr-padding требует --ocr paddleocr.")
+        options = {"data_dir": args.data_dir, "text_engine": args.text_engine, "ocr": ocr,
+                   "mixed_ocr": args.mixed_ocr}
         if args.format == "parsed":
             artifacts = Path(os.environ.get("ARTIFACTS_DIR", PROJECT_ROOT / "artifacts"))
             output = args.output or artifacts / "parsed"
