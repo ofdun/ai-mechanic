@@ -178,6 +178,13 @@ class TicketReceipt(BaseModel):
     status: Literal['created']
 
 
+class PastTicket(BaseModel):
+    """A ticket the agent created for this vehicle earlier (B1 vehicle memory)."""
+    ticket_id: Text
+    session_id: Text
+    anomaly_type: Text
+
+
 class AgentTurn(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -234,6 +241,9 @@ class AgentResponse(BaseModel):
     evidence: EvidenceBundle = Field(default_factory=EvidenceBundle)
     claims: list[TechnicalClaim] = Field(default_factory=list)
     history: list[SessionRecord] = Field(default_factory=list)
+    # B1: comparison with earlier checks of this vehicle and the tickets created for it.
+    memory: list[str] = Field(default_factory=list)
+    past_tickets: list[PastTicket] = Field(default_factory=list)
     ticket_draft: TicketDraft | None = None
     limitations: list[str] = Field(default_factory=list)
     language: Language = 'ru'
@@ -257,6 +267,7 @@ class LocalizedAnswer(BaseModel):
     # Same order and length as AgentResponse.claims.
     claims: list[LocalizedText] = Field(default_factory=list)
     limitations: list[LocalizedText] = Field(default_factory=list)
+    memory: list[LocalizedText] = Field(default_factory=list)
     # Fixed interface labels for this language: sections, conflict, urgency, notes.
     labels: dict[str, str] = Field(default_factory=dict)
 
