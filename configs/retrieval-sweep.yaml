@@ -1,0 +1,54 @@
+# Сетка для `python -m evaluation.retrieval.sweep`: цель — Hit@1 ≥ 0.80 на dev без потери Hit@5.
+# base — общие параметры, overrides — отличия варианта. Подбирать только на dev, победителя один раз на holdout.
+# Для Cloudflare: embedder cf:@cf/baai/bge-m3, reranker cf:@cf/baai/bge-reranker-base (нужен ALLOW_EXTERNAL_EVIDENCE=true).
+
+base:
+  mode: hybrid
+  embedder: BAAI/bge-m3
+  top_k: 8
+  rerank_candidates: 30
+
+variants:
+  # Контроль: замер Вадима ret-comparison-dev-70b1b35
+  - name: bm25
+    query_mode: original
+    overrides: {mode: sparse}
+  - name: hybrid
+    query_mode: original
+  - name: hybrid-rerank
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3}
+
+  # BM25 в одиночку сильнее dense: больший вес лексике в RRF
+  - name: hybrid-w2-rerank
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, sparse_weight: 2.0}
+
+  # Страница длиннее окна cross-encoder: окна по словам, балл страницы — лучшее окно (MaxP)
+  - name: rerank-passages-150
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_passage_words: 150, rerank_passage_overlap: 40}
+  - name: rerank-passages-250
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_passage_words: 250, rerank_passage_overlap: 60}
+  - name: rerank-maxlen-1024
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_max_length: 1024}
+
+  # Обозначение руководства и раздел перед текстом
+  - name: rerank-passages-150-context
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_passage_words: 150, rerank_context: true}
+
+  # Подстраховка порядком слияния, когда cross-encoder не уверен
+  - name: rerank-passages-150-prior-0.5
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_passage_words: 150, rerank_prior_weight: 0.5}
+  - name: rerank-passages-150-prior-1
+    query_mode: original
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_passage_words: 150, rerank_prior_weight: 1.0}
+
+  # Переформулировка Planner (нужен --rewrites, иначе совпадает с original)
+  - name: rerank-passages-150-combined
+    query_mode: combined
+    overrides: {reranker: BAAI/bge-reranker-v2-m3, rerank_passage_words: 150, rerank_query: both}
