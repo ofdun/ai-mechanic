@@ -1,4 +1,5 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { UiLanguage, translator, useUiText } from './uiLanguage'
+import React, { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Send, Trash2, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
@@ -27,7 +28,14 @@ function selectedSession(vehicle) {
   return vehicle.sessions.some(session => session.session_id === saved) ? saved : vehicle.sessions[0]?.session_id || ''
 }
 
+const answerLanguages = { ru: 'Русский', uz: 'Oʻzbekcha', tg: 'Тоҷикӣ', ky: 'Кыргызча', kk: 'Қазақша', hi: 'हिन्दी' }
+const languageKey = 'ai-mechanic.answerLanguage'
+
 function App() {
+  const [language, setLanguage] = useState(() => {
+    const saved = readPreference(languageKey)
+    return Object.hasOwn(answerLanguages, saved) ? saved : 'ru'
+  })
   const [view, setView] = useState('result')
   const [catalog, setCatalog] = useState(null)
   const [error, setError] = useState('')
@@ -88,6 +96,11 @@ function App() {
     selectionControl.current = 'session'
     setSessionId(id)
   }
+  const t = translator(language)
+  useEffect(() => {
+    document.documentElement.lang = language
+    document.title = translator(language)('Диагностика · Цифровой механик')
+  }, [language])
   function openResult(event) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
@@ -95,18 +108,26 @@ function App() {
     if (history.state?.mechanicReader && document.getElementById('manual-title')) history.back()
     else document.getElementById('tab-result')?.focus()
   }
-  return <>
+  return <UiLanguage.Provider value={language}>
     <header className="mast"><div className="mast-inner">
-      <h1><a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>Цифровой механик</a></h1>
+      <h1><a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>{t('Цифровой механик')}</a></h1>
+      <label className="answer-language">{t('Язык')}
+        <select id="ui-language" value={language} onChange={event => {
+          setLanguage(event.target.value)
+          savePreference(languageKey, event.target.value)
+        }}>
+          {Object.entries(answerLanguages).map(([code, name]) => <option key={code} lang={code} value={code}>{name}</option>)}
+        </select>
+      </label>
     </div></header>
     <main>
-      {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
-        : !catalog ? <p role="status">Загружаем список транспорта…</p>
-        : !catalog.length ? <p role="status">В справочнике пока нет транспортных средств.</p>
+      {error ? <div role="alert" className="error"><p>{t(error)}</p><button onClick={() => setAttempt(n => n + 1)}>{t('Повторить загрузку')}</button></div>
+        : !catalog ? <p role="status">{t('Загружаем список транспорта…')}</p>
+        : !catalog.length ? <p role="status">{t('В справочнике пока нет транспортных средств.')}</p>
         : <Workspace key={JSON.stringify([vehicleId, sessionId])}
-          {...{ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
+          {...{ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
     </main>
-  </>
+  </UiLanguage.Provider>
 }
 
 const pendingLabels = { diagnose: 'Получаем результат', chat: 'Ищем ответ', draft_ticket: 'Готовим черновик', confirm: 'Отправляем заявку' }
@@ -122,7 +143,7 @@ function EmptyView({ icon: Icon, title, children }) {
 }
 
 function ticketUnavailableReason(result) {
-  if (result.requires_remeasurement || result.recognition_error) return result.message
+  if (result.requires_remeasurement || result.recognition_error) return result.localized?.message.text || result.message
   if (result.diagnostic?.status === 'normal') return 'Замер в норме. Заявка на дефектовку не требуется.'
   if (result.diagnostic?.status === 'anomaly' && result.search_plan) {
     return 'Для этого отклонения в руководстве пока не найдены подтверждённые работы для заявки.'
@@ -137,7 +158,13 @@ function VehicleOptions({ vehicles }) {
   })
 }
 
-function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
+function sameDiagnostic(previous, current) {
+  return previous && Object.keys(previous).length === Object.keys(current).length &&
+    Object.keys(current).every(key => previous[key] === current[key])
+}
+
+function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
+  const t = useUiText()
   const { id, turns, setTurns, reset, warning } = useChatHistory(vehicle?.vehicle_id, sessionId)
   const [openedDialog, setOpenedDialog] = useState(null)
   const historyLocked = turns.length > 0 && openedDialog !== id
@@ -176,11 +203,18 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
   const running = useRef(null)
   useEffect(() => () => running.current?.abort(), [])
   const pair = { vehicle_id: vehicle?.vehicle_id, session_id: sessionId }
-  async function run(kind, turn) {
+  const lastRequestedLanguage = useRef(language)
+  const refreshDiagnosis = useEffectEvent(() => run('diagnose', undefined, true))
+  useEffect(() => {
+    if (!pending && diagnosis && lastRequestedLanguage.current !== language) refreshDiagnosis()
+  }, [language, pending, diagnosis])
+
+  async function run(kind, turn, languageRefresh = false) {
     const text = turn?.question ?? question.trim()
     const retryId = turn?.id
     if (running.current || !sessionId || !id || (kind === 'chat' && historyLocked)) return
     const controller = new AbortController()
+    if (kind === 'diagnose') lastRequestedLanguage.current = language
     running.current = controller
     setPending(kind)
     setError('')
@@ -210,18 +244,24 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         return
       }
       const body = kind === 'chat' ? { message: text } : { command: kind }
-      const result = await request('/agent/run', { ...pair, conversation_id: id, ...body }, controller.signal)
+      const result = await request('/agent/run', { ...pair, conversation_id: id, ...(kind !== 'draft_ticket' && language !== 'ru' && { language }), ...body }, controller.signal)
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
-      if (result.diagnostic) setDiagnosis(result)
+      if (result.diagnostic && !(kind === 'draft_ticket' && sameDiagnostic(diagnosis?.diagnostic, result.diagnostic))) {
+        if (kind !== 'diagnose') lastRequestedLanguage.current = result.language || 'ru'
+        setDiagnosis(result)
+      }
       if (kind === 'diagnose' && result.diagnostic) {
         const verdict = { id: conversationId(), kind: 'verdict', result }
         setTurns(old => {
-          const previous = old.findLast(turn => turn.kind === 'verdict')?.result.diagnostic
+          const last = old.findLast(turn => turn.kind === 'verdict')
+          const previous = last?.result.diagnostic
           const current = result.diagnostic
-          if (previous && Object.keys(previous).length === Object.keys(current).length &&
-              Object.keys(current).every(key => previous[key] === current[key])) return old
+          if (sameDiagnostic(previous, current)) {
+            if (last.result.localized?.language === result.localized?.language) return old
+            return old.map(turn => turn === last ? { ...turn, result } : turn)
+          }
           return [...old, verdict]
         })
         setOpenedDialog(id)
@@ -230,6 +270,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
       if (result.diagnostic || result.action === 'draft_ticket') {
         setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
+        if (languageRefresh && draft && result.can_create_ticket && sameDiagnostic(diagnosis?.diagnostic, result.diagnostic)) return
         setDraft(result.ticket_draft && !ticketStatus ? {
           value: result.ticket_draft, evidence: result.evidence.items, urgency: result.ticket_draft.payload.urgency,
         } : null)
@@ -247,7 +288,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         if (['DRAFT_EXPIRED', 'DRAFT_STALE', 'DRAFT_NOT_FOUND', 'REMEASUREMENT_REQUIRED'].includes(err.code)) {
           setDraft(null)
           setCanDraft(false)
-          setError(err.message + ' Получите результат диагностики заново.')
+          setError([err.message, 'Получите результат диагностики заново.'])
           return
         }
       }
@@ -260,79 +301,84 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
     }
   }
 
+  const waitingForTranslation = diagnosis && (diagnosis.language || 'ru') !== language
+  const latestVerdict = turns.findLast(turn => turn.kind === 'verdict')
+  const translationStatus = <p className="meta translation-status" role="status">
+    {t(error && !pending ? 'Получите результат диагностики заново.' : 'Получаем результат')}
+  </p>
   const returnLabels = { result: 'К результату', chat: 'К чату', history: 'К истории', ticket: 'К заявке' }
-  return <ManualNavigation sessionKey={id} returnLabel={returnLabels[view]}><div className="workspace">
+  return <ManualNavigation sessionKey={id} returnLabel={t(returnLabels[view])}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
-      <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />Параметры замера</h2>
+      <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />{t('Параметры замера')}</h2>
       </div>
       <div id="selection">
-      <div><label htmlFor="engine">Двигатель</label>
+      <div><label htmlFor="engine">{t('Двигатель')}</label>
       <select id="engine" required value={engineFilter} disabled={pending === 'confirm'} onChange={e => changeEngine(e.target.value)}>
-        <option value="" disabled>Выберите двигатель</option>
+        <option value="" disabled>{t('Выберите двигатель')}</option>
         {Array.from(vehiclesByEngine.keys(), engine => <option key={engine} value={engine}>{engine}</option>)}
       </select></div>
-      <div><label htmlFor="vehicle">Транспортное средство</label>
+      <div><label htmlFor="vehicle">{t('Транспортное средство')}</label>
       <select id="vehicle" required value={vehicle?.vehicle_id || ''} disabled={!engineFilter || pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
-        <option value="" disabled>Выберите машину</option>
+        <option value="" disabled>{t('Выберите машину')}</option>
         <VehicleOptions vehicles={vehiclesByEngine.get(engineFilter) || []} />
       </select></div>
-      <div className="session-picker"><label htmlFor="session">Проверка</label>
+      <div className="session-picker"><label htmlFor="session">{t('Проверка')}</label>
       <select id="session" value={sessionId} disabled={!vehicle?.sessions.length || pending === 'confirm'} onChange={e => changeSession(e.target.value)}>
-        {!vehicle?.sessions.length && <option value="">{vehicle ? 'Нет проверок' : 'Сначала выберите машину'}</option>}
-        {vehicle?.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
+        {!vehicle?.sessions.length && <option value="">{vehicle ? t('Нет проверок') : t('Сначала выберите машину')}</option>}
+        {vehicle?.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at, language)}</option>)}
       </select></div>
-      <button className="primary" disabled={!id || !sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики<ArrowRight aria-hidden="true" /></button>
+      <button className="primary" disabled={!id || !sessionId || !!pending} onClick={() => run('diagnose')}>{t('Получить результат диагностики')}<ArrowRight aria-hidden="true" /></button>
       </div>
     </aside>
-    <section className="chat" aria-label="Протокол проверки">
-      <div className="view-switch" role="tablist" aria-label="Разделы проверки"
+    <section className="chat" aria-label={t('Протокол проверки')}>
+      <div className="view-switch" role="tablist" aria-label={t('Разделы проверки')}
         style={{ '--tab-count': views.length, '--active-tab': views.findIndex(tab => tab.id === view) }}>
         {views.map(({ id, label, icon: Icon }, index) =>
           <button key={id} type="button" role="tab" id={'tab-' + id} aria-controls={'panel-' + id}
             aria-selected={view === id} tabIndex={view === id ? 0 : -1}
-            onKeyDown={e => navigateTabs(e, index)} onClick={() => setView(id)}><Icon aria-hidden="true" />{label}</button>)}
+            onKeyDown={e => navigateTabs(e, index)} onClick={() => setView(id)}><Icon aria-hidden="true" />{t(label)}</button>)}
       </div>
       {!vehicle ? <div className="pane" id={'panel-' + view} role="tabpanel" aria-labelledby={'tab-' + view} tabIndex={0}>
-        <EmptyView icon={Gauge} title={engineFilter ? 'Выберите машину' : 'Выберите двигатель'}>
-          {engineFilter ? 'В списке транспорта доступны машины с выбранным двигателем.' : 'Затем выберите машину, чтобы открыть её проверки.'}
+        <EmptyView icon={Gauge} title={engineFilter ? t('Выберите машину') : t('Выберите двигатель')}>
+          {engineFilter ? t('В списке транспорта доступны машины с выбранным двигателем.') : t('Затем выберите машину, чтобы открыть её проверки.')}
         </EmptyView>
       </div> : <>
       <div className="pane" hidden={view !== 'result'} id="panel-result" aria-labelledby="tab-result" role="tabpanel" tabIndex={0}>
-        {diagnosis ? <DiagnosticReport result={diagnosis} /> : <EmptyView icon={ScanLine}
-          title={sessionId ? 'Результат ещё не запрошен' : 'У этой машины пока нет проверок'}>
-          {sessionId ? 'Проверьте параметры замера и нажмите «Получить результат диагностики».' : 'Выберите другую машину в списке транспорта.'}
+        {waitingForTranslation ? translationStatus : diagnosis ? <DiagnosticReport result={diagnosis} /> : <EmptyView icon={ScanLine}
+          title={sessionId ? t('Результат ещё не запрошен') : t('У этой машины пока нет проверок')}>
+          {sessionId ? t('Проверьте параметры замера и нажмите «Получить результат диагностики».') : t('Выберите другую машину в списке транспорта.')}
         </EmptyView>}
       </div>
       <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
         <header className="dialog-bar">
-          <span><strong>{vehicle.vehicle_id}</strong> · {sessionId || 'Нет замеров'}</span>
+          <span><strong>{vehicle.vehicle_id}</strong> · {sessionId || t('Нет замеров')}</span>
           <button type="button" className="reset-chat" disabled={!turns.length || !!pending} onClick={() => {
-          if (window.confirm('Сбросить переписку по этой машине и замеру? Сообщения исчезнут из этого браузера.')) {
+          if (window.confirm(t('Сбросить переписку по этой машине и замеру? Сообщения исчезнут из этого браузера.'))) {
             reset()
             setQuestion('')
             setError('')
             composer.current?.focus()
           }
-        }}><Trash2 aria-hidden="true" />Сбросить диалог</button>
+        }}><Trash2 aria-hidden="true" />{t('Сбросить диалог')}</button>
         </header>
         <div className="pane dialog-scroll" ref={chatBody}>
-        {warning && <p role="status">{warning}</p>}
-        {historyLocked && <EmptyView icon={MessageSquare} title="Переписка сохранена">
-          Чтобы открыть её, нажмите «Получить результат диагностики».
+        {warning && <p role="status">{t(warning)}</p>}
+        {historyLocked && <EmptyView icon={MessageSquare} title={t('Переписка сохранена')}>
+          {t('Чтобы открыть её, нажмите «Получить результат диагностики».')}
         </EmptyView>}
-        {id && !turns.length && <EmptyView icon={MessageSquare} title="Что хотите уточнить?">
-          Спросите о замере или нормативе из руководства для двигателя {vehicle.engine_model}.
+        {id && !turns.length && <EmptyView icon={MessageSquare} title={t('Что хотите уточнить?')}>
+          {t('Спросите о замере или нормативе из руководства для двигателя {engine}.', { engine: vehicle.engine_model })}
         </EmptyView>}
-        <div role="log" aria-label="Сообщения">
+        <div role="log" aria-label={t('Сообщения')}>
         {!historyLocked && turns.map(({ id, kind, result, question, error: turnError }) => kind === 'verdict'
-          ? <div className="turn" key={id || 'verdict'}><DiagnosticVerdict result={result} /></div>
+          ? <div className="turn" key={id || 'verdict'}>{latestVerdict?.result === result && waitingForTranslation ? translationStatus : <DiagnosticVerdict result={result} />}</div>
           : <div className="turn" key={id}>
-          <div className="question"><strong>Вы</strong><p>{question}</p></div>
-          {turnError || (!result && id !== sendingTurn.current) ? <div className="chat-error"><p>Ответ не получен. {turnError || 'Отправка прервалась.'}</p>
-            <button disabled={!!pending} onClick={() => run('chat', { id, question })}>Повторить</button></div>
-            : !result ? <p className="meta">Ищем ответ<span className="pending-dots">…</span></p>
+          <div className="question"><strong>{t('Вы')}</strong><p>{question}</p></div>
+          {turnError || (!result && id !== sendingTurn.current) ? <div className="chat-error"><p>{t('Ответ не получен.')} {t(turnError) || t('Отправка прервалась.')}</p>
+            <button disabled={!!pending} onClick={() => run('chat', { id, question })}>{t('Повторить')}</button></div>
+            : !result ? <p className="meta">{t('Ищем ответ')}<span className="pending-dots">…</span></p>
             : result.ticket_draft
-            ? <p>Черновик подготовлен в разделе «Заявка».</p>
+            ? <p>{t('Черновик подготовлен в разделе «Заявка».')}</p>
             : <Response result={result} />}
         </div>)}</div>
         </div>
@@ -342,36 +388,36 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
       </div>
       <div className="pane" hidden={view !== 'ticket'} id="panel-ticket" aria-labelledby="tab-ticket" role="tabpanel" tabIndex={0}>
         {ticketStatus ? ticketStatus.ticketId
-          ? <div className="receipt" role="status"><CheckCheck aria-hidden="true" /><h3>Заявка создана</h3><p>Номер в ТОиР <strong>{ticketStatus.ticketId}</strong></p></div>
-          : <p className="limitations" role="status">{ticketStatus.message}</p>
+          ? <div className="receipt" role="status"><CheckCheck aria-hidden="true" /><h3>{t('Заявка создана')}</h3><p>{t('Номер в ТОиР')} <strong>{ticketStatus.ticketId}</strong></p></div>
+          : <p className="limitations" role="status">{t(ticketStatus.message)}</p>
           : draft ? <Draft draft={draft.value} evidence={draft.evidence} urgency={draft.urgency}
               disabled={!!pending} onUrgencyChange={urgency => setDraft(current => ({ ...current, urgency }))} />
-          : diagnosis?.manual_referral ? <section className="draft" aria-label="Рекомендация на дефектовку">
-            <h3>Рекомендация на дефектовку</h3>
-            <p>Заявка в ТОиР не отправлена. Для ручного оформления используйте этот текст.</p>
+          : diagnosis?.manual_referral ? <section className="draft" aria-label={t('Рекомендация на дефектовку')}>
+            <h3>{t('Рекомендация на дефектовку')}</h3>
+            <p>{t('Заявка в ТОиР не отправлена. Для ручного оформления используйте этот текст.')}</p>
             <p className="manual-referral">{diagnosis.manual_referral}</p>
           </section>
-          : <EmptyView icon={ClipboardList} title="Заявка на дефектовку">
-            {canDraft ? 'Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.'
-              : ticketHint || (sessionId ? 'Сначала получите результат диагностики.' : 'У этой машины пока нет проверок. Выберите другое ТС.')}</EmptyView>}
+          : <EmptyView icon={ClipboardList} title={t('Заявка на дефектовку')}>
+            {canDraft ? t('Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.')
+              : t(ticketHint) || (sessionId ? t('Сначала получите результат диагностики.') : t('У этой машины пока нет проверок. Выберите другое ТС.'))}</EmptyView>}
       </div>
       <div className="panel-footer" hidden={view === 'history'}>
         {view === 'result' && <div className="footer-actions">
-          <button className="secondary" onClick={() => { focusQuestion.current = true; setView('chat') }}><MessageSquare aria-hidden="true" />Задать вопрос</button>
-          <button type="button" aria-controls="panel-ticket" onClick={() => selectTab('ticket')}>К заявке<ArrowRight aria-hidden="true" /></button>
+          <button className="secondary" onClick={() => { focusQuestion.current = true; setView('chat') }}><MessageSquare aria-hidden="true" />{t('Задать вопрос')}</button>
+          <button type="button" aria-controls="panel-ticket" onClick={() => selectTab('ticket')}>{t('К заявке')}<ArrowRight aria-hidden="true" /></button>
         </div>}
         {view === 'chat' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) { composer.current?.focus(); run('chat') } }}>
-          <div className="compose-row"><input ref={composer} aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю…" value={question}
+          <div className="compose-row"><input ref={composer} aria-label={t('Вопрос по двигателю')} placeholder={t('Вопрос по двигателю…')} value={question}
             maxLength={8000} disabled={!id || !sessionId || historyLocked} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
-            <button type="submit" className="submit" disabled={historyLocked || !id || !question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>Отправить</span></button></div>
+            <button type="submit" className="submit" disabled={historyLocked || !id || !question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>{t('Отправить')}</span></button></div>
         </form>}
         {view === 'ticket' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
-          onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? 'Отправлено в ТОиР' : 'Отправка заблокирована'
-            : draft ? 'Подтвердить заявку' : 'Создать заявку'}</button>}
+          onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? t('Отправлено в ТОиР') : t('Отправка заблокирована')
+            : draft ? t('Подтвердить заявку') : t('Создать заявку')}</button>}
       </div>
       </>}
-      <div className="panel-status" role="status">{error || (pending && pending !== 'chat' &&
-        <>{pendingLabels[pending]}<span className="pending-dots">…</span></>)}</div>
+      <div className="panel-status" role="status">{(Array.isArray(error) ? error.map(part => t(part)).join(' ') : t(error)) || (pending && pending !== 'chat' &&
+        <>{t(pendingLabels[pending])}<span className="pending-dots">…</span></>)}</div>
     </section>
   </div></ManualNavigation>
 }
