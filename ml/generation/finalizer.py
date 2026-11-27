@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ml.contracts import AgentResponse, DiagnosticResult, Evidence, SessionRecord, TechnicalClaim
+from ml.contracts import AgentResponse, DiagnosticResult, Evidence, InspectionRecord, SessionRecord, TechnicalClaim
 from ml.generation.claims import conflict_group, quote_of
 from ml.generation.profiles import PROFILES, URGENCY_LABELS, Urgency, urgency_for
 from ml.generation.text import claim_numbers, content_stems, fold, has_negation
@@ -291,8 +291,12 @@ class MechanicFinalizer:
         if not sessions:
             return MechanicAnswer(tone='info', verdict='📈 История проверок пуста.')
         items = [AnswerItem(text=describe_session(session)) for session in sessions]
+        sections = [AnswerSection(title='Проверки', items=items)]
+        if response.inspections:
+            sections.append(AnswerSection(title='Результаты осмотра', items=[
+                AnswerItem(text=describe_inspection(record)) for record in response.inspections]))
         return MechanicAnswer(tone='info', verdict=f'📈 Последние проверки {response.vehicle_id}',
-                              details=[trend(sessions)], sections=[AnswerSection(title='Проверки', items=items)])
+                              details=[trend(sessions)], sections=sections)
 
     # Ticket fields ----------------------------------------------------------------------------
 
@@ -380,6 +384,20 @@ def item(claim: TechnicalClaim, sources: dict[str, Evidence]) -> AnswerItem:
 
 
 STATUS_LABELS = {'normal': 'норма', 'anomaly': 'отклонение', 'check_failed': 'сбой записи'}
+
+
+INSPECTION_OUTCOMES = {
+    'confirmed': 'гипотеза ИИ подтвердилась', 'not_confirmed': 'гипотеза ИИ не подтвердилась',
+    'other_cause': 'причина другая',
+}
+MARKS = {'matched': 'метки совпали', 'not_matched': 'метки не совпадают'}
+
+
+def describe_inspection(record: InspectionRecord) -> str:
+    text = f'{record.recorded_at:%d.%m.%Y} · {record.session_id} — {INSPECTION_OUTCOMES[record.outcome]}'
+    if record.marks:
+        text += f', {MARKS[record.marks]}'
+    return f'{text}: {record.comment}' if record.comment else text
 
 
 def describe_session(session: SessionRecord) -> str:
