@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from ml.api import api_errors
 from ml.config import Settings
-from ml.contracts import AgentRequest, ConversationContext, TicketConfirmation, TicketDecision
+from ml.contracts import AgentError, AgentRequest, ConversationContext, TicketConfirmation, TicketDecision
 from ml.manual_api import manual_router
 from ml.pdf_baseline import PdfPageRetriever, build_manual_pipeline
 from ml.retrieval import RetrievalConfig, RetrievalEngine
@@ -55,6 +55,14 @@ def create_app():
             'vehicle_id': True, 'engine_model': True, 'make': True, 'model': True,
             'sessions': {'__all__': {'session_id', 'checked_at', 'status'}},
         }) for vehicle in pipeline.vehicles.vehicles.values()]}
+
+    @app.get('/audit')
+    def audit(vehicle_id: str, session_id: str):
+        # The chain for one check, from the first question to the ticket. Internal: the web backend does not expose it.
+        with api_errors():
+            if pipeline.audit is None:
+                raise AgentError('AUDIT_DISABLED', 'Журнал аудита выключен (AUDIT_ENABLED=false).')
+            return {'entries': pipeline.audit.chain(vehicle_id, session_id)}
 
     @app.post('/run')
     def run(body: Run):
