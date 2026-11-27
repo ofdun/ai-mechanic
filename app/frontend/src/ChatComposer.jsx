@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Mic, Send, Square } from 'lucide-react'
 import { recordSpeech } from './dictation'
+import { setDictating } from './speech'
 import { useUiText } from './uiLanguage'
 
 const unsupported = 'Голосовой ввод недоступен. Введите текст.'
@@ -15,7 +16,10 @@ export function ChatComposer({ input, question, setQuestion, language, disabled,
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const stopRecording = useRef(null)
-  useEffect(() => () => active.current?.abort(), [])
+  useEffect(() => () => {
+    active.current?.abort()
+    setDictating(false)
+  }, [])
 
   async function dictate() {
     if (active.current) {
@@ -28,6 +32,7 @@ export function ChatComposer({ input, question, setQuestion, language, disabled,
     }
     if (!consent.current && !window.confirm(t('Отправить запись на сервер «Цифрового механика» для распознавания?'))) return
     consent.current = true
+    setDictating(true)
     const controller = new AbortController()
     active.current = controller
     setBusy(true)
@@ -56,6 +61,7 @@ export function ChatComposer({ input, question, setQuestion, language, disabled,
     } catch (error) {
       if (!controller.signal.aborted) setStatus(['NotAllowedError', 'NotFoundError', 'NotReadableError'].includes(error.name) ? denied : unsupported)
     } finally {
+      setDictating(false)
       if (!controller.signal.aborted) {
         active.current = null
         stopRecording.current = null

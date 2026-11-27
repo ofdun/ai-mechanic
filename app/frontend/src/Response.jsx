@@ -5,6 +5,7 @@ import { CheckCircle2, CircleAlert, Printer, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { AnswerChecks } from './AnswerChecks'
 import { Source } from './ManualReader'
+import { ReadAloud } from './ReadAloud'
 import { ScoreChart, score } from './ScoreChart'
 import { PartNumbers } from './Parts'
 import { TighteningFigures } from './Figures'
@@ -41,6 +42,12 @@ function ManualAnswer({ summary, children }) {
     <p className="manual-answer">{summary}</p>
     {children}
   </>
+}
+
+// The short answer as it is spoken: verdict and recording warning first, then the lead,
+// the summary (or the checked claims when there is no summary) and the limitations.
+function spokenAnswer({ title, warning, details, lead, summary, claims = [], limitations = [] }) {
+  return [title, warning, details, lead, ...(summary.length ? summary : claims), ...limitations].filter(line => line?.text)
 }
 
 // B1: earlier checks and tickets of this vehicle, written by the agent from its own records.
@@ -88,12 +95,24 @@ function LocalizedResponse({ result, compact = false, report = false }) {
   const details = status && anomalyDetails({ ...result, message: answer.message.original || answer.message.text }, status.status, t)
   const lines = summary ? answer.summary : []
   const Icon = status?.status === 'normal' ? CheckCircle2 : status?.status === 'check_failed' ? RotateCcw : CircleAlert
+  const uiLang = useContext(UiLanguage)
+  const spoken = line => ({ text: line.text, lang: line.translated === false ? 'ru' : answer.language })
+  const shownMessage = compact || !lines.length || result.action !== 'search_manuals'
+  const readLines = !compact && spokenAnswer({
+    title: status && { text: t(status.title), lang: uiLang },
+    warning: diagnostic && { text: t(recordingWarnings[diagnostic.signal_quality] || ''), lang: uiLang },
+    details: details && { text: details, lang: uiLang },
+    lead: shownMessage && spoken(answer.message),
+    summary: lines.map(spoken),
+    claims: showClaims && !diagnostic ? verified.map(claim => spoken(answer.claims[result.claims.indexOf(claim)] || { text: claim.text, translated: false })) : [],
+    limitations: answer.limitations.map(spoken),
+  })
   return <article className={report ? 'report report-' + status.status : compact ? 'diagnostic-verdict' : 'reply'} lang={answer.language}>
     {status && <div className={report ? 'report-heading' : 'verdict ' + status.status}><h3>{report && <Icon aria-hidden="true" />}{t(status.title)}</h3>
       {report ? <p className="report-reading">{[t(recordingWarnings[diagnostic.signal_quality]), details].filter(Boolean).join(' · ')}</p>
         : recordingWarnings[diagnostic.signal_quality] && <span>{t(recordingWarnings[diagnostic.signal_quality])}</span>}
     </div>}
-    {(compact || !lines.length || result.action !== 'search_manuals') &&
+    {shownMessage &&
       <AnswerLine className={report ? 'report-lead' : undefined} line={answer.message} />}
     {!report && details && <p className="meta">{details}</p>}
     {!compact && <>
@@ -124,12 +143,14 @@ function LocalizedResponse({ result, compact = false, report = false }) {
     </section>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
       .map((line, index) => <AnswerLine key={index} line={line} />)}
+    {readLines && <ReadAloud lines={readLines} />}
     {!compact && <AnswerChecks result={result} />}
   </article>
 }
 
 export function DiagnosticReport({ result }) {
   const t = useUiText()
+  const uiLang = useContext(UiLanguage)
   if (result.localized) return <LocalizedResponse result={result} report />
   const { diagnostic } = result
   const { sources, verified, summary } = verifiedClaims(result)
@@ -169,6 +190,13 @@ export function DiagnosticReport({ result }) {
   const lead = status === 'normal' ? t('По результату этой проверки можно продолжить эксплуатацию.') : result.message
   const title = status === 'anomaly' && diagnostic.anomaly_title
   const titleAt = title ? lead.indexOf(title) : -1
+  const readLines = spokenAnswer({
+    title: { text: t(statusTitle), lang: uiLang },
+    details: { text: reading, lang: uiLang },
+    lead: { text: lead, lang: status === 'normal' ? uiLang : 'ru' },
+    summary: [status === 'normal' ? result.message : status === 'anomaly' ? summary : ''].map(text => ({ text, lang: 'ru' })),
+    limitations: (result.limitations || []).map(text => ({ text, lang: 'ru' })),
+  })
   return <article className={'report report-' + status}>
     <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{t(statusTitle)}</h3>
       {reading && <p className="report-reading">{reading}</p>}
@@ -192,6 +220,7 @@ export function DiagnosticReport({ result }) {
         {references.length > 1 && <span>[{index + 1}] </span>}<Source source={source} />
       </div>)}</div>
     </footer>}
+    <ReadAloud lines={readLines} />
     <AnswerChecks result={result} />
   </article>
 }
@@ -217,6 +246,7 @@ export function DiagnosticVerdict({ result }) {
 
 export function Response({ result }) {
   const t = useUiText()
+  const uiLang = useContext(UiLanguage)
   if (result.localized) return <LocalizedResponse result={result} />
   const { diagnostic, message, requires_remeasurement: repeat } = result
   const { sources, verified, summary } = verifiedClaims(result)
@@ -226,6 +256,21 @@ export function Response({ result }) {
   if (insufficient) {
     for (const source of sources.values()) referencePages.set(pageKey(source), source)
   }
+  const russian = text => ({ text, lang: 'ru' })
+  const shown = diagnostic && verdict(result)
+  const warning = diagnostic && recordingWarnings[diagnostic.signal_quality]
+  const readLines = spokenAnswer({
+    title: shown && { text: t(shown.title), lang: uiLang },
+    warning: warning && { text: t(warning), lang: uiLang },
+    details: shown && { text: anomalyDetails(result, shown.status, t), lang: uiLang },
+    lead: (diagnostic || !['search_manuals', 'get_diagnostic_history'].includes(result.action)) && russian(message),
+    summary: [summary].filter(Boolean).map(russian),
+    claims: !diagnostic && !repeat && !result.recognition_error ? verified.map(claim => russian(claim.text)) : [],
+    limitations: insufficient
+      ? [...(limitations.length ? limitations.map(russian) : [{ text: t('Ответ по руководству подтвердить не удалось.'), lang: uiLang }]),
+        { text: t('Рекомендуется дефектовка.'), lang: uiLang }]
+      : limitations.map(russian),
+  })
   return <article className="reply">
     {diagnostic ? <DiagnosticVerdict result={result} /> : !['search_manuals', 'get_diagnostic_history'].includes(result.action) && <p>{message}</p>}
     <ManualAnswer summary={summary}>
@@ -251,6 +296,7 @@ export function Response({ result }) {
     </section>}
     {result.action === 'get_diagnostic_history' && <VehicleMemory result={result} className="claims" />}
     {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
+    <ReadAloud lines={readLines} />
     <AnswerChecks result={result} />
   </article>
 }
