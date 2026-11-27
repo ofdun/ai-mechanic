@@ -91,6 +91,12 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
 .view-switch button[aria-selected="true"]:focus-visible { outline-color: var(--lime); }
 .view-switch button:focus-visible, .pane:focus-visible { outline-offset: -4px; }
 .pane { padding-inline: var(--inset); min-width: 0; height: 0; min-height: 100%; overflow: auto; overscroll-behavior-y: contain; }
+.chat-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.dialog-bar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding-inline: var(--inset); border-bottom: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+.dialog-bar strong { color: var(--ink); }
+.dialog-bar .reset-chat { flex: none; gap: .35rem; padding-inline: .45rem; border-color: transparent; background: transparent; font-size: inherit; }
+.dialog-bar .reset-chat:hover:enabled { background: var(--wash, #eef2ed); }
+.dialog-bar .reset-chat svg { width: 1rem; height: 1rem; }
 .empty, .receipt { display: grid; align-content: center; justify-items: center; min-height: 100%; padding: 1.25rem 0; text-align: center; }
 .empty > svg, .receipt > svg { width: 2.8rem; height: 2.8rem; stroke-width: 1.45; color: var(--pine); margin-bottom: .8rem; }
 .empty h3, .receipt h3, .draft h3 { font-size: clamp(1.3rem, 2vw, 2rem); }

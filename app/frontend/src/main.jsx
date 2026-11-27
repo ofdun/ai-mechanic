@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Send, Wrench } from 'lucide-react'
+import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Send, Trash2, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } from './Response'
 import { ManualNavigation } from './ManualReader'
@@ -262,16 +262,20 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
           {sessionId ? 'Проверьте параметры замера и нажмите «Получить результат диагностики».' : 'Выберите другую машину в списке транспорта.'}
         </EmptyView>}
       </div>
-      <div className="pane" hidden={view !== 'chat'} ref={chatBody} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
-        {warning && <p role="status">{warning}</p>}
-        {!!turns.length && <button className="reset-chat" disabled={!!pending} onClick={() => {
+      <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
+        <header className="dialog-bar">
+          <span><strong>{vehicle.vehicle_id}</strong> · {sessionId || 'Нет замеров'}</span>
+          <button type="button" className="reset-chat" disabled={!turns.length || !!pending} onClick={() => {
           if (window.confirm('Сбросить переписку по этой машине и замеру? Сообщения исчезнут из этого браузера.')) {
             reset()
             setQuestion('')
             setError('')
             composer.current?.focus()
           }
-        }}>Сбросить диалог</button>}
+        }}><Trash2 aria-hidden="true" />Сбросить диалог</button>
+        </header>
+        <div className="pane dialog-scroll" ref={chatBody}>
+        {warning && <p role="status">{warning}</p>}
         {!turns.length && <EmptyView icon={MessageSquare} title="Что хотите уточнить?">
           Спросите о замере или нормативе из руководства для двигателя {vehicle.engine_model}.
         </EmptyView>}
@@ -287,6 +291,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
             ? <p>Черновик подготовлен в разделе «Заявка».</p>
             : <Response result={result} />}
         </div>)}</div>
+        </div>
       </div>
       <div className="pane" hidden={view !== 'history'} id="panel-history" aria-labelledby="tab-history" role="tabpanel" tabIndex={0}>
         <VehicleHistory vehicleId={vehicle.vehicle_id} sessions={vehicle.sessions.slice(0, 5)} />
