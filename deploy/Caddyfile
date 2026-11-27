@@ -8,7 +8,9 @@ https://{$STAND_HOST} {
 			profile shortlived
 		}
 	}
-	basic_auth {
+	# Install manifest and icons stay public: the phone may fetch them without the stand password.
+	@private not path /manifest.json /icons/*
+	basic_auth @private {
 		{$STAND_USER} {$STAND_PASSWORD_HASH}
 	}
 	header >Cache-Control "private, no-store"
