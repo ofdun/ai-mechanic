@@ -24,6 +24,7 @@ from ml.generation.generator import ClaimGenerator, diagnosis_context, search_qu
 from ml.generation.plain import PlainWriter
 from ml.generation.reasoner import TechnicalReasoner
 from ml.generation.verifier import EvidenceVerifier, answer_verification
+from ml.operability import is_release_question, release_outcome
 from ml.pipeline import scope_evidence
 from ml.providers.openrouter import OpenRouterClient
 
@@ -150,6 +151,8 @@ class LLMEvidenceWorkflow:
     def run(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
         if not self.settings.allow_external_evidence:
             raise AgentError('LLM_EVIDENCE_NOT_ALLOWED', 'Для передачи источников в OpenRouter нужно разрешение. Для локального PDF включите AGENT_ARCHITECTURE=baseline.')
+        if is_release_question(plan.original_query):
+            return release_outcome(plan, self.search)
         if self.settings.agent_architecture == 'b':
             return self.run_evidence_grounded(plan, diagnostic)
         evidence = self.search(plan)

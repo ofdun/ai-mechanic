@@ -196,8 +196,8 @@ def build_manual_pipeline(settings: Settings, http: httpx.Client, retriever: Pdf
         generation = None
         if settings.allow_external_evidence and settings.agent_architecture != 'baseline':
             generation = LLMEvidenceWorkflow(settings, OpenRouterClient(http, settings), retriever, ReviewedOperations())
-        terms = retriever.sparse.idf if isinstance(retriever, RetrievalEngine) and retriever.sparse else ()
-        return Pipeline(settings, http, planner=LocalPlanner(terms),
+        postings = retriever.sparse.postings if isinstance(retriever, RetrievalEngine) and retriever.sparse else {}
+        return Pipeline(settings, http, planner=LocalPlanner.from_postings(postings),
                         search_workflow=LocalEvidence(retriever, catalog, engines, generation=generation))
     return build_retrieval_pipeline(settings, http, retriever)
 

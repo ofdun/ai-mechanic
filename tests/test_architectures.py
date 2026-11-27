@@ -165,3 +165,55 @@ def test_a_skips_the_disagreement_check_with_one_manual():
     with http:
         workflow.run(PLAN, None)
     assert len(requests) == 3
+
+
+@pytest.mark.parametrize(('architecture', 'question', 'prior', 'needed'), [
+    ('a', 'Можно ли своим ходом перегнать машину на базу?',
+     'Диагностика указала на возможную проблему дизельной топливоподачи.', 'очная проверка топливной системы'),
+    ('a', 'А если нам нужно срочно перегнать машину на базу, это критично?',
+     'Обсуждалось подозрение на износ вкладышей.', 'давление масла с указанием температуры и оборотов'),
+    ('b', 'Безопасно ли доехать до базы своим ходом?', '', 'очной проверки у механика'),
+])
+def test_release_questions_refuse_vehicle_clearance_after_search(architecture, question, prior, needed):
+    from ml.planner.local import LocalPlanner
+
+    workflow, http, requests, _ = configured_workflow(architecture, iter([]))
+    queries = []
+    towing = PAGE.model_copy(update={'text': 'Для буксировки автомобиля включить нейтральную передачу.'})
+
+    def lookup(plan):
+        queries.append(plan.rewritten_query)
+        return EvidenceBundle(items=[towing, FOREIGN])
+
+    workflow.retriever = SimpleNamespace(search=lookup)
+    decision = LocalPlanner().plan(question, PLAN.engine_model, None, recent_messages=[prior] if prior else [])
+    assert decision.action == 'search_manuals'
+    plan = PLAN.model_copy(update={'original_query': question, 'rewritten_query': decision.rewritten_query})
+    with http:
+        result = workflow.run(plan, None)
+    assert queries == [decision.rewritten_query] and not requests
+    assert not result.claims and not result.evidence.items
+    assert 'Данных недостаточно, чтобы подтвердить возможность перегона' in result.summary
+    assert needed in result.summary and 'Решение о ремонте и выпуске машины принимает механик' in result.summary
+    assert 'буксиров' not in result.summary
+
+
+def test_release_refusal_survives_retrieval_outage():
+    workflow, http, requests, _ = configured_workflow('a', iter([]))
+
+    def offline(plan):
+        raise AgentError('RAG_BACKEND_UNAVAILABLE', 'search provider is offline')
+
+    workflow.retriever = SimpleNamespace(search=offline)
+    question = 'Можно продолжать эксплуатацию?'
+    with http:
+        result = workflow.run(PLAN.model_copy(update={'original_query': question, 'rewritten_query': question}), None)
+    assert 'Данных недостаточно' in result.summary
+    assert 'поиск по руководствам недоступен' in result.summary
+    assert not result.claims and not requests
+
+
+def test_documented_towing_procedure_remains_a_manual_question():
+    from ml.operability import is_release_question
+
+    assert not is_release_question('Как буксировать заглохшую машину на базу?')

@@ -127,6 +127,15 @@ def test_text_uses_native_tool_call_and_diagnoses(setup):
     assert VEHICLE not in json.dumps(tool_call[1]) and SESSION not in json.dumps(tool_call[1])
 
 
+def test_ticket_history_does_not_call_the_planner_or_prepare_a_draft(setup):
+    upstreams, pipeline = setup
+    upstreams.planner_call = ('draft_ticket', {})
+    result = pipeline.run(utterance(message='Покажи прошлые заявки на эту машину'))
+    assert result.action == 'clarify'
+    assert 'История ранее созданных заявок' in result.message
+    assert result.ticket_draft is None and upstreams.requests == []
+
+
 def test_search_builds_rewritten_plan_for_selected_engine(setup):
     upstreams, pipeline = setup
     upstreams.planner_call = ('search_manuals', {'rewritten_query': 'Проверка форсунок', 'subqueries': ['давление впрыска']})

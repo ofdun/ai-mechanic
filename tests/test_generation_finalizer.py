@@ -112,8 +112,10 @@ def test_manual_answer_and_honest_refusal():
     plan = SearchPlan(engine_model=ENGINE, original_query='Можно ли своим ходом перегнать машину на базу?',
                       rewritten_query='перегон')
     text = FINALIZER.compose(response('search_manuals', search_plan=plan, evidence=EVIDENCE))
-    assert text.startswith('📘 Данных недостаточно.')
-    assert 'нет подтверждённого ответа' in text and 'Решение о ремонте и выпуске машины' in text
+    assert text.startswith('📘 Данных недостаточно, чтобы подтвердить возможность перегона')
+    assert text.count('Данных недостаточно') == 1 and 'Решение о ремонте и выпуске машины' in text
+    text = FINALIZER.compose(response('search_manuals', search_plan=plan, evidence=EVIDENCE, claims=CLAIMS[1:3]))
+    assert 'Данных недостаточно' in text and 'стр. 31' not in text
     text = FINALIZER.compose(response('search_manuals', search_plan=PLAN, evidence=EVIDENCE, claims=CLAIMS[1:3]))
     assert text.startswith('📘 Ответ по руководствам для ЯМЗ-236М2') and 'Решение о ремонте' not in text
 
