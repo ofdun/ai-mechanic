@@ -12,7 +12,7 @@ import (
 
 type config struct {
 	listenAddr, frontendDir, stateDir string
-	agentURL                          *url.URL
+	agentURL, speechURL               *url.URL
 	agentTimeout                      time.Duration
 }
 
@@ -30,6 +30,10 @@ func loadConfig() (config, error) {
 		return c, fmt.Errorf("AGENT_URL must be an HTTP or HTTPS base URL")
 	}
 	c.agentURL = u
+	c.speechURL, err = url.Parse(setting("SPEECH_URL", "http://speech:8003"))
+	if err != nil || (c.speechURL.Scheme != "http" && c.speechURL.Scheme != "https") || c.speechURL.Hostname() == "" {
+		return c, fmt.Errorf("SPEECH_URL must be an HTTP or HTTPS base URL")
+	}
 	c.agentTimeout, err = time.ParseDuration(setting("WEB_AGENT_TIMEOUT", "20m"))
 	if err != nil || c.agentTimeout <= 0 || c.agentTimeout >= mechanic.TurnLease {
 		return c, fmt.Errorf("WEB_AGENT_TIMEOUT must be positive and shorter than %s", mechanic.TurnLease)
