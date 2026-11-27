@@ -52,7 +52,7 @@ def test_a_uses_planned_models_and_filters_unsupported_claims():
     with http:
         result = workflow.run(PLAN, None)
     assert [r['model'] for r in requests] == ['deepseek/deepseek-v4.1-flash', 'z-ai/glm-5.3-flash']
-    assert requests[0]['reasoning'] == {'enabled': False} and 'reasoning' not in requests[1]
+    assert requests[0]['reasoning'] == {'enabled': False} and requests[1]['reasoning'] == {'enabled': False}
     assert [item.evidence_id for item in result.evidence.items] == ['p52']
     assert [item.model_dump() for item in result.claims] == [good]
     verifier_input = json.loads(requests[-1]['messages'][-1]['content'])

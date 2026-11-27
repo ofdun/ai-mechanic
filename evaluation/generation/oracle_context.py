@@ -332,7 +332,7 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
                     'question': case.question, 'reference_answer': case.answer,
                     'reference_outcome': case.outcome, 'answer': result.answer,
                 }, ensure_ascii=False)},
-            ], JudgeOutput, max_tokens=600)
+            ], JudgeOutput, max_tokens=1500)
             result.verdict, result.verdict_reason = verdict.verdict, verdict.reason
         except AgentError as error:
             result.error = f'judge:{error.code}'
