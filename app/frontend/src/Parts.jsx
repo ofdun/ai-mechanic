@@ -28,7 +28,7 @@ export function PartNumbers({ result, className = 'claims' }) {
       <ul>{parts.map(part => <li key={part.designation}>
         <code>{part.designation}</code> <CopyButton text={part.designation} />
         <p className="meta">{part.context}</p>
-        <Source source={part} />
+        <Source source={part} quote={part.designation} />
       </li>)}</ul>
       <p className="meta">{t('Наличие и совместимость проверьте у поставщика: агент знает только руководство.')}</p>
     </> : <p>{t(result.part_numbers_note)}</p>}</div>

@@ -33,7 +33,7 @@ from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic
 from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
-from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers
+from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers, requested_names
 from ml.tools.tickets import TicketStore
 from ml.vehicles import VehicleDirectory
 
@@ -130,9 +130,12 @@ class Pipeline:
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
         response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
+        question = (request.message or '').casefold().replace(vehicle.engine_model.casefold(), ' ')
+        names = requested_names(question) if response.action == 'search_manuals' else None
         if response.claims:
-            response.part_numbers = part_numbers(response)
-            if not response.part_numbers and asks_for_parts(response, request.message):
+            response.part_numbers = part_numbers(response, names)
+        if not response.part_numbers and asks_for_parts(response, request.message):
+            if response.claims or response.action == 'search_manuals':
                 response.part_numbers_note = NONE_FOUND
         response.language = request.language
         if request.language != 'ru':

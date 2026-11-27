@@ -165,6 +165,7 @@
   "Обозначения деталей из руководства": "Qo'llanmadagi detal belgilari",
   "Наличие и совместимость проверьте у поставщика: агент знает только руководство.": "Mavjudligi va mosligini yetkazib beruvchida tekshiring: agent faqat qo'llanmani biladi.",
   "На страницах руководства, подтвердивших ответ, обозначений деталей нет.": "Javobni tasdiqlagan qo'llanma sahifalarida detal belgilari yo'q.",
+  "Подтвердить обозначение детали по руководству этого двигателя не удалось.": "Bu dvigatel qo'llanmasida detal belgisi tasdiqlanmadi.",
   "Скопировать {code}": "{code} ni nusxalash",
   "Скопировано": "Nusxalandi",
   "Копировать": "Nusxalash"

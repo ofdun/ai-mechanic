@@ -1,7 +1,7 @@
 import pytest
 
 from ml.contracts import AgentResponse, Evidence, EvidenceBundle, TechnicalClaim
-from ml.tools.part_numbers import DESIGNATION, asks_for_parts, part_numbers
+from ml.tools.part_numbers import DESIGNATION, NONE_FOUND, asks_for_parts, part_numbers, requested_names
 
 ENGINE = 'ЯМЗ-236М2'
 PUMP = ('4.11 Насос водяной 236-1307010-А3\n'
@@ -23,7 +23,7 @@ def response(claims, *pages):
 
 @pytest.mark.parametrize(('text', 'codes'), [
     (PUMP, ['236-1307010-А3', '5340.1002246-01', '406.1004045-01']),
-    ('Шатун в сборе 236-1004045-', ['236-1004045']),
+    ('Обозначения с оборванным или неизвестным суффиксом 123-1234567- и 123-1234567-XYZ.', []),
     ('датчик 1322.3771 и стартер 5234.3708000', ['1322.3771', '5234.3708000']),
     ('1500-1800 мин-1; 100-125 Н·м; 22-23 МПа; 0.0035 мм; 2026-11-19', []),
 ])
@@ -37,8 +37,8 @@ def test_only_cited_pages_of_this_engine_with_their_line():
     found = part_numbers(answer)
     assert [item.designation for item in found] == ['236-1307010-А3', '5340.1002246-01', '406.1004045-01']
     assert found[0].context == '4.11 Насос водяной 236-1307010-А3' and found[0].pdf_page == 238
-    # A bare code line takes its name from the line above.
-    assert found[2].context.startswith('Прокладка (поз. 12)')
+    # The label on a preceding line with its own code belongs to that other part.
+    assert found[2].context == '406.1004045-01'
     other_engine = response([('operation', ['p3'])], page('p3', 'Насос 740.1307010', engine='КАМАЗ-740'))
     assert part_numbers(other_engine) == []
 
@@ -84,8 +84,15 @@ def test_pipeline_lists_designations_or_says_there_are_none(tmp_path):
                             generator=ClaimGenerator(OpenRouterClient(http, settings), settings.a_generator_model),
                             verifier=EvidenceVerifier(ENGINE))
         ask = lambda text: pipeline.run(AgentRequest(actor_id='a', vehicle_id='M1', session_id='S-1', message=text))
-        found = ask('Какая деталь нужна для форсунки?')
+        found = ask('Какой артикул форсунки?')
         assert [(item.designation, item.pdf_page) for item in found.part_numbers] == [('267.1112010-02', 52)]
         assert found.part_numbers_note is None
         missing = ask('Какой номер детали распылителя?')
-        assert missing.part_numbers == [] and missing.part_numbers_note.startswith('На страницах руководства')
+        assert missing.part_numbers == [] and missing.part_numbers_note == NONE_FOUND
+
+
+def test_explicit_part_question_filters_other_designations_on_the_same_page():
+    answer = response([('observation', ['p1'])], page('p1', 'Насос водяной 123-1234567. Фильтр 567-7654321.'))
+    assert [p.designation for p in part_numbers(answer, requested_names('Какой артикул водяного насоса?'))] == [
+        '123-1234567']
+    assert not part_numbers(answer, requested_names('Какой артикул воздушного насоса?'))
