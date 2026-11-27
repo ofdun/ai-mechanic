@@ -13,9 +13,6 @@ logger = logging.getLogger(__name__)
 Result = TypeVar('Result', bound=BaseModel)
 
 
-NO_DEFAULT_REASONING = ('deepseek/deepseek-v4.1-flash', 'z-ai/glm-')
-
-
 class OpenRouterClient:
     def __init__(self, http: httpx.Client, settings: Settings):
         self.http = http
@@ -45,9 +42,11 @@ class OpenRouterClient:
         options = {}
         if reason:
             options['reasoning'] = {'effort': 'low'}
-        elif model.startswith(NO_DEFAULT_REASONING):
-            # These models think by default; for strict JSON replies thinking only burns the token limit.
+        elif model == 'deepseek/deepseek-v4.1-flash':
             options['reasoning'] = {'enabled': False}
+        elif model.startswith('z-ai/glm-'):
+            # GLM cannot switch reasoning off, and by default it can think through the whole token limit.
+            options['reasoning'] = {'effort': 'minimal'}
         message = self._complete(role, model, messages, max_tokens=max_tokens, response_format={
             'type': 'json_schema',
             'json_schema': {'name': response_type.__name__, 'strict': True, 'schema': response_type.model_json_schema()},
