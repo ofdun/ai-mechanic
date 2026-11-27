@@ -10,6 +10,7 @@ by a native speaker.
 
 import argparse
 import json
+import os
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -18,7 +19,7 @@ import httpx
 
 from ml.config import Settings
 from ml.contracts import AgentResponse, TechnicalClaim
-from ml.generation.translate import Localizer
+from ml.generation.translate import Localizer, assemble, rejection, source_items
 from ml.providers.openrouter import OpenRouterClient
 
 
@@ -56,21 +57,33 @@ def main() -> int:
         localizer = Localizer(OpenRouterClient(http, settings), args.model or settings.a_generator_model)
         jobs = [(answer, language) for answer in answers for language in languages]
         with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-            results = list(pool.map(lambda job: (job, localizer.localize(*job)), jobs))
+            results = list(pool.map(lambda job: (job, localizer.translate(source_items(job[0]), job[1])), jobs))
 
-    stats: dict[str, dict] = defaultdict(lambda: {'lines': 0, 'translated': 0, 'with_original': 0, 'answers': 0})
-    with (args.answers.open('w', encoding='utf-8') if args.answers else open('/dev/null', 'w')) as stream:
-        for (answer, language), localized in results:
+    stats: dict[str, dict] = defaultdict(lambda: {'lines': 0, 'translated': 0, 'with_original': 0, 'answers': 0,
+                                                  'rejected': defaultdict(int)})
+    with (args.answers.open('w', encoding='utf-8') if args.answers else open(os.devnull, 'w')) as stream:
+        for (answer, language), raw in results:
+            localized = assemble(answer, language, raw)
             lines = [localized.message, *localized.summary, *localized.claims]
             entry = stats[language]
             entry['answers'] += 1
             entry['lines'] += len(lines)
             entry['translated'] += sum(line.translated for line in lines)
             entry['with_original'] += sum(bool(line.original) for line in lines)
+            items = source_items(answer)
+            rejected = {key: {'source': items[key], 'raw': raw.get(key, ''),
+                              'reason': rejection(' '.join(items[key].split()), ' '.join(raw.get(key, '').split()),
+                                                  language)}
+                        for key in items}
+            rejected = {key: value for key, value in rejected.items() if value['reason']}
+            for value in rejected.values():
+                entry['rejected'][value['reason']] += 1
             stream.write(json.dumps({'id': answer.request_id, 'language': language,
                                      'source': [answer.message, *answer.summary.splitlines(),
                                                 *[claim.text for claim in answer.claims]],
-                                     'localized': [line.model_dump() for line in lines]}, ensure_ascii=False) + '\n')
+                                     'localized': [line.model_dump() for line in lines],
+                                     'rejected': rejected}, ensure_ascii=False) + '\n')
+
     summary = {language: {**entry, 'translated_share': round(entry['translated'] / entry['lines'], 4)}
                for language, entry in stats.items() if entry['lines']}
     text = json.dumps(summary, ensure_ascii=False, indent=2)

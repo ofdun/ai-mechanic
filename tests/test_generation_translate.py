@@ -170,3 +170,20 @@ def test_translation_check_reads_oracle_traces():
     assert answer.message == 'Лид.' and answer.summary == 'Отрегулируйте форсунку.'
     assert answer.claims[0].text == OPERATION['text']
     assert answer_from_trace({'id': 'Q2', 'trace': {'final': []}}) is None
+
+
+@pytest.mark.parametrize(('source', 'target', 'language', 'translated'), [
+    # a unit exponent is not a number in any spelling
+    ('При 120 мин-1 кулачкового вала.', 'Mushtli valning 120 min⁻¹ aylanishida.', 'uz', True),
+    ('При 120 мин-1 кулачкового вала.', 'Mushtli valning 120 daq-1 aylanishida.', 'uz', True),
+    ('При 120 мин-1 кулачкового вала.', 'Mushtli valning 121 min-1 aylanishida.', 'uz', False),
+    # Uzbek is Latin: mixed-alphabet words and untranslated Cyrillic words are rejected, copied marks are not
+    ('Измерьте гильзы нутромером НИ 100-160-1.', "Gilzalarni NI 100-160-1 nутромер bilan o'lchang.", 'uz', False),
+    ('Ослабьте гайки для натяжения ремня.', "Remenni taranglаш uchun gaykalarni bo'shating.", 'uz', False),
+    ('Проверьте двигатель ЯМЗ-236М2 по таблице.', 'ЯМЗ-236М2 dvigatelini jadval bo‘yicha tekshiring.', 'uz', True),
+    # Tajik shares Cyrillic and «на» with Russian; its own letters mark a real translation
+    ('После остановки давление должно держаться не менее 10 с.',
+     'Пас аз қатъ фишор бояд на камтар аз 10 с нигоҳ дошта шавад.', 'tg', True),
+])
+def test_translation_checks_by_language(source, target, language, translated):
+    assert checked(source, target, language).translated is translated

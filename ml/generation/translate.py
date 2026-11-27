@@ -40,6 +40,12 @@ ITEM_CHARS = 2000
 ASSESSMENT_PREFIX = f'⚠️ {ASSESSMENT_LABEL}:'
 # Frequent Russian function words; a «translation» full of them came back in Russian.
 _RUSSIAN = re.compile(r'(?<![^\W\d_])(?:и|в|на|не|с|по|при|для|или|что|это|после|перед|до|от|из|как|если)(?![^\W\d_])')
+# «мин-1», «min⁻¹», «daq-1»: a unit exponent after a letter is not a number, in any language.
+_EXPONENT = re.compile(r'(?<=[^\W\d_])\s*\^?[-−–⁻]\s*[1¹](?!\d|[.,]\d)')
+_CYRILLIC = re.compile('[А-Яа-яЁёҚқҒғҲҳҶҷӢӣӮӯҢңӨөҮүӘәҰұҺһІі]')
+_LATIN = re.compile('[A-Za-z]')
+# Letters the target language has and Russian does not: a line with them is not a Russian echo.
+_OWN_LETTERS = {'tg': re.compile('[ҚқҒғҲҳҶҷӢӣӮӯ]'), 'ky': re.compile('[ҢңӨөҮү]'), 'kk': re.compile('[ӘәҒғҚқҢңӨөҰұҮүҺһІі]')}
 _PROHIBITION = re.compile(r'запрещ|не\s+допуска|нельзя|не\s+разреша|не\s+рекоменд')
 
 PROMPT = (
@@ -53,7 +59,8 @@ PROMPT = (
     '4. Отрицания, запреты и условия («не», «нельзя», «запрещается», «не допускается», «если», «при») '
     'передавай явно, отдельными словами, а не только окончанием.\n'
     '5. Термины переводи по glossary; если в glossary в скобках дан русский термин, оставь его в скобках.\n'
-    '6. Узбекский пиши латиницей, остальные языки — кириллицей.\n'
+    '6. Узбекский пиши только латиницей, без единой кириллической буквы: термины без перевода пиши латиницей '
+    '(нутромер → nutromer). Таджикский, киргизский и казахский — кириллицей своего алфавита.\n'
     '7. Верни каждый id ровно один раз, в том же порядке.'
 )
 
@@ -73,12 +80,17 @@ class TranslationOutput(BaseModel):
 
 def numbers_kept(source: str, target: str) -> bool:
     """Same numbers in the same order: a translation never changes a value, a range or a count."""
-    return [canonical_number(n) for n in number_list(source)] == [canonical_number(n) for n in number_list(target)]
+    def values(text: str) -> list[str]:
+        return [canonical_number(n) for n in number_list(_EXPONENT.sub(' ', text))]
+
+    return values(source) == values(target)
 
 
-def looks_russian(source: str, target: str) -> bool:
+def looks_russian(source: str, target: str, language: str | None = None) -> bool:
     if fold(target) == fold(source):
         return True
+    if language in _OWN_LETTERS and _OWN_LETTERS[language].search(target):
+        return False
     words = re.findall(r'[^\W\d_]+', target.lower())
     return len(words) >= 6 and len(_RUSSIAN.findall(target.lower())) / len(words) > 0.15
 
@@ -88,13 +100,35 @@ def safety_critical(source: str) -> bool:
     return has_negation(source) or has_condition(source) or grants_permission(source) or bool(_PROHIBITION.search(lowered))
 
 
-def checked(source: str, target: str | None) -> LocalizedText:
+def mixed_script(source: str, target: str) -> bool:
+    """Uzbek is Latin: a word mixing alphabets («taranglаш») or a Cyrillic word that is not a mark copied
+    from the source («nутромер») is a broken translation."""
+    kept = set(re.findall(r'[^\W_]+', source))
+    for word in re.findall(r'[^\W_]+', target):
+        if _CYRILLIC.search(word) and (_LATIN.search(word) or word not in kept):
+            return True
+    return False
+
+
+def rejection(source: str, target: str, language: str | None = None) -> str | None:
+    """Why a translated line cannot be shown, or None when it passes."""
+    if not target:
+        return 'empty'
+    if len(target) > max(ITEM_CHARS, len(source) * 3) or len(target) < len(source) * 0.3:
+        return 'length'
+    if not numbers_kept(source, target):
+        return 'numbers'
+    if looks_russian(source, target, language):
+        return 'russian'
+    if language == 'uz' and mixed_script(source, target):
+        return 'script'
+    return None
+
+
+def checked(source: str, target: str | None, language: str | None = None) -> LocalizedText:
     """The translated line if it passes the checks, otherwise the Russian source."""
     target = ' '.join((target or '').split())
-    source_flat = ' '.join(source.split())
-    if (not target or len(target) > max(ITEM_CHARS, len(source_flat) * 3)
-            or len(target) < len(source_flat) * 0.3 or not numbers_kept(source_flat, target)
-            or looks_russian(source_flat, target)):
+    if rejection(' '.join(source.split()), target, language):
         return LocalizedText(text=source, translated=False)
     return LocalizedText(text=target, original=source if safety_critical(source) else None)
 
@@ -122,7 +156,7 @@ def assemble(response: AgentResponse, language: Language, translated: dict[str, 
     names = labels(language)
 
     def line(key: str, source: str) -> LocalizedText:
-        return checked(source, translated.get(key)) if key in translated or language != 'ru' else LocalizedText(text=source)
+        return checked(source, translated.get(key), language) if key in translated or language != 'ru' else LocalizedText(text=source)
 
     summary = []
     for index, raw in enumerate(response.summary.splitlines()):
