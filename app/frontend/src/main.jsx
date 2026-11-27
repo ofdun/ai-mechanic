@@ -78,6 +78,7 @@ const pendingLabels = { diagnose: 'Получаем результат', chat: '
 const views = [
   { id: 'result', label: 'Результат', icon: FileText },
   { id: 'chat', label: 'Чат', icon: MessageSquare },
+  { id: 'history', label: 'История', icon: History },
   { id: 'ticket', label: 'Заявка', icon: ClipboardList },
 ]
 
@@ -221,14 +222,10 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
     }
   }
 
-  const returnLabels = { result: 'К результату', chat: 'К чату', ticket: 'К заявке' }
+  const returnLabels = { result: 'К результату', chat: 'К чату', history: 'К истории', ticket: 'К заявке' }
   return <ManualNavigation sessionKey={id} returnLabel={returnLabels[view]}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
       <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />Параметры замера</h2>
-        <button className="history-action" type="button" aria-controls="panel-chat" onClick={() => {
-          selectTab('chat')
-          setTurns(old => [...old.filter(turn => turn.kind !== 'history'), { kind: 'history' }])
-        }}><History aria-hidden="true" />История проверок</button>
       </div>
       <div id="selection">
       <div className="vehicle-picker"><label htmlFor="vehicle">Транспортное средство</label>
@@ -270,7 +267,6 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
         <div role="log" aria-label="Сообщения">
         {turns.map(({ id, kind, result, question, error: turnError }) => kind === 'verdict'
           ? <div className="turn" key="verdict"><DiagnosticVerdict result={result} /></div>
-          : kind === 'history' ? <div className="turn" key="history"><VehicleHistory vehicleId={vehicle.vehicle_id} sessions={vehicle.sessions.slice(0, 5)} /></div>
           : <div className="turn" key={id}>
           <div className="question"><strong>Вы</strong><p>{question}</p></div>
           {turnError ? <div className="chat-error"><p>Ответ не получен. {turnError}</p>
@@ -280,6 +276,9 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
             ? <p>Черновик подготовлен в разделе «Заявка».</p>
             : <Response result={result} />}
         </div>)}</div>
+      </div>
+      <div className="pane" hidden={view !== 'history'} id="panel-history" aria-labelledby="tab-history" role="tabpanel" tabIndex={0}>
+        <VehicleHistory vehicleId={vehicle.vehicle_id} sessions={vehicle.sessions.slice(0, 5)} />
       </div>
       <div className="pane" hidden={view !== 'ticket'} id="panel-ticket" aria-labelledby="tab-ticket" role="tabpanel" tabIndex={0}>
         {ticketStatus ? ticketStatus.ticketId
@@ -296,7 +295,7 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
             {canDraft ? 'Создайте черновик. Вы сможете проверить работы и запчасти перед отправкой в ТОиР.'
               : ticketHint || (sessionId ? 'Сначала получите результат диагностики.' : 'У этой машины пока нет проверок. Выберите другое ТС.')}</EmptyView>}
       </div>
-      <div className="panel-footer">
+      <div className="panel-footer" hidden={view === 'history'}>
         {view === 'result' && <div className="footer-actions">
           <button className="secondary" onClick={() => { focusQuestion.current = true; setView('chat') }}><MessageSquare aria-hidden="true" />Задать вопрос</button>
           <button type="button" aria-controls="panel-ticket" onClick={() => selectTab('ticket')}>К заявке<ArrowRight aria-hidden="true" /></button>

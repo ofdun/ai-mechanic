@@ -167,11 +167,19 @@ export function Response({ result }) {
 }
 
 export function VehicleHistory({ vehicleId, sessions }) {
-  return <section><h4>История проверок · {vehicleId}</h4>
-    {sessions.length ? <ol className="vehicle-history">{sessions.map(row =>
-      <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
-        <small>{row.session_id}</small></div><strong>{outcomes[row.status]}</strong></li>)}</ol>
-      : <p>У этой машины пока нет проверок.</p>}
+  const meanings = {
+    normal: 'Проверка не выявила отклонений.',
+    anomaly: 'В записи обнаружены признаки отклонения. Причину уточняют при диагностике.',
+    check_failed: 'Оценить двигатель по этой записи не удалось. Нужен повторный замер.',
+  }
+  return <section className="history-report"><h3>История проверок · {vehicleId}</h3>
+    {sessions.length ? <>
+      <p className="meta">Замеры этой машины, начиная с последнего.</p>
+      <ol className="vehicle-history">{sessions.map(row =>
+        <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
+          <small>Замер {row.session_id}</small></div>
+          <div><strong>{outcomes[row.status]}</strong><p>{meanings[row.status]}</p></div></li>)}</ol>
+    </> : <p>У этой машины пока нет проверок.</p>}
   </section>
 }
 

@@ -51,7 +51,6 @@ main { flex: 1; display: flex; flex-direction: column; padding-block: clamp(.8re
 .controls, .chat { min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); overflow-wrap: anywhere; }
 .controls { padding: 1rem var(--inset) 1.15rem; }
 .controls h2 { display: flex; gap: .5rem; align-items: center; }
-.controls-heading .history-action { min-height: 44px; padding: .3rem .55rem; }
 .controls-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: .25rem .65rem; margin-bottom: .75rem; }
 .controls h2 { font-size: 1.15rem; }
 .controls h2 svg { color: var(--pine); }
@@ -180,7 +179,13 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
   .report-action h4 { padding-inline-start: 0; }
 }
 .vehicle-history { list-style: none; margin: .5rem 0; padding: 0; }
-.vehicle-history li { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: baseline; gap: .25rem 1rem; padding-block: .55rem; border-bottom: 1px solid var(--line); }
+.history-report { padding-block: 1rem; }
+.vehicle-history li { display: grid; grid-template-columns: minmax(9rem, 1fr) 2fr; gap: .3rem 1rem; align-items: baseline; padding-block: .7rem; border-bottom: 1px solid var(--line); }
+.vehicle-history li p { margin: .2rem 0 0; }
+@media (max-width: 32rem) {
+  .view-switch button svg { display: none; }
+  .vehicle-history li { grid-template-columns: 1fr; }
+}
 .vehicle-history small { display: block; color: var(--muted); }
 .turn { padding-block: 1rem; }
 .turn + .turn { border-top: 1px solid var(--line); }
