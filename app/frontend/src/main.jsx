@@ -59,9 +59,16 @@ function App() {
     selectionControl.current = 'session'
     setSessionId(id)
   }
+  function openResult(event) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    setView('result')
+    if (history.state?.mechanicReader && document.getElementById('manual-title')) history.back()
+    else document.getElementById('tab-result')?.focus()
+  }
   return <>
     <header className="mast"><div className="mast-inner">
-      <span className="wordmark"><span className="brand-mark"><Wrench aria-hidden="true" /></span>Цифровой механик</span>
+      <a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>Цифровой механик</a>
       <h1>Диагностика двигателя</h1>
     </div></header>
     <main>
