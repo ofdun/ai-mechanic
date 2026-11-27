@@ -24,7 +24,7 @@ from urllib.error import URLError
 from mobile_smoke import serve
 
 
-def exercise(page, base_url, ranked_pages):
+def exercise(page, base_url, ranked_pages, agent_url):
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(base_url)
@@ -190,6 +190,23 @@ def exercise(page, base_url, ranked_pages):
     replay = page.request.post(confirmed.url, data=confirmed.request.post_data_json)
     assert replay.ok and replay.json()['ticket_id'] == receipt
 
+    audit_path = '/audit?session_id=S-0005'
+    assert page.request.get(base_url + audit_path).status == 404
+    entries = page.request.get(agent_url + audit_path).json()['entries']
+    assert entries[0]['action'] == 'diagnose'
+    logged = next(entry for entry in entries if entry.get('request_id') == followup['request_id'])
+    assert logged['answer'] == followup['message'] and logged['question'] == 'Можно ли своим ходом перегнать машину на базу?'
+    assert logged['answer_details']['limitations'] == followup['limitations']
+    assert all(entry['actor_id'] == entries[0]['actor_id'] and entry['vehicle_id'] == 'M333YK47' for entry in entries)
+    draft_entry = next(entry for entry in entries if entry.get('action') == 'draft_ticket')
+    assert draft_entry['answer_details']['ticket_draft']['payload'] == draft
+    assert draft_entry['draft_id'] == entries[-1]['draft_id'] and entries[-1]['ticket_id'] == receipt
+    assert entries[-1]['urgency'] == 'high' and entries[-1]['kind'] == 'ticket_confirm'
+    assert entries.index(logged) < entries.index(draft_entry)
+    assert [entry['at'] for entry in entries] == sorted(entry['at'] for entry in entries)
+    assert page.request.get(agent_url + audit_path + '&vehicle_id=missing').json()['entries'] == []
+    print('PASS: internal audit reconstructs the browser question, answer, draft, confirmation and replay.')
+
     language.select_option('ru')
     select_vehicle('P456AT178')
     for measurement, verdict, reason in [('S-0001', 'Норма', 'Заявка на дефектовку не требуется'),
@@ -344,7 +361,7 @@ def main():
             from warning_flow import exercise as exercise_warning
             exercise_warning(page, base_url, SESSIONS)
         else:
-            exercise(page, base_url, ranked_pages)
+            exercise(page, base_url, ranked_pages, agent_url)
 
 
 if __name__ == '__main__':

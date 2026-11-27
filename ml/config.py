@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     confirm_signal_warning: bool = True
     default_ticket_urgency: TicketUrgency = 'medium'
     ticket_urgency_by_fault: dict[FaultCode, TicketUrgency] = Field(default_factory=dict)
+    # Audit log of questions, answers, sources and tickets, kept apart from service logs.
+    audit_enabled: bool = True
+    audit_retention_days: Annotated[int, Field(ge=1, le=3650)] = 90
     planner_mode: Literal['llm', 'local', 'offline'] = 'llm'
     agent_architecture: Literal['baseline', 'a', 'b'] = 'a'
     allow_external_evidence: bool = False
