@@ -7,6 +7,7 @@ import { AnswerChecks } from './AnswerChecks'
 import { Source } from './ManualReader'
 import { ScoreChart, score } from './ScoreChart'
 import { InspectionList } from './Inspection'
+import { PartNumbers } from './Parts'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -106,6 +107,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
         <p className="limitations"><strong>{labels['conflict.title']}</strong> {labels['conflict.note']}</p>}
       {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
       {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
+      <PartNumbers result={result} className={report ? 'report-row' : 'claims'} />
     </>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
       .map((line, index) => <AnswerLine key={index} line={line} />)}
@@ -169,6 +171,7 @@ export function DiagnosticReport({ result }) {
       })}
       {!!actions.length && <section className="report-row report-action"><h4>{t('Что делать дальше')}</h4><div>{actions.map(citedClaim)}</div></section>}
     </ManualAnswer>
+    <PartNumbers result={result} className="report-row" />
     {!!result.limitations?.length && <section className="report-row"><h4>{t('Что осталось уточнить')}</h4><div><Entries items={result.limitations} /></div></section>}
     {!!references.length && <footer className="report-row report-sources"><h4>{t('Руководство')}</h4>
       <div>{references.map((source, index) => <div key={pageKey(source)}>
@@ -220,6 +223,7 @@ export function Response({ result }) {
           </>} /></section>
       })}
     </ManualAnswer>
+    {!repeat && !result.recognition_error && <PartNumbers result={result} />}
     {!insufficient && limitations.length > 0 && <section className="limitations"><h4>{t('Ограничения')}</h4>
       <Entries items={limitations} /></section>}
     {insufficient && <div className="search-fallback">
