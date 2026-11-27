@@ -262,12 +262,18 @@ def embed_index(path: Path, embedder: Embedder, config: RetrievalConfig) -> int:
 
 def load_embedder(config: RetrievalConfig) -> Embedder:
     from ml.retrieval.cloudflare import is_cloudflare
+    from ml.retrieval.openrouter import is_openrouter
 
     if is_cloudflare(config.embedder):
         from ml.config import Settings
         from ml.retrieval.cloudflare import CloudflareClient, CloudflareEmbedder
 
         return CloudflareEmbedder(config.embedder, CloudflareClient(Settings()))
+    if is_openrouter(config.embedder):
+        from ml.config import Settings
+        from ml.retrieval.openrouter import OpenRouterClient, OpenRouterEmbedder
+
+        return OpenRouterEmbedder(config.embedder, OpenRouterClient(Settings()))
     from ml.retrieval.embeddings import SentenceTransformerEmbedder
 
     return SentenceTransformerEmbedder(config.embedder, device=config.device, batch_size=config.embed_batch_size,
@@ -276,12 +282,18 @@ def load_embedder(config: RetrievalConfig) -> Embedder:
 
 def load_reranker(config: RetrievalConfig) -> Reranker:
     from ml.retrieval.cloudflare import is_cloudflare
+    from ml.retrieval.openrouter import is_openrouter
 
     if is_cloudflare(config.reranker):
         from ml.config import Settings
         from ml.retrieval.cloudflare import CloudflareClient, CloudflareReranker
 
         return CloudflareReranker(config.reranker, CloudflareClient(Settings()))
+    if is_openrouter(config.reranker):
+        from ml.config import Settings
+        from ml.retrieval.openrouter import OpenRouterClient, OpenRouterReranker
+
+        return OpenRouterReranker(config.reranker, OpenRouterClient(Settings()))
     from ml.retrieval.reranker import CrossEncoderReranker
 
     return CrossEncoderReranker(config.reranker, device=config.device, batch_size=config.embed_batch_size,

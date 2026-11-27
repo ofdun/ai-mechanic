@@ -48,6 +48,7 @@ SearchPlan
 | `fusion.py` | RRF с весами списков, `k=60` по умолчанию |
 | `reranker.py` | Cross-encoder, например `BAAI/bge-reranker-v2-m3`, окна по словам для MaxP, кэш баллов. Qwen3-Reranker требует отдельного адаптера |
 | `cloudflare.py` | Workers AI: `cf:@cf/baai/bge-m3` для векторов и `cf:@cf/baai/bge-reranker-base` для reranking |
+| `openrouter.py` | OpenRouter: `or:baai/bge-m3` для векторов, `or:cohere/rerank-5-pro`, `or:mongodb/rerank-3` и другие модели `/rerank` для reranking |
 | `expansion.py` | Запросы по кодам Mock ML F01–F14 словами руководств: узел, детали, «неисправности, причины и методы устранения» |
 | `engine.py` | `RetrievalConfig`, сборка и чтение индекса, `RetrievalEngine` |
 
@@ -123,7 +124,7 @@ uv run python -m evaluation.retrieval --golden evaluation/datasets/customer_ques
 | BM25 + BGE-M3, RRF | 0.586 | 0.771 | 0.843 | 0.907 | 0.699 | 25 / 28 |
 | + `bge-reranker-v2-m3` | 0.736 | 0.900 | 0.921 | 0.971 | 0.822 | 2778 / 3090 |
 
-Исходные запросы, страница целиком, без переформулировки. В сквозном прогоне Алексея (`e2e-a-dev-6c02153`, sparse, top_k 3) эталонная страница есть в топ-30 у 139 из 143 вопросов, но в топ-3 — у 107: кандидаты находятся, теряется порядок.
+Исходные запросы, страница целиком, без переформулировки. Контроль на машине владельца retrieval (те же шесть PDF, SHA-256 совпадают с манифестом, 1743 страницы): BM25 — Hit@1 0.600, @3 0.771, @5 0.857, @10 0.907, MRR 0.699, расхождение с Вадимом в один вопрос. В сквозном прогоне Алексея (`e2e-a-dev-6c02153`, sparse, top_k 3) эталонная страница есть в топ-30 у 139 из 143 вопросов, но в топ-3 — у 107: кандидаты находятся, теряется порядок.
 
 ### Как поднять Hit@1 до 0.80
 
@@ -147,6 +148,13 @@ uv run --extra dense python -m evaluation.retrieval.sweep --manifest ../data/man
 - `@cf/baai/bge-m3` — те же векторы BGE-M3 без torch и 3 ГБ RAM на сервере: `embedder: cf:@cf/baai/bge-m3`, затем `python -m ml.retrieval embed --model cf:@cf/baai/bge-m3`. Векторы Cloudflare и локальной модели хранятся раздельно и не смешиваются.
 - Из реранкеров в Workers AI есть только `@cf/baai/bge-reranker-base`. Прирост Hit@1 выше дал `bge-reranker-v2-m3`, его там нет. `configs/retrieval-sweep-cloudflare.yaml` сравнивает оба.
 - Эмбеддинг корпуса и reranking отправляют текст руководств в Cloudflare. Без `ALLOW_EXTERNAL_EVIDENCE=true` они отказывают с `RAG_EXTERNAL_DISABLED`. Ключи: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`.
+
+### OpenRouter
+
+- `baai/bge-m3` через `/embeddings` — те же векторы BGE-M3, $0.01 за 1M токенов, вход до 8194 токенов: `embedder: or:baai/bge-m3`, затем `python -m ml.retrieval embed --model or:baai/bge-m3`.
+- Реранкеры через `/rerank`: Cohere `rerank-v3.5` (4k токенов), `rerank-4-*`, `rerank-5-pro` и `rerank-5-fast`, `mongodb/rerank-2.5` и `rerank-3` (бывшие Voyage), всё с контекстом 32k. Страница помещается целиком, окна MaxP не нужны. `bge-reranker-v2-m3` там нет. Qwen3-Reranker в сетку не входит по решению команды.
+- Ключ `OPENROUTER_API_KEY`; если он пуст, берётся `LLM_API_KEY` при `LLM_BASE_URL` на OpenRouter. Текст руководств уходит OpenRouter и провайдеру модели, нужен `ALLOW_EXTERNAL_EVIDENCE=true`. На 429 и 5xx — до трёх повторов с паузой 1, 2, 4 с.
+- Сетка `configs/retrieval-sweep-openrouter.yaml`: гибрид на векторах OpenRouter, пять реранкеров, затем подстраховка, заголовок и переформулировка поверх лучшего.
 
 ### Ресурсы
 
@@ -206,15 +214,15 @@ uv run --extra dense python -m evaluation.retrieval.sweep --manifest ../data/man
 
 ## 7. Открытые вопросы и блокеры
 
-1. Нет комплекта PDF на машине владельца retrieval: в репозитории их нет намеренно. Подбор `evaluation.retrieval.sweep` запускает тот, у кого есть корпус.
-2. Hit@1 0.736 у лучшего варианта при цели 0.80. Реранкер стоит 2.8 с на M3 Pro, на CPU-сервере дольше. Где его запускать для веба, не решено: в Cloudflare есть только `bge-reranker-base`.
+1. Корпус есть у владельца retrieval, но без GPU: `bge-reranker-v2-m3` на CPU — около часа на вариант подбора. Хостинговые реранкеры OpenRouter снимают это ограничение, если команда согласна отправлять им текст руководств.
+2. Hit@1 0.736 у лучшего варианта при цели 0.80. Реранкер стоит 2.8 с на M3 Pro, на CPU-сервере дольше. Где его запускать для веба, не решено: в Cloudflare есть только `bge-reranker-base`, в OpenRouter — Cohere и MongoDB (Voyage).
 3. Словарь F01–F14 в retrieval дублирует профили `ml.generation.profiles` Алексея. После слияния веток свести к одному источнику.
 4. Векторы и reranker на всём корпусе не замерены по времени и памяти.
 
 ## 8. Следующие шаги
 
 1. `evaluation.retrieval.sweep` по `configs/retrieval-sweep.yaml` на dev, разбор промахов Hit@1, победитель — на holdout.
-2. Тот же подбор на Cloudflare (`configs/retrieval-sweep-cloudflare.yaml`) и решение, где работает реранкер.
+2. Тот же подбор на OpenRouter (`configs/retrieval-sweep-openrouter.yaml`) или Cloudflare (`configs/retrieval-sweep-cloudflare.yaml`) и решение, где работает реранкер.
 3. `structural` с 256/512/1024 токенами, reranker, `neighbor_pages`, подбор `top_k` и бюджета (RET-02, RET-03, RET-08–RET-10).
 4. По результатам — Qwen3-Embedding (RET-04, RET-05).
 5. Каждый прогон — комментарием в журнал #9, итог — в #4.

@@ -1,0 +1,47 @@
+# Сетка для `python -m evaluation.retrieval.sweep --grid configs/retrieval-sweep-openrouter.yaml` на OpenRouter.
+# Нужны OPENROUTER_API_KEY (или LLM_API_KEY с LLM_BASE_URL OpenRouter) и ALLOW_EXTERNAL_EVIDENCE=true:
+# векторы корпуса и reranking отправляют текст руководств. Сначала векторы:
+#   python -m ml.retrieval embed --model or:baai/bge-m3
+# Контекст хостинговых реранкеров 32k токенов (Cohere v3.5 — 4k), поэтому страница целиком без окон MaxP.
+
+base:
+  mode: hybrid
+  embedder: or:baai/bge-m3
+  top_k: 8
+  rerank_candidates: 30
+
+variants:
+  # Контроль: тот же гибрид, векторы BGE-M3 из OpenRouter
+  - name: or-hybrid
+    query_mode: original
+  - name: or-hybrid-w2
+    query_mode: original
+    overrides: {sparse_weight: 2.0}
+
+  # Реранкеры OpenRouter на исходном вопросе
+  - name: or-cohere-rerank-5-pro
+    query_mode: original
+    overrides: {reranker: or:cohere/rerank-5-pro}
+  - name: or-cohere-rerank-5-fast
+    query_mode: original
+    overrides: {reranker: or:cohere/rerank-5-fast}
+  - name: or-cohere-rerank-v3.5
+    query_mode: original
+    overrides: {reranker: or:cohere/rerank-v3.5}
+  - name: or-mongodb-rerank-3
+    query_mode: original
+    overrides: {reranker: or:mongodb/rerank-3}
+  - name: or-mongodb-rerank-2.5
+    query_mode: original
+    overrides: {reranker: or:mongodb/rerank-2.5}
+
+  # Рычаги поверх лучшего реранкера (баллы берутся из кэша, кроме нового запроса и заголовка)
+  - name: or-cohere-rerank-5-pro-prior-0.5
+    query_mode: original
+    overrides: {reranker: or:cohere/rerank-5-pro, rerank_prior_weight: 0.5}
+  - name: or-cohere-rerank-5-pro-context
+    query_mode: original
+    overrides: {reranker: or:cohere/rerank-5-pro, rerank_context: true}
+  - name: or-cohere-rerank-5-pro-combined
+    query_mode: combined
+    overrides: {reranker: or:cohere/rerank-5-pro, rerank_query: both}

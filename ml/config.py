@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr('')
     cloudflare_account_id: str = ''
     cloudflare_api_token: SecretStr = SecretStr('')
+    openrouter_api_key: SecretStr = SecretStr('')
     answer_language: str = 'ru'
     llm_timeout_seconds: Annotated[float, Field(gt=0, le=120)] = 45
     a_generator_model: str = 'deepseek/deepseek-v4.1-flash'
