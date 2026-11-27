@@ -52,6 +52,23 @@ def exercise(page, base_url, ranked_pages):
     expect(page.get_by_role('heading', name='Отклонение', exact=True)).to_be_visible()
     chat.click()
     expect(thread).to_contain_text('Отклонение')
+    canonical = 'yamz-236-operations-2010'
+    legacy = 'yamz-236_re_2010'
+    route = f'/api/documents/{canonical}/pages/52'
+    current = page.request.get(base_url + route)
+    old = page.request.get(base_url + route.replace(canonical, legacy))
+    assert current.ok and old.ok and current.json() == old.json() and old.json()['page'] == 52
+    question.fill('Почему это опасно?')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as followup_response:
+        question.press('Enter')
+    cited = followup_response.value.json()
+    assert any(s['document_id'] == canonical and s['pdf_page'] == 52 for s in cited['evidence']['items'])
+    with page.expect_response(lambda r: r.url == base_url + route) as cited_page:
+        thread.get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+    assert cited_page.value.ok
+    expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
+    page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
+    page.get_by_role('button', name='К чату').click()
     question.fill('Можно ли своим ходом перегнать машину на базу?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
         question.press('Enter')
@@ -68,7 +85,9 @@ def exercise(page, base_url, ranked_pages):
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
-    page.get_by_role('tabpanel', name='Заявка').get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+    with page.expect_response(lambda r: r.url == base_url + route) as draft_page:
+        page.get_by_role('tabpanel', name='Заявка').get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+    assert draft_page.value.ok
     expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
     page.get_by_role('button', name='К заявке').click()

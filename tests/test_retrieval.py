@@ -9,6 +9,7 @@ import pytest
 from evaluation.retrieval.__main__ import main as evaluation_cli
 from evaluation.retrieval.metrics import GoldenQuestion, PageRef, evaluate, load_golden, run_record
 from ml.contracts import AgentError, DocumentPage, ParsedDocument, SearchPlan
+from ml.document_ids import LEGACY_YAMZ_236_OPERATIONS_ID, YAMZ_236_OPERATIONS_ID
 from ml.retrieval import RetrievalConfig, RetrievalEngine, build_index, load_documents
 from ml.retrieval.__main__ import main as cli
 from ml.retrieval.chunking import structural_chunks
@@ -61,6 +62,22 @@ def retriever(parsed_dir, tmp_path):
 
 def plan(engine: str, query: str, *subqueries: str) -> SearchPlan:
     return SearchPlan(engine_model=engine, original_query=query, rewritten_query=query, subqueries=list(subqueries))
+
+
+@pytest.mark.parametrize('stored_id', [YAMZ_236_OPERATIONS_ID, LEGACY_YAMZ_236_OPERATIONS_ID])
+def test_published_and_legacy_links_resolve_to_one_source(tmp_path, stored_id):
+    source = tmp_path / 'parsed'
+    source.mkdir()
+    document = diesel_manual().model_copy(update={'document_id': stored_id})
+    (source / 'manual.json').write_text(document.model_dump_json(), encoding='utf-8')
+    build_index(source, tmp_path / 'index')
+    retriever = RetrievalEngine.load(tmp_path / 'index')
+    canonical = retriever.page(DIESEL, YAMZ_236_OPERATIONS_ID, 2)
+    assert canonical and canonical.document_id == YAMZ_236_OPERATIONS_ID
+    assert retriever.page(DIESEL, LEGACY_YAMZ_236_OPERATIONS_ID, 2) == canonical
+    assert retriever.page(PETROL, LEGACY_YAMZ_236_OPERATIONS_ID, 2) is None
+    results = retriever.search(plan(DIESEL, 'давление впрыскивания')).items
+    assert canonical in results
 
 
 def test_analyzer_matches_inflections_and_decimal_separators():

@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from typing import TextIO
 
 from ml.config import Settings
+from ml.document_ids import document_id_variants
 from ml.retrieval import RetrievalConfig, build_index as build_retrieval_index
 
 
@@ -16,7 +17,7 @@ MANIFEST = Path(__file__).with_name('ingestion') / 'manifest.json'
 
 def document_catalog(manifest: Path | None = None) -> dict[str, dict]:
     entries = json.loads((manifest or MANIFEST).read_text(encoding='utf-8'))['documents']
-    return {entry['document_id']: entry for entry in entries}
+    return {document_id_variants(entry['document_id'])[0]: entry for entry in entries}
 
 
 def _index_pages(db: sqlite3.Connection, documents, export: TextIO | None = None) -> int:

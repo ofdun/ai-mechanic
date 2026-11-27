@@ -19,6 +19,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ml.contracts import AgentError, Evidence, EvidenceBundle, ParsedDocument, SearchPlan
+from ml.document_ids import document_id_variants
 from ml.retrieval.chunking import CHUNKERS, Chunk, corpus_version, load_documents, nfc, page_chunks
 from ml.retrieval.dense import DenseIndex, embed_chunks, load_dense
 from ml.retrieval.embeddings import Embedder
@@ -356,13 +357,18 @@ class RetrievalEngine:
 
     @staticmethod
     def _evidence(unit: Chunk) -> Evidence:
+        document_id, _ = document_id_variants(unit.document_id)
+        evidence_id = document_id + unit.chunk_id.removeprefix(unit.document_id)
         return Evidence(
-            evidence_id=unit.chunk_id, document_id=unit.document_id, manual=unit.manual,
+            evidence_id=evidence_id, document_id=document_id, manual=unit.manual,
             engine_models=unit.engine_models, pdf_page=unit.pdf_page, section=unit.section, text=unit.text,
         )
 
     def page(self, engine_model: str, document_id: str, pdf_page: int) -> Evidence | None:
-        page = self.pages.get(f'{document_id}:{pdf_page}')
+        canonical, legacy = document_id_variants(document_id)
+        page = self.pages.get(f'{canonical}:{pdf_page}')
+        if page is None and legacy is not None:
+            page = self.pages.get(f'{legacy}:{pdf_page}')
         if page is None or nfc(engine_model) not in page.engine_models:
             return None
         return self._evidence(page)
