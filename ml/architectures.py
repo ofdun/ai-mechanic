@@ -10,7 +10,7 @@ from ml.contracts import (
 )
 from ml.generation import prompts
 from ml.generation.claims import MAX_CLAIMS
-from ml.generation.generator import ClaimGenerator, diagnosis_context
+from ml.generation.generator import ClaimGenerator, diagnosis_context, search_query
 from ml.generation.reasoner import TechnicalReasoner
 from ml.generation.verifier import EvidenceVerifier
 from ml.pipeline import scope_evidence
@@ -87,7 +87,7 @@ class LLMEvidenceWorkflow:
     def review_payload(self, plan: SearchPlan, evidence: EvidenceBundle, diagnostic: DiagnosticResult | None,
                        claims: list[TechnicalClaim]) -> dict[str, Any]:
         return {
-            'question': plan.original_query, 'engine_model': plan.engine_model,
+            'question': plan.original_query, 'search_query': search_query(plan), 'engine_model': plan.engine_model,
             'diagnosis': diagnostic_context(diagnostic), 'sources': evidence.model_dump()['items'],
             'claims': [claim.model_dump() for claim in claims],
         }
@@ -137,7 +137,7 @@ class LLMEvidenceWorkflow:
         if not approved:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
         final = self.client.complete_json('b_finalizer', self.settings.b_finalizer_model, messages(
-            prompts.FINAL_SELECTION, question=plan.original_query,
+            prompts.FINAL_SELECTION, question=plan.original_query, search_query=search_query(plan),
             verified_claims=[claim.model_dump() for claim in approved],
         ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
         return SearchOutcome(plan=plan, evidence=evidence, claims=approved_indexes(approved, final.indexes))

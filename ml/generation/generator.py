@@ -24,10 +24,15 @@ def source_items(evidence: EvidenceBundle) -> list[dict[str, Any]]:
             for item in evidence.items]
 
 
+def search_query(plan: SearchPlan) -> str:
+    """The planner's query restores the subject of a follow-up such as «почему это опасно?»."""
+    return plan.rewritten_query if plan.rewritten_query.strip() != plan.original_query.strip() else ''
+
+
 def messages(instruction: str, plan: SearchPlan, evidence: EvidenceBundle,
              diagnostic: DiagnosticResult | None) -> list[dict[str, str]]:
     payload = {
-        'question': plan.original_query, 'engine_model': plan.engine_model,
+        'question': plan.original_query, 'search_query': search_query(plan), 'engine_model': plan.engine_model,
         'diagnosis': diagnosis_context(diagnostic), 'sources': source_items(evidence),
     }
     return [

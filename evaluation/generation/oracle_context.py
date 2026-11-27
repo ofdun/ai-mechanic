@@ -125,6 +125,7 @@ class Case:
     answer: str
     split: str
     references: list[dict]
+    prior_facts: tuple[str, ...] = ()
 
     @classmethod
     def load(cls, path: Path, *, split: str, ids: set[str] | None = None) -> list['Case']:
@@ -136,7 +137,8 @@ class Case:
             if split != 'all' and row['split'] != split or ids and row['id'] not in ids:
                 continue
             cases.append(cls(row['id'], row['text'], row['context']['engine_model'], row['answer_outcome'],
-                             row['expected_answer'], row['split'], row.get('expected_evidence') or []))
+                             row['expected_answer'], row['split'], row.get('expected_evidence') or [],
+                             tuple(row['context'].get('prior_facts') or ())))
         return cases
 
 
@@ -278,7 +280,9 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
     result = CaseResult(case.id, case.outcome)
     bundle, expected, _ = oracle_bundle(case, corpus, distractors, seed)
     result.expected_pages = len(expected)
-    plan = SearchPlan(engine_model=case.engine_model, original_query=case.question, rewritten_query=case.question)
+    # Prior facts stand in for the dialogue history that the planner folds into its query.
+    query = ' '.join([case.question, *case.prior_facts]) if case.prior_facts else case.question
+    plan = SearchPlan(engine_model=case.engine_model, original_query=case.question, rewritten_query=query)
     started = time.monotonic()
     try:
         if pipeline in {'generator', 'reasoner'}:

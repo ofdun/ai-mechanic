@@ -124,3 +124,12 @@ def test_pipeline_drafts_ticket_from_verified_claims(pipeline):
         assert response.message.startswith('⚠️ Отклонение: Дизельная топливоподача (F08)')
         assert '25 МПа' not in response.message and '22–23 МПа' in response.message
         assert 'Черновик заявки' in response.message
+
+
+def test_follow_up_subject_reaches_the_model():
+    from ml.generation.generator import messages, search_query
+    follow_up = PLAN.model_copy(update={'original_query': 'Почему это опасно?',
+                                        'rewritten_query': 'низкое давление масла опасность'})
+    payload = json.loads(messages('x', follow_up, EvidenceBundle(items=[PAGE]), None)[1]['content'])
+    assert payload['search_query'] == 'низкое давление масла опасность'
+    assert search_query(PLAN.model_copy(update={'rewritten_query': PLAN.original_query})) == ''
