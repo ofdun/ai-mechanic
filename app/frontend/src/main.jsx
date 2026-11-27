@@ -7,6 +7,26 @@ import { ManualNavigation } from './ManualReader'
 import { useChatHistory } from './chatHistory'
 import './style.css'
 
+const lastVehicleKey = 'ai-mechanic.lastVehicleId'
+
+function readPreference(key) {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+
+function savePreference(key, value) {
+  try { localStorage.setItem(key, value) } catch { /* Storage may be disabled. */ }
+}
+
+function sessionKey(vehicleId) {
+  return 'ai-mechanic.lastSession.' + vehicleId
+}
+
+function selectedSession(vehicle) {
+  if (!vehicle) return ''
+  const saved = readPreference(sessionKey(vehicle.vehicle_id))
+  return vehicle.sessions.some(session => session.session_id === saved) ? saved : vehicle.sessions[0]?.session_id || ''
+}
+
 function App() {
   const [view, setView] = useState('result')
   const [catalog, setCatalog] = useState(null)
@@ -39,6 +59,13 @@ function App() {
         ...vehicle,
         sessions: [...vehicle.sessions].sort((a, b) => Date.parse(b.checked_at) - Date.parse(a.checked_at)),
       }))
+      const savedId = readPreference(lastVehicleKey)
+      const savedVehicle = sorted.find(item => item.vehicle_id === savedId)
+      if (savedVehicle) {
+        setEngineFilter(savedVehicle.engine_model)
+        setVehicleId(savedVehicle.vehicle_id)
+        setSessionId(selectedSession(savedVehicle))
+      }
       setCatalog(sorted)
     }).catch(err => {
       if (!controller.signal.aborted) setError(err.message)
@@ -47,15 +74,17 @@ function App() {
   }, [attempt])
   const vehicle = catalog?.find(item => item.vehicle_id === vehicleId)
   function changeVehicle(id, control = 'vehicle') {
+    if (id) savePreference(lastVehicleKey, id)
     selectionControl.current = control
     setVehicleId(id)
-    setSessionId(catalog.find(item => item.vehicle_id === id)?.sessions[0]?.session_id || '')
+    setSessionId(selectedSession(catalog.find(item => item.vehicle_id === id)))
   }
   function changeEngine(engine) {
     setEngineFilter(engine)
     changeVehicle('', 'engine')
   }
   function changeSession(id) {
+    savePreference(sessionKey(vehicleId), id)
     selectionControl.current = 'session'
     setSessionId(id)
   }
@@ -110,6 +139,8 @@ function VehicleOptions({ vehicles }) {
 
 function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
   const { id, turns, setTurns, reset, warning } = useChatHistory(vehicle?.vehicle_id, sessionId)
+  const [openedDialog, setOpenedDialog] = useState(null)
+  const historyLocked = turns.length > 0 && openedDialog !== id
   const sendingTurn = useRef(null)
   const [question, setQuestion] = useState('')
   const [pending, setPending] = useState('')
@@ -130,7 +161,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
     const pane = chatBody.current
     const turn = pane?.querySelector('.turn:last-child')
     if (turn) pane.scrollTop += turn.getBoundingClientRect().top - pane.getBoundingClientRect().top
-  }, [turns.length, turns.at(-1)?.kind])
+  }, [view, historyLocked, turns.length, turns.at(-1)?.kind])
   function selectTab(next) {
     setView(next)
     document.getElementById('tab-' + next)?.focus()
@@ -148,7 +179,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
   async function run(kind, turn) {
     const text = turn?.question ?? question.trim()
     const retryId = turn?.id
-    if (running.current || !sessionId || !id) return
+    if (running.current || !sessionId || !id || (kind === 'chat' && historyLocked)) return
     const controller = new AbortController()
     running.current = controller
     setPending(kind)
@@ -159,6 +190,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
       setTurns(old => old.map(turn => turn.id === turnId ? { ...turn, ...fields } : turn))
     }
     if (kind === 'chat') {
+      setOpenedDialog(id)
       if (retryId) updateTurn({ error: '' })
       else {
         setTurns(old => [...old, { id: turnId, question: text }])
@@ -184,12 +216,15 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
       if (result.diagnostic) setDiagnosis(result)
       if (kind === 'diagnose' && result.diagnostic) {
+        const verdict = { id: conversationId(), kind: 'verdict', result }
         setTurns(old => {
-          const verdict = { kind: 'verdict', result }
-          return old.some(turn => turn.kind === 'verdict')
-            ? old.map(turn => turn.kind === 'verdict' ? verdict : turn)
-            : [...old, verdict]
+          const previous = old.findLast(turn => turn.kind === 'verdict')?.result.diagnostic
+          const current = result.diagnostic
+          if (previous && Object.keys(previous).length === Object.keys(current).length &&
+              Object.keys(current).every(key => previous[key] === current[key])) return old
+          return [...old, verdict]
         })
+        setOpenedDialog(id)
       }
       if (kind === 'chat') updateTurn({ result })
       if (result.diagnostic || result.action === 'draft_ticket') {
@@ -282,12 +317,15 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         </header>
         <div className="pane dialog-scroll" ref={chatBody}>
         {warning && <p role="status">{warning}</p>}
-        {!turns.length && <EmptyView icon={MessageSquare} title="Что хотите уточнить?">
+        {historyLocked && <EmptyView icon={MessageSquare} title="Переписка сохранена">
+          Чтобы открыть её, нажмите «Получить результат диагностики».
+        </EmptyView>}
+        {id && !turns.length && <EmptyView icon={MessageSquare} title="Что хотите уточнить?">
           Спросите о замере или нормативе из руководства для двигателя {vehicle.engine_model}.
         </EmptyView>}
         <div role="log" aria-label="Сообщения">
-        {turns.map(({ id, kind, result, question, error: turnError }) => kind === 'verdict'
-          ? <div className="turn" key="verdict"><DiagnosticVerdict result={result} /></div>
+        {!historyLocked && turns.map(({ id, kind, result, question, error: turnError }) => kind === 'verdict'
+          ? <div className="turn" key={id || 'verdict'}><DiagnosticVerdict result={result} /></div>
           : <div className="turn" key={id}>
           <div className="question"><strong>Вы</strong><p>{question}</p></div>
           {turnError || (!result && id !== sendingTurn.current) ? <div className="chat-error"><p>Ответ не получен. {turnError || 'Отправка прервалась.'}</p>
@@ -324,8 +362,8 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         </div>}
         {view === 'chat' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) { composer.current?.focus(); run('chat') } }}>
           <div className="compose-row"><input ref={composer} aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю…" value={question}
-            maxLength={8000} disabled={!sessionId} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
-            <button type="submit" className="submit" disabled={!id || !question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>Отправить</span></button></div>
+            maxLength={8000} disabled={!id || !sessionId || historyLocked} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
+            <button type="submit" className="submit" disabled={historyLocked || !id || !question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>Отправить</span></button></div>
         </form>}
         {view === 'ticket' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
           onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? 'Отправлено в ТОиР' : 'Отправка заблокирована'

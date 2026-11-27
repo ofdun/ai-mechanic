@@ -4,7 +4,7 @@ import { formatDate } from './api'
 import { Source } from './ManualReader'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
-const qualities = { good: 'хорошая', warning: 'с помехами', bad: 'непригодная' }
+const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
 const sections = {
   observation: 'Наблюдения', cause: 'Возможные причины', risk: 'Риски',
   check: 'Что проверить', reference_value: 'Нормативы', operation: 'Работы', spare_part: 'Запчасти',
@@ -78,20 +78,20 @@ export function DiagnosticReport({ result }) {
       })}</span>
     </p>
   }
-  const quality = qualities[diagnostic.signal_quality]
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  const reading = [
+    recordingWarnings[diagnostic.signal_quality],
+    status === 'anomaly' && diagnostic.anomaly_type && 'Код ' + diagnostic.anomaly_type,
+    status === 'anomaly' && !result.message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
+    status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность ИИ ' + confidence,
+  ].filter(Boolean).join(' · ')
   const OutcomeIcon = { anomaly: CircleAlert, recognition_error: CircleAlert, check_failed: RotateCcw, normal: CheckCircle2 }[status]
   const lead = status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.' : result.message
   const title = status === 'anomaly' && diagnostic.anomaly_title
   const titleAt = title ? lead.indexOf(title) : -1
   return <article className={'report report-' + status}>
     <header className="report-heading"><h3><OutcomeIcon aria-hidden="true" />{statusTitle}</h3>
-      <p className="report-reading">{[
-        quality && 'Запись ' + quality,
-        status === 'anomaly' && diagnostic.anomaly_type && 'Код ' + diagnostic.anomaly_type,
-        status === 'anomaly' && !result.message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
-        status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность ИИ ' + confidence,
-      ].filter(Boolean).join(' · ')}</p>
+      {reading && <p className="report-reading">{reading}</p>}
     </header>
     <p className="report-lead">{titleAt < 0 ? lead : <>
       {lead.slice(0, titleAt)}<strong>{title}</strong>{lead.slice(titleAt + title.length)}
@@ -117,10 +117,11 @@ export function DiagnosticVerdict({ result }) {
   const { diagnostic, message } = result
   const { status, title } = verdict(result)
   const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  const warning = recordingWarnings[diagnostic.signal_quality]
   return <div className="diagnostic-verdict">
     <div className={'verdict ' + status}>
       <h3>{title}</h3>
-      <span>Запись {qualities[diagnostic.signal_quality]}</span>
+      {warning && <span>{warning}</span>}
     </div>
     <p>{message}</p>
     {status === 'normal' && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
@@ -174,7 +175,6 @@ export function VehicleHistory({ vehicleId, sessions }) {
   }
   return <section className="history-report"><h3>История проверок · {vehicleId}</h3>
     {sessions.length ? <>
-      <p className="meta">Замеры этой машины, начиная с последнего.</p>
       <ol className="vehicle-history">{sessions.map(row =>
         <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
           <small>Замер {row.session_id}</small></div>
