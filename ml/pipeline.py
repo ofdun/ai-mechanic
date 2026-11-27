@@ -32,8 +32,9 @@ from ml.contracts import (
 )
 from ml.generation.finalizer import MechanicFinalizer, conflict_notes, ticket_fields
 from ml.generation.translate import Localizer
+from ml.operability import is_release_question, release_outcome, release_query
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
-from ml.planner.local import LocalPlanner
+from ml.planner.local import LocalPlanner, ticket_history_decision
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
 from ml.tools.tickets import TicketStore
@@ -117,13 +118,15 @@ class Pipeline:
         if diagnostic and (self.measurement_issue(diagnostic) or self.ticket_mismatch(vehicle, diagnostic)):
             diagnostic = None
             recent_messages = ()
-        if request.command == 'auto':
+        if request.command != 'auto':
+            decision = Decision(request.command)
+        elif is_release_question(message):
+            decision = Decision('search_manuals', release_query(message, recent_messages, diagnostic))
+        elif (decision := ticket_history_decision(message)) is None:
             if recent_messages:
                 decision = self.planner.plan(message, vehicle.engine_model, diagnostic, recent_messages=recent_messages)
             else:
                 decision = self.planner.plan(message, vehicle.engine_model, diagnostic)
-        else:
-            decision = Decision(request.command)
         response = AgentResponse(
             request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
             engine_model=vehicle.engine_model, conversation_id=request.conversation_id,
@@ -223,8 +226,12 @@ class Pipeline:
 
     def search(self, response: AgentResponse, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> None:
         response.search_plan = plan
-        if self.search_workflow is not None:
-            outcome = self.search_workflow.run(plan, diagnostic)
+        release = is_release_question(plan.original_query)
+        if self.search_workflow is not None or release:
+            if self.search_workflow is not None:
+                outcome = self.search_workflow.run(plan, diagnostic)
+            else:
+                outcome = release_outcome(plan, self.retriever.search if self.retriever is not None else None)
             if outcome.plan.engine_model != plan.engine_model:
                 raise AgentError('RAG_SCHEMA_ERROR', 'Поисковая стратегия изменила модель двигателя.')
             response.search_plan = outcome.plan
@@ -233,7 +240,10 @@ class Pipeline:
             response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
             if len(response.claims) == len(outcome.claims):
                 response.verification = outcome.verification
-            if not response.claims:
+            if release and not response.claims and outcome.summary:
+                response.message = outcome.summary
+                response.limitations.append(outcome.summary)
+            elif not response.claims:
                 response.limitations.append(
                     'На найденных страницах не удалось подтвердить ответ на этот вопрос.'
                     if response.evidence.items else 'В руководстве по этому двигателю ответ не найден.'

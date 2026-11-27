@@ -3,6 +3,7 @@ import re
 from typing import TYPE_CHECKING
 
 from ml.contracts import AnswerVerification, CheckedPage, EvidenceBundle, SearchOutcome, TechnicalClaim
+from ml.operability import is_release_question, release_outcome
 from ml.planner.local import is_diagnostic_followup
 from ml.reviewed_checks import ReviewCatalog
 
@@ -71,9 +72,10 @@ class LocalEvidence:
         question = plan.original_query.casefold().replace('ё', 'е')
         models = self.models or engine_mentions([plan.engine_model])
         other_engine = any(engine_key(name) != engine_key(plan.engine_model) for name in models.findall(question))
-        asks_to_drive = re.search(r'перегон|перегнат|доеха|своим ходом|на базу|в рейс|можно ли ехать', question)
-        if other_engine or asks_to_drive:
+        if other_engine:
             return SearchOutcome(plan=plan, claims=[], evidence=EvidenceBundle())
+        if is_release_question(question):
+            return release_outcome(plan, self.retriever.search)
 
         followup = diagnostic is not None and is_diagnostic_followup(question)
         diagnosis_lookup = diagnostic is not None and (plan.anomaly_type is not None or followup)

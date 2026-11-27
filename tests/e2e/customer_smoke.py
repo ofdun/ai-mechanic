@@ -150,10 +150,20 @@ def exercise(page, base_url, ranked_pages):
         question.press('Enter')
     followup = response.value.json()
     assert followup['action'] == 'search_manuals'
-    if followup['claims']:
-        assert all(claim['evidence_ids'] for claim in followup['claims'])
-    else:
-        expect(thread).to_contain_text('Рекомендуется дефектовка')
+    assert not followup['claims'] and not followup['evidence']['items']
+    expect(thread).to_contain_text('Данных недостаточно, чтобы подтвердить возможность перегона')
+    expect(thread).to_contain_text('Рекомендуется дефектовка')
+    for text, expected_action in (
+        ('Как снять топливный фильтр?', 'search_manuals'),
+        ('Как приготовить пирог?', 'clarify'),
+        ('Покажи прошлые заявки на эту машину', 'clarify'),
+    ):
+        question.fill(text)
+        with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
+            question.press('Enter')
+        turn = response.value.json()
+        assert turn['action'] == expected_action and turn['ticket_draft'] is None and turn['diagnostic'] is None
+    expect(thread).to_contain_text('История ранее созданных заявок пока недоступна.')
     page.get_by_role('tab', name='Результат', exact=True).click()
     language.select_option('kk')
     page.get_by_role('button', name=kk['К заявке'], exact=True).click()

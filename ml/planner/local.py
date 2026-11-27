@@ -2,8 +2,10 @@
 import math
 import re
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from functools import lru_cache
 
+from ml.operability import is_release_question, release_query
 from ml.planner import Decision, TOOL_DESCRIPTIONS
 from ml.retrieval.expansion import FAULT_QUERIES
 from ml.retrieval.sparse import tokenizer
@@ -32,6 +34,42 @@ EXAMPLES = {
     'clarify': ('спасибо', 'здравствуй', 'ничего делать не надо', 'отмена'),
 }
 
+DIAGNOSTIC_REQUEST = re.compile(
+    r'^\s*(?:(?:пожалуйста|давай|можешь|можно)\s+)*'
+    r'(?:(?:запуст|начн|провед|сдела)[а-я]*\b.{0,40}\bдиагностик|'
+    r'(?:повтор|проанализиру)[а-я]*\b.{0,35}\bзамер|'
+    r'(?:покаж|получ)[а-я]*\b.{0,35}\bрезультат[а-я]*\s+(?:проверк|диагностик|замер)|'
+    r'что показал[а-я]*\s+(?:запис|замер)|'
+    r'провер[ьт][а-я]*\s+(?:этот\s+)?(?:двигател[ьяею]|мотор(?:а|е|у|ом)?)\b)',
+)
+TICKET_REQUEST = re.compile(
+    r'^\s*(?:(?:пожалуйста|давай|хочу|можешь|можно)\s+)*'
+    r'(?:созда|оформ|подготов|состав|завед)[а-я]*'
+    r'(?:\s+(?:мне|нам|пожалуйста|нов[а-я]*|еще|одн[а-я]*))*\s+(?:заявк|черновик|наряд|обращени)',
+)
+DIAGNOSTIC_HISTORY = re.compile(
+    r'^\s*(?:покаж|посмотр|вывед)[а-я]*\b.{0,45}\b(?:истори[яию]|динамик[а-я]*|'
+    r'(?:прошл|предыдущ)[а-я]*\s+(?:результат|замер|проверк))|'
+    r'^\s*(?:динамик[а-я]*\b|предыдущ[а-я]*\s+замер|какие результаты были раньше|что изменилось с прошлого раза)',
+)
+ACTION_REQUESTS = {
+    'diagnose': DIAGNOSTIC_REQUEST,
+    'draft_ticket': TICKET_REQUEST,
+    'get_diagnostic_history': DIAGNOSTIC_HISTORY,
+}
+TICKET_HISTORY = re.compile(
+    r'\b(?:истори[яию]|список|статус|номер|прошл[а-я]*|предыдущ[а-я]*|стар[а-я]*|'
+    r'созданн[а-я]*|открыт[а-я]*)\s+(?:[а-я]+\s+){0,2}заявк[а-я]*\b|'
+    r'\b(?:какие|сколько)\s+заявк[а-я]*\s+(?:уже\s+)?(?:был|созда|оформ)[а-я]*\b',
+)
+
+
+def ticket_history_decision(message: str) -> Decision | None:
+    text = message.casefold().replace('ё', 'е')
+    if not TICKET_REQUEST.match(text) and TICKET_HISTORY.search(text):
+        return Decision('clarify', clarification='История ранее созданных заявок пока недоступна.')
+    return None
+
 
 def features(text):
     words = re.findall(r'[а-яa-z0-9]+', text.casefold().replace('ё', 'е'))
@@ -59,15 +97,28 @@ def vector(counts, weights):
 
 
 class LocalPlanner:
+    @classmethod
+    def from_postings(cls, postings: Mapping[str, Sequence[tuple[int, int]]]) -> 'LocalPlanner':
+        # An isolated PDF extraction artifact should not establish that a request is about an engine.
+        return cls(term for term, pages in postings.items() if len(pages) >= 3)
+
     def __init__(self, manual_terms=()):
         self.tokenize = tokenizer('stem')
         self.manual_terms = set(manual_terms)
         self.manual_terms.update(self.tokenize(' '.join(FAULT_QUERIES.values())))
-        self.manual_terms.update(self.tokenize('двигатель мотор норматив момент затяжки дефектовка маркировка износ допуск ремонт'))
+        self.manual_terms.update(self.tokenize(
+            'двигатель мотор норматив момент затяжки дефектовка маркировка износ допуск ремонт '
+            'руководство регламент заявка перегнать перегон рейс'
+        ))
         self.generic_terms = set(self.tokenize('дай дайте покажи расскажи напиши подскажи'
-            ' какой какая какие сколько сделать делать можно нужно почему проверить найти получить дома пожалуйста'))
+            ' какой какая какие сколько сделать делать можно нужно почему проверить найти получить дома пожалуйста'
+            ' работа способ действие порядок результаты помощь рецепт погода завтра сегодня приготовить грамм'))
 
     def plan(self, message, engine_model, diagnostic, *, recent_messages=()):
+        if is_release_question(message):
+            return Decision('search_manuals', release_query(message, recent_messages, diagnostic))
+        if history := ticket_history_decision(message):
+            return history
         followup = is_diagnostic_followup(message)
         if followup and (not diagnostic or diagnostic.status != 'anomaly'):
             return Decision('clarify', clarification='О каком отклонении речь? Назовите признак или получите результат диагностики выбранной проверки.')
@@ -79,21 +130,24 @@ class LocalPlanner:
         matches = [(sum(value * query.get(key, 0) for key, value in row.items()), action)
                    for action, row in rows]
         score, action = max(matches)
-        if not positive.strip():
-            action = 'clarify' if re.search(r'заявк|черновик|оформ|отправ|созда', message.casefold()) else 'search_manuals'
-        elif score < 0.28:
-            terms = set(self.tokenize(message)) - self.generic_terms
-            if not terms.intersection(self.manual_terms) and engine_model.casefold() not in message.casefold():
-                return Decision('clarify', clarification='Я помогаю с диагностикой двигателей. Что хотите узнать о выбранной машине?')
-            action = 'search_manuals'
-        elif (action == 'draft_ticket' and re.search(r'\b(?:как|почему|зачем|когда)\b', positive)):
-            action = 'search_manuals'
-        if action != 'search_manuals':
+        explicit = ACTION_REQUESTS.get(action)
+        if explicit is not None and explicit.search(positive.replace('ё', 'е')):
             return Decision(action)
+
+        if not positive.strip() and re.search(r'заявк|черновик|оформ|отправ|созда', message.casefold()):
+            return Decision('clarify')
+        terms = {term for term in self.tokenize(message) if not term[0].isdigit()} - self.generic_terms
+        in_scope = (followup or bool(terms.intersection(self.manual_terms))
+                    or engine_model.casefold() in message.casefold())
+        if not in_scope:
+            if action == 'clarify' and score >= 0.28:
+                return Decision('clarify')
+            return Decision('clarify', clarification='Я помогаю с диагностикой двигателей. Что хотите узнать о выбранной машине?')
+
         rewrite = message
         if diagnostic and diagnostic.status == 'anomaly' and followup:
             rewrite = f'{message} {diagnostic.anomaly_title}. {diagnostic.description}'
-        return Decision(action, rewrite)
+        return Decision('search_manuals', rewrite)
 
 
 def is_diagnostic_followup(message):

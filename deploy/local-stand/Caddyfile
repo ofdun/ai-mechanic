@@ -1,0 +1,13 @@
+{
+	auto_https disable_redirects
+}
+https://{$STAND_HOST}, https://gateway {
+	tls internal
+	basic_auth {
+		{$STAND_USER} {$STAND_PASSWORD_HASH}
+	}
+	header >Cache-Control "private, no-store"
+	reverse_proxy web:{$WEB_LISTEN_PORT} {
+		header_up -Authorization
+	}
+}
