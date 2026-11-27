@@ -186,7 +186,6 @@ select:hover:enabled, .compose-row input:hover:enabled { border-color: var(--pin
 .reply { padding-top: .9rem; }
 .reply > * + *, .diagnostic-verdict > * + *, .claims > :nth-child(2) { margin-top: .6rem; }
 .manual-answer { white-space: pre-line; }
-.manual-claims > summary { cursor: pointer; padding-block: .7rem; color: var(--pine-dark); font-weight: 600; }
 .verdict span { display: block; margin-top: .25rem; color: var(--muted); font-size: .85rem; }
 .claims { border-top: 1px solid var(--line); padding-top: .7rem; }
 h4 { font-size: 1rem; }

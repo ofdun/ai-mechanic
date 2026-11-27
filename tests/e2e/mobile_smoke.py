@@ -139,13 +139,30 @@ def exercise(context, base_url):
     generated = thread.get_by_role('article').last
     expect(generated.locator('.manual-answer')).to_have_text(summary)
     expect(generated.get_by_text(summary, exact=True)).to_have_count(1)
-    expect(generated.get_by_text(RISK, exact=False)).not_to_be_visible()
+    expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
     generated.get_by_role('button', name=source_name).tap()
     expect(page.get_by_text('Страница 2 из 2')).to_be_visible()
     page.get_by_role('button', name='К чату').tap()
-    generated.get_by_text('Подробности из руководства', exact=True).tap()
+    expect(generated.locator('details')).to_have_count(0)
     expect(generated.get_by_text(RISK, exact=False).first).to_be_visible()
-    print('PASS — один краткий ответ, его источник и раскрытие формулировки из руководства')
+    print('PASS — один краткий ответ, его источник и видимая формулировка из руководства')
+
+    delayed = []
+    page.route('**/agent/run', lambda route: delayed.append(route), times=1)
+    text = 'Почему это опасно при следующем замере?'
+    question.fill(text)
+    question.press('Enter')
+    turn = thread.locator('.turn').last
+    expect(turn.get_by_text(text, exact=True)).to_be_visible()
+    expect(turn.get_by_text('Ищем ответ…')).to_be_visible()
+    expect(question).to_have_value('')
+    question.fill('Следующий вопрос')
+    delayed[0].abort()
+    expect(turn.get_by_role('button', name='Повторить')).to_be_visible()
+    turn.get_by_role('button', name='Повторить').tap()
+    expect(turn.get_by_role('article')).to_be_visible()
+    expect(thread.get_by_text(text, exact=True)).to_have_count(1)
+    expect(question).to_have_value('Следующий вопрос')
 
     question.fill('Можно ли перегнать машину на базу?')
     page.get_by_role('button', name='Отправить', exact=True).tap()
@@ -154,8 +171,8 @@ def exercise(context, base_url):
 
     question.fill('Сколько стоит маркировка учебного узла?')
     send.tap()
-    candidates = thread.get_by_role('heading', name='Страницы по теме для самостоятельной проверки').last.locator('..')
-    reply = thread.get_by_role('article').last
+    reply = thread.locator('.turn').last.get_by_role('article')
+    candidates = reply.get_by_role('heading', name='Страницы по теме для самостоятельной проверки').locator('..')
     expect(reply.locator('.search-fallback')).to_have_count(1)
     expect(reply.get_by_role('heading', name='Ограничения')).to_have_count(0)
     candidate_page = candidates.get_by_role('button', name=source_name)

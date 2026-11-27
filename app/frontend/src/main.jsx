@@ -143,13 +143,24 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
   useEffect(() => () => running.current?.abort(), [])
   const pair = { vehicle_id: vehicle.vehicle_id, session_id: sessionId }
   const selectedSession = vehicle.sessions.find(session => session.session_id === sessionId)
-  async function run(kind) {
+  async function run(kind, retryTurn) {
     if (running.current || !sessionId) return
     const controller = new AbortController()
     running.current = controller
     setPending(kind)
     setError('')
-    const text = question.trim()
+    const text = retryTurn?.question ?? question.trim()
+    const turnId = kind === 'chat' ? retryTurn?.id ?? conversationId() : null
+    function updateTurn(fields) {
+      setTurns(old => old.map(turn => turn.id === turnId ? { ...turn, ...fields } : turn))
+    }
+    if (kind === 'chat') {
+      if (retryTurn) updateTurn({ error: '' })
+      else {
+        setTurns(old => [...old, { id: turnId, question: text }])
+        setQuestion('')
+      }
+    }
     try {
       if (kind === 'confirm') {
         const { draft_id, draft_version } = draft.value
@@ -176,10 +187,7 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
             : [...old, verdict]
         })
       }
-      if (kind === 'chat') {
-        setTurns(old => [...old, { result, question: text }])
-        setQuestion('')
-      }
+      if (kind === 'chat') updateTurn({ result })
       if (result.diagnostic || result.action === 'draft_ticket') {
         setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
@@ -204,7 +212,9 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
           return
         }
       }
-      setError(err.message || 'Сервис недоступен. Повторите запрос.')
+      const message = err.message || 'Сервис недоступен. Повторите запрос.'
+      if (kind === 'chat') updateTurn({ error: message })
+      else setError(message)
     } finally {
       if (!controller.signal.aborted) setPending('')
       running.current = null
@@ -255,11 +265,14 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
           Спросите о замере или нормативе из руководства для двигателя {vehicle.engine_model}.
         </EmptyView>}
         <div role="log" aria-label="Сообщения">
-        {turns.map(({ kind, result, question }) => kind === 'verdict'
+        {turns.map(({ id, kind, result, question, error: turnError }) => kind === 'verdict'
           ? <div className="turn" key="verdict"><DiagnosticVerdict result={result} /></div>
-          : <div className="turn" key={result.request_id}>
+          : <div className="turn" key={id}>
           <div className="question"><strong>Вы</strong><p>{question}</p></div>
-          {result.ticket_draft
+          {turnError ? <div className="chat-error"><p>Ответ не получен. {turnError}</p>
+            <button disabled={!!pending} onClick={() => run('chat', { id, question })}>Повторить</button></div>
+            : !result ? <p className="meta">Ищем ответ<span className="pending-dots">…</span></p>
+            : result.ticket_draft
             ? <p>Черновик подготовлен в разделе «Заявка».</p>
             : <Response result={result} />}
         </div>)}</div>
@@ -286,14 +299,14 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
         </div>}
         {view === 'chat' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) { composer.current?.focus(); run('chat') } }}>
           <div className="compose-row"><input ref={composer} aria-label="Вопрос по двигателю" placeholder="Вопрос по двигателю…" value={question}
-            maxLength={8000} disabled={!sessionId} readOnly={!!pending} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
+            maxLength={8000} disabled={!sessionId} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
             <button type="submit" className="submit" disabled={!question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>Отправить</span></button></div>
         </form>}
         {view === 'ticket' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
           onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? 'Отправлено в ТОиР' : 'Отправка заблокирована'
             : draft ? 'Подтвердить заявку' : 'Создать заявку'}</button>}
       </div>
-      <div className="panel-status" role="status">{error || (pending &&
+      <div className="panel-status" role="status">{error || (pending && pending !== 'chat' &&
         <>{pendingLabels[pending]}<span className="pending-dots">…</span></>)}</div>
     </section>
   </div></ManualNavigation>

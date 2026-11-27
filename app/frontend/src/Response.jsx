@@ -32,7 +32,7 @@ function ManualAnswer({ summary, children }) {
   if (!summary) return children
   return <>
     <p className="manual-answer">{summary}</p>
-    <details className="manual-claims"><summary>Подробности из руководства</summary>{children}</details>
+    {children}
   </>
 }
 
@@ -138,14 +138,7 @@ export function Response({ result }) {
   const limitations = result.limitations || []
   const insufficient = result.action === 'search_manuals' && verified.length === 0
   const referencePages = new Map()
-  if (summary) {
-    for (const claim of verified) {
-      for (const id of claim.evidence_ids) {
-        const source = sources.get(id)
-        referencePages.set(pageKey(source), source)
-      }
-    }
-  } else if (insufficient) {
+  if (insufficient) {
     for (const source of sources.values()) referencePages.set(pageKey(source), source)
   }
   return <article className="reply">
