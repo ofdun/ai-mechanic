@@ -121,9 +121,9 @@ def test_errors_are_reported_not_scored(corpus):
     with http:
         failed = oracle.run_case(case(), corpus, settings, client, usage, pipeline='generator', model='m',
                                  distractors=0, seed=7, judge_model=None)
-    assert failed.error == 'LLM_SCHEMA_ERROR'
+    assert failed.error.startswith('LLM_SCHEMA_ERROR (')
     summary = oracle.summarize([failed])
-    assert summary['completed'] == 0 and summary['errors'] == ['LLM_SCHEMA_ERROR']
+    assert summary['completed'] == 0 and summary['errors'] == ['LLM_SCHEMA_ERROR (a_generator вернул данные вне ожидаемой схемы.)']
 
 
 def load_context_script():
