@@ -7,6 +7,7 @@ pymupdf = pytest.importorskip("pymupdf")
 
 from ml.ingestion.export_pages import export_pages, export_parsed_documents, read_document_pages
 from ml.ingestion.page_ocr import OCRPage, raster_regions
+from ml.ingestion.page_ocr import PageOCR
 from ml.retrieval import load_documents
 
 
@@ -90,3 +91,23 @@ def test_mixed_flag_needs_an_ocr_engine(mixed):
     document, source, _ = mixed
     with pytest.raises(ValueError, match="--ocr"):
         list(read_document_pages(document, source, mixed_ocr=True))
+
+
+def test_table_html_mode_reaches_the_recognition_pipeline(mixed):
+    _, source, _ = mixed
+    calls = []
+
+    class Pipeline:
+        def predict(self, input, **options):
+            calls.append(options)
+            return [{"parsing_res_list": []}]
+
+    with pymupdf.open(source) as pdf:
+        for mode in ("model", "cells"):
+            reader = PageOCR("pp-structure", table_html=mode)
+            reader.pipeline = Pipeline()
+            reader.read(pdf[0])
+    assert calls == [{"use_wired_table_cells_trans_to_html": False},
+                     {"use_wired_table_cells_trans_to_html": True}]
+    with pytest.raises(ValueError, match="pp-structure"):
+        PageOCR("paddleocr", table_html="cells")

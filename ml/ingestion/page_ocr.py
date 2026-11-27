@@ -77,9 +77,14 @@ def table_text(html):
 
 
 class PageOCR:
-    def __init__(self, mode, dpi=250):
+    def __init__(self, mode, dpi=250, table_html="model"):
+        if table_html not in {"model", "cells"}:
+            raise ValueError("Неизвестный способ сборки HTML таблиц.")
+        if table_html == "cells" and mode != "pp-structure":
+            raise ValueError("--table-html cells требует --ocr pp-structure.")
         self.mode = mode
         self.dpi = dpi
+        self.table_html = table_html
 
     @cached_property
     def pipeline(self):
@@ -107,7 +112,10 @@ class PageOCR:
         image = page.get_pixmap(dpi=self.dpi, clip=clip, alpha=False)
         # PaddleOCR's ndarray input expects BGR.
         pixels = np.frombuffer(image.samples, dtype=np.uint8).reshape(image.height, image.width, 3)
-        result, = self.pipeline.predict(input=pixels[:, :, ::-1].copy())
+        options = {}
+        if self.mode == "pp-structure":
+            options["use_wired_table_cells_trans_to_html"] = self.table_html == "cells"
+        result, = self.pipeline.predict(input=pixels[:, :, ::-1].copy(), **options)
         area = page.rect if clip is None else clip & page.rect
 
         def bbox(box):
