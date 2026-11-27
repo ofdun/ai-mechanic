@@ -225,6 +225,7 @@ def exercise(context, base_url):
     print('PASS — C1, черновик, явное подтверждение и повтор с тем же ticket_id')
 
     engine.select_option('Учебный Д-02')
+    expect(ticket_view).to_have_attribute('aria-selected', 'true')
     expect(engine).to_be_focused()
     expect(vehicle).to_have_value('ДЕМО-02')
     expect(vehicle.locator('option')).to_have_count(1)
@@ -243,13 +244,15 @@ def exercise(context, base_url):
     expect(history.locator('li').last).to_contain_text('Норма')
     assert not agent_calls
     measurement.select_option('NORMAL-DEMO')
-    expect(history).to_have_count(0)
+    expect(panel).to_be_visible()
+    expect(history.locator('li')).to_have_count(2)
     engine.select_option('')
     expect(vehicle.locator('option')).to_have_count(2)
     expect(vehicle).to_have_value('ДЕМО-02')
     expect(measurement).to_have_value('NORMAL-DEMO')
     expect(page.get_by_text(re.compile(re.escape(ticket_id)))).to_have_count(0)
     expect(page.get_by_text(OPERATION, exact=False)).to_have_count(0)
+    page.get_by_role('tab', name='Результат').tap()
     diagnose.tap()
     expect(page.get_by_role('heading', name='Норма', exact=True)).to_be_visible()
     expect(report.get_by_text(re.compile('можно продолжить эксплуатацию'))).to_be_visible()
@@ -264,6 +267,8 @@ def exercise(context, base_url):
     print('PASS — норма, смена ТС очищает предыдущую заявку, ответ и источник')
 
     measurement.select_option('REPEAT-DEMO')
+    expect(chat_view).to_have_attribute('aria-selected', 'true')
+    page.get_by_role('tab', name='Результат').tap()
     expect(page.get_by_role('heading', name='Норма', exact=True)).to_have_count(0)
     diagnose.tap()
     expect(page.get_by_role('heading', name='Сбой проверки', exact=True)).to_be_visible()

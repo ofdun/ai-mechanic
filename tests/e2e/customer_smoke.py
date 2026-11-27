@@ -43,6 +43,8 @@ def exercise(page, base_url, ranked_pages):
     expect(create_ticket).to_be_disabled()
     vehicle.select_option('M333YK47')
     session.select_option('S-0005')
+    result_tab = page.get_by_role('tab', name='Результат', exact=True)
+    result_tab.click()
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
         diagnose.click()
     diagnosis = response.value.json()
@@ -87,6 +89,7 @@ def exercise(page, base_url, ranked_pages):
     for measurement, verdict, reason in [('S-0001', 'Норма', 'Заявка на дефектовку не требуется'),
                                          ('S-0003', 'Сбой проверки', 'Повторите замер')]:
         session.select_option(measurement)
+        result_tab.click()
         diagnose.click()
         expect(page.get_by_role('heading', name=verdict, exact=True)).to_be_visible()
         open_ticket.click()
@@ -95,6 +98,7 @@ def exercise(page, base_url, ranked_pages):
 
     vehicle.select_option('Y652CK98')
     session.select_option('S-0132')
+    result_tab.click()
     diagnose.click()
     expect(page.get_by_role('heading', name='Ошибка распознавания')).to_be_visible()
     chat.click()
@@ -105,6 +109,7 @@ def exercise(page, base_url, ranked_pages):
 
     vehicle.select_option('P854BT78')
     session.select_option('S-0021')
+    result_tab.click()
     diagnose.click()
     report = page.get_by_role('tabpanel', name='Результат')
     expect(report).to_contain_text('66%')

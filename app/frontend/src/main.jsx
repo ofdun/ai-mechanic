@@ -7,6 +7,7 @@ import { ManualNavigation } from './ManualReader'
 import './style.css'
 
 function App() {
+  const [view, setView] = useState('result')
   const [catalog, setCatalog] = useState(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -69,7 +70,7 @@ function App() {
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
         : !vehicle ? <p role="status">В справочнике пока нет транспортных средств.</p>
         : <Workspace key={JSON.stringify([vehicleId, sessionId])}
-          {...{ vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
+          {...{ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
     </main>
   </>
 }
@@ -105,7 +106,7 @@ function VehicleOptions({ vehiclesByEngine, engineFilter }) {
   </optgroup>)
 }
 
-function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
+function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
   const [id] = useState(conversationId)
   const [turns, setTurns] = useState([])
   const [question, setQuestion] = useState('')
@@ -114,7 +115,6 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
   const [canDraft, setCanDraft] = useState(false)
   const [draft, setDraft] = useState(null)
   const [ticketStatus, setTicketStatus] = useState(null)
-  const [view, setView] = useState('result')
   const [diagnosis, setDiagnosis] = useState(null)
   const [ticketHint, setTicketHint] = useState('')
   const chatBody = useRef(null)
