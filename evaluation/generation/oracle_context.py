@@ -296,8 +296,7 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
             final = workflow.run(plan, None).claims
             drafts = workflow.drafts or []
     except AgentError as error:
-        role = str(error).split(':', 1)[0] if ':' in str(error) else ''
-        result.error = f'{error.code} ({role})' if role else error.code
+        result.error = f'{error.code} ({error})'
         result.seconds = time.monotonic() - started
         return finish_usage(result, usage)
     result.seconds = time.monotonic() - started
@@ -339,7 +338,7 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
             ], JudgeOutput, max_tokens=1500)
             result.verdict, result.verdict_reason = verdict.verdict, verdict.reason
         except AgentError as error:
-            result.error = f'judge:{error.code}'
+            result.error = f'judge:{error.code} ({error})'
     return finish_usage(result, usage, calls=generation_calls)
 
 
