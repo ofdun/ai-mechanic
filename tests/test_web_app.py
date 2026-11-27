@@ -15,6 +15,7 @@ pytest.importorskip('fastapi')
 from ml import pdf_baseline
 from ml.config import Settings
 from ml.contracts import AgentError, AgentRequest
+from ml.document_ids import LEGACY_YAMZ_236_OPERATIONS_ID
 from ml.planner import OfflinePlanner
 from demo.host import create_app
 from demo.sessions import WebSessions
@@ -35,7 +36,14 @@ def host(tmp_path):
                         'sessions': [{**result, 'checked_at': '2026-01-01T10:00:00Z'}]})
     results[0].update(make='Марка', model='Марка-1')
     (source / 'vehicles.json').write_text(json.dumps({'vehicles': results}))
+    manual_bytes = (Path(__file__).resolve().parents[1] / 'demo' / 'training-stand.pdf').read_bytes()
+    manifest = tmp_path / 'manifest.json'
+    manifest.write_text(json.dumps({'documents': [{
+        'document_id': pdf_baseline.DOCUMENT_ID, 'file': pdf_baseline.PDF_NAME,
+        'sha256': hashlib.sha256(manual_bytes).hexdigest(),
+    }]}), encoding='utf-8')
     settings = Settings(_env_file=None, data_dir=source, vehicles_path=source / 'vehicles.json',
+                        manual_manifest_path=manifest,
                         artifacts_dir=tmp_path, planner_mode='offline', agent_architecture='baseline')
     dist = tmp_path / 'dist'
     dist.mkdir()
@@ -90,11 +98,11 @@ def test_web_routes_and_conversation_isolation(host, monkeypatch):
     asyncio.run(check())
 
 
-def test_documents_only_indexed_known_bytes(host, monkeypatch):
+@pytest.mark.parametrize('indexed_id', [pdf_baseline.DOCUMENT_ID, LEGACY_YAMZ_236_OPERATIONS_ID])
+def test_documents_only_indexed_known_bytes(host, indexed_id):
     app, settings = host
     pdf = settings.data_dir / pdf_baseline.PDF_NAME
     pdf.write_bytes((Path(__file__).resolve().parents[1] / 'demo' / 'training-stand.pdf').read_bytes())
-    monkeypatch.setattr(pdf_baseline, 'PDF_SHA256', hashlib.sha256(pdf.read_bytes()).hexdigest())
     index = settings.artifacts_dir / 'manuals.sqlite3'
     with closing(sqlite3.connect(index)) as db, db:
         db.execute('CREATE TABLE manual_pages (document_id TEXT)')
@@ -106,14 +114,16 @@ def test_documents_only_indexed_known_bytes(host, monkeypatch):
             assert (await client.get(url)).status_code == 404
             assert (await client.get(url + '/pages/2')).status_code == 404
             with closing(sqlite3.connect(index)) as db, db:
-                db.execute('INSERT INTO manual_pages VALUES (?)', (pdf_baseline.DOCUMENT_ID,))
-            result = await client.get(url)
-            assert result.headers['content-type'] == 'application/pdf' and result.content == pdf.read_bytes()
-            page = (await client.get(url + '/pages/2')).json()
-            assert page['page'] == page['total'] == 2
-            assert 'Сверить маркировку' in page['text']
-            image = await client.get(url + '/pages/2?view=image')
-            assert image.headers['content-type'] == 'image/png' and image.content.startswith(b'\x89PNG')
+                db.execute('INSERT INTO manual_pages VALUES (?)', (indexed_id,))
+            for document_id in (pdf_baseline.DOCUMENT_ID, LEGACY_YAMZ_236_OPERATIONS_ID):
+                source_url = f'/api/documents/{document_id}'
+                result = await client.get(source_url)
+                assert result.headers['content-type'] == 'application/pdf' and result.content == pdf.read_bytes()
+                page = (await client.get(source_url + '/pages/2')).json()
+                assert page['page'] == page['total'] == 2
+                assert 'Сверить маркировку' in page['text']
+                image = await client.get(source_url + '/pages/2?view=image')
+                assert image.headers['content-type'] == 'image/png' and image.content.startswith(b'\x89PNG')
             assert (await client.get(url + '/pages/0')).status_code == 404
             assert (await client.get(url + '/pages/3')).status_code == 404
             pdf.write_bytes(b'%PDF-1.4\nother')

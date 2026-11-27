@@ -10,6 +10,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ml.contracts import Evidence, EvidenceBundle, FaultCode, SearchOutcome, SearchPlan, TechnicalClaim
+from ml.document_ids import document_id_variants
 
 DEFAULT_CATALOG = Path(__file__).with_name('ingestion') / 'reviewed_evidence.json'
 PageKey = Annotated[str, Field(pattern=r'^[^:]+:[1-9]\d*$')]
@@ -75,8 +76,9 @@ class ReviewCatalog(BaseModel):
         @cache
         def read(key):
             document, number = key.rsplit(':', 1)
-            item = lookup(plan.engine_model, document, int(number))
-            if (item is None or item.document_id != document or item.pdf_page != int(number)
+            page = int(number)
+            item = lookup(plan.engine_model, document, page)
+            if (item is None or item.document_id not in document_id_variants(document) or item.pdf_page != page
                     or plan.engine_model not in item.engine_models):
                 return None
             values = self.pages[key].read(item)

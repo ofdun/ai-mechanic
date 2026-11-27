@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from ml import pdf_baseline
+from ml.document_ids import document_id_variants
 from ml.manual_corpus import document_catalog
 from ml.manual_pages import checked_digest, read_manual_page
 
@@ -17,8 +18,11 @@ def manual_router(settings, index, documents=None):
     catalog = document_catalog(settings.manual_manifest_path) if documents is None else {}
 
     def checked_document(document_id: str) -> Path:
+        document_id, legacy_id = document_id_variants(document_id)
         if documents is not None and document_id in documents:
             name, digest = documents[document_id]
+        elif documents is not None and legacy_id is not None and legacy_id in documents:
+            name, digest = documents[legacy_id]
         elif document_id in catalog:
             entry = catalog[document_id]
             name, digest = entry['file'], entry['sha256']
@@ -28,7 +32,8 @@ def manual_router(settings, index, documents=None):
             raise HTTPException(404, 'Источник не найден.')
         try:
             with closing(sqlite3.connect(index.resolve().as_uri() + '?mode=ro', uri=True)) as db:
-                indexed = db.execute('SELECT 1 FROM manual_pages WHERE document_id=? LIMIT 1', (document_id,)).fetchone()
+                indexed = db.execute('SELECT 1 FROM manual_pages WHERE document_id IN (?, ?) LIMIT 1',
+                                     (document_id, legacy_id)).fetchone()
         except sqlite3.Error:
             raise HTTPException(503, 'Индекс руководств недоступен.') from None
         if not indexed:
@@ -46,6 +51,6 @@ def manual_router(settings, index, documents=None):
     @router.get('/api/documents/{document_id}/pages/{page_number}')
     def manual_page(document_id: str, page_number: int, view: Literal['text', 'image'] = 'text',
                     path: Path = Depends(checked_document)):
-        return read_manual_page(path, page_number, view, catalog.get(document_id))
+        return read_manual_page(path, page_number, view, catalog.get(document_id_variants(document_id)[0]))
 
     return router
