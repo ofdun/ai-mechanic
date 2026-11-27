@@ -70,4 +70,5 @@ class SentenceTransformerEmbedder:
 
 
 def model_slug(name: str) -> str:
-    return name.replace('/', '__')
+    """File-safe name of an embedder: `BAAI/bge-m3` → `BAAI__bge-m3`, `cf:@cf/baai/bge-m3` → `cf_@cf__baai__bge-m3`."""
+    return name.replace('/', '__').replace(':', '_')
