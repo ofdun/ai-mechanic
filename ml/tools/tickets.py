@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import time
 
-from ml.contracts import AgentError, DiagnosticResult, TicketConfirmation, TicketDraft, TicketReceipt
+from ml.contracts import AgentError, DiagnosticResult, PastTicket, TicketConfirmation, TicketDraft, TicketReceipt
 
 
 class TicketStore:
@@ -103,3 +103,11 @@ class TicketStore:
             db.execute('UPDATE drafts SET state=?, receipt=? WHERE draft_id=? AND state=?', (
                 state, receipt.model_dump_json() if receipt else None, draft_id, 'sending',
             ))
+
+    def created(self, vehicle_id: str) -> list[PastTicket]:
+        """Tickets created in TOiR for this vehicle, in the order they were saved."""
+        with self.connect() as db:
+            rows = db.execute("SELECT session_id, anomaly_type, receipt FROM drafts WHERE vehicle_id=? AND state='created' "
+                              'ORDER BY rowid', (vehicle_id,)).fetchall()
+        return [PastTicket(ticket_id=TicketReceipt.model_validate_json(row['receipt']).ticket_id,
+                           session_id=row['session_id'], anomaly_type=row['anomaly_type']) for row in rows]
