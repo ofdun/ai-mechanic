@@ -190,7 +190,7 @@ def main():
             'ML_API_URL': stack.enter_context(serve(mock_ml)),
             'MAINTENANCE_API_URL': stack.enter_context(serve(mock_toir)),
         }))
-        if args.index and (args.index.parent / 'retrieval').is_dir():
+        if args.index is not None:
             (state / 'manuals.sqlite3').symlink_to(args.index.resolve(strict=True))
             (state / 'retrieval').symlink_to((args.index.parent / 'retrieval').resolve(strict=True))
         else:
