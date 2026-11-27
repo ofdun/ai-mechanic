@@ -141,5 +141,11 @@
   "Чтобы открыть её, нажмите «Получить результат диагностики».": "Uni ochish uchun «Diagnostika natijasini olish» tugmasini bosing.",
   "Язык": "Til",
   "стр.": "bet",
-  "страница": "sahifa"
+  "страница": "sahifa",
+  "Обозначения деталей из руководства": "Qo'llanmadagi detal belgilari",
+  "Наличие и совместимость проверьте у поставщика: агент знает только руководство.": "Mavjudligi va mosligini yetkazib beruvchida tekshiring: agent faqat qo'llanmani biladi.",
+  "На страницах руководства, подтвердивших ответ, обозначений деталей нет.": "Javobni tasdiqlagan qo'llanma sahifalarida detal belgilari yo'q.",
+  "Скопировать {code}": "{code} ni nusxalash",
+  "Скопировано": "Nusxalandi",
+  "Копировать": "Nusxalash"
 }

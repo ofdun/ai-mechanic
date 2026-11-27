@@ -176,6 +176,16 @@ class TicketReceipt(BaseModel):
     status: Literal['created']
 
 
+class PartNumber(BaseModel):
+    """A part designation printed on a manual page of this engine; stock and compatibility are not known."""
+    designation: Text
+    context: str
+    manual: Text
+    document_id: Text
+    pdf_page: PageNumber
+    evidence_id: Text
+
+
 class AgentTurn(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -232,6 +242,9 @@ class AgentResponse(BaseModel):
     evidence: EvidenceBundle = Field(default_factory=EvidenceBundle)
     claims: list[TechnicalClaim] = Field(default_factory=list)
     history: list[SessionRecord] = Field(default_factory=list)
+    # Part designations from the pages behind the answer; none is taken from external catalogues.
+    part_numbers: list[PartNumber] = Field(default_factory=list)
+    part_numbers_note: str | None = None
     ticket_draft: TicketDraft | None = None
     limitations: list[str] = Field(default_factory=list)
     language: Language = 'ru'

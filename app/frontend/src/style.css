@@ -258,3 +258,11 @@ li + li { margin-top: .35rem; }
   .dialog-bar .reset-chat { max-width: 100%; }
   .answer-language { max-width: 100%; }
 }
+.part-numbers ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.part-numbers li { display: grid; gap: .2rem; justify-items: start; }
+.part-numbers code { font-family: var(--mono); font-size: 1.05rem; font-weight: 650; }
+.copy-code { min-height: 36px; padding: .2rem .55rem; gap: .35rem; font-size: .85rem; }
+.part-numbers li:has(> code) { grid-template-columns: max-content auto; align-items: center; }
+.part-numbers .copy-code { justify-self: start; }
+.part-numbers li > p, .part-numbers li > .source { grid-column: 1 / -1; }
+.part-numbers li:has(> code) { column-gap: .6rem; }
