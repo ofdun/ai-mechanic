@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  font: 100%/1.5 "Inter", "Helvetica Neue", Arial, sans-serif;
+  font: 100%/1.5 system-ui, "Noto Sans", "Noto Sans Devanagari", "Kohinoor Devanagari", sans-serif;
   color: var(--ink);
   background: #dce2dc;
   --ink: #101a16;
@@ -244,6 +244,20 @@ li + li { margin-top: .35rem; }
   .workspace { grid-template-rows: auto minmax(20rem, 1fr); }
   .pane { overscroll-behavior-y: auto; }
 }
+
+.answer-language { margin-left: auto; display: flex; align-items: center; gap: .5rem; color: inherit; }
+.answer-language select { width: auto; min-height: 44px; }
+
+.translation-status { padding-block: 1rem; }
+:lang(hi) { letter-spacing: normal; }
+:lang(hi):is(h1, h2, h3, h4, button, select, .report-lead) { line-height: 1.5; }
+.view-switch button, .source, .wordmark { min-width: 0; overflow-wrap: anywhere; }
+.report-row > div { min-width: 0; }
+@media (max-width: 42rem) {
+  .dialog-bar { flex-wrap: wrap; gap: .25rem .6rem; }
+  .dialog-bar .reset-chat { max-width: 100%; }
+  .answer-language { max-width: 100%; }
+}
 .score-chart { margin: .75rem 0 1rem; max-width: 26rem; }
 .score-chart svg { display: block; width: 100%; height: auto; overflow: visible; font-size: 12px; font-variant-numeric: tabular-nums; }
 .score-chart .grid line { stroke: var(--line); stroke-width: 1; }
@@ -279,3 +293,4 @@ li + li { margin-top: .35rem; }
 .fleet-main { display: grid; gap: .1rem; min-width: 0; }
 .fleet-state { font-weight: 700; }
 @media (max-width: 34rem) { .fleet-counters .counter { font-size: .8rem; } }
+.mode-switch + .answer-language { margin-left: 0; }

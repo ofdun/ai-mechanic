@@ -1,14 +1,16 @@
+import { useUiText } from './uiLanguage'
 import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { request } from './api'
 
 const OpenManual = createContext(null)
 
-export function Source({ source, number }) {
+export function Source({ source, number, pageLabel }) {
+  const t = useUiText()
   const open = useContext(OpenManual)
-  const title = source.manual + ', стр.\u00a0' + source.pdf_page
+  const title = source.manual + ', ' + (pageLabel || t('стр.')) + '\u00a0' + source.pdf_page
   return <button type="button" className={number ? 'citation' : 'source'}
-    aria-label={number ? `Источник ${number}, ${title}` : title}
+    aria-label={number ? t('Источник {number}, {title}', { number, title }) : title}
     onClick={event => open(source, event.currentTarget)}>
     {number ? `[${number}]` : <><BookOpen aria-hidden="true" />{title}</>}
   </button>
@@ -54,6 +56,7 @@ export function ManualNavigation({ children, sessionKey, returnLabel }) {
 }
 
 function ManualPage({ source }) {
+  const t = useUiText()
   const [number, setNumber] = useState(source.pdf_page)
   const [mode, setMode] = useState('original')
   const [data, setData] = useState(null)
@@ -81,22 +84,22 @@ function ManualPage({ source }) {
   return <>
     <div className="manual-tools">
       <div className="page-turn">
-        <button aria-label="Предыдущая страница" disabled={number <= 1} onClick={() => setNumber(number - 1)}><ChevronLeft aria-hidden="true" /></button>
-        <span aria-live="polite">Страница {number}{data && ' из ' + data.total}</span>
-        <button aria-label="Следующая страница" disabled={!data || number >= data.total} onClick={() => setNumber(number + 1)}><ChevronRight aria-hidden="true" /></button>
+        <button aria-label={t('Предыдущая страница')} disabled={number <= 1} onClick={() => setNumber(number - 1)}><ChevronLeft aria-hidden="true" /></button>
+        <span aria-live="polite">{data ? t('Страница {page} из {total}', { page: number, total: data.total }) : t('Страница') + ' ' + number}</span>
+        <button aria-label={t('Следующая страница')} disabled={!data || number >= data.total} onClick={() => setNumber(number + 1)}><ChevronRight aria-hidden="true" /></button>
       </div>
-      <div className="manual-mode" role="group" aria-label="Вид страницы">
-        <button aria-pressed={!textMode} onClick={() => setMode('original')}>Оригинал</button>
-        <button aria-pressed={textMode} disabled={!current?.text.trim()} onClick={() => setMode('text')}>Текст</button>
+      <div className="manual-mode" role="group" aria-label={t('Вид страницы')}>
+        <button aria-pressed={!textMode} onClick={() => setMode('original')}>{t('Оригинал')}</button>
+        <button aria-pressed={textMode} disabled={!current?.text.trim()} onClick={() => setMode('text')}>{t('Текст')}</button>
       </div>
     </div>
-    <div ref={body} className="manual-body" tabIndex={0} aria-label="Содержимое страницы">
+    <div ref={body} className="manual-body" tabIndex={0} aria-label={t('Содержимое страницы')}>
       {error || (imageFailed && !textMode) ? <div className="error" role="alert">
-        <p>{error || 'Изображение страницы не загрузилось.'}</p>
-        <button onClick={() => { setImageFailed(false); setError(''); setAttempt(n => n + 1) }}>Повторить</button>
-      </div> : !current ? <p role="status">Открываем страницу…</p>
+        <p>{t(error || 'Изображение страницы не загрузилось.')}</p>
+        <button onClick={() => { setImageFailed(false); setError(''); setAttempt(n => n + 1) }}>{t('Повторить')}</button>
+      </div> : !current ? <p role="status">{t('Открываем страницу…')}</p>
         : textMode ? <div className="manual-text">{current.text}</div>
-        : <img key={url + ':' + attempt} src={url + '?view=image'} alt={source.manual + ', страница ' + number}
+        : <img key={url + ':' + attempt} src={url + '?view=image'} alt={source.manual + ', ' + t('страница') + ' ' + number}
           onError={() => setImageFailed(true)} />}
     </div>
   </>

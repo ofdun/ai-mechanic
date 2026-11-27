@@ -1,5 +1,6 @@
 """Exercise the release UI with the supplied fleet, actual mocks and a private ticket store."""
 import argparse
+import json
 import os
 from contextlib import ExitStack
 from pathlib import Path
@@ -10,6 +11,9 @@ from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
+from typing import get_args
+
+from ml.contracts import Language
 from ml.retrieval import RetrievalEngine
 from ml.worker import create_app
 import socket
@@ -44,6 +48,12 @@ def exercise(page, base_url, ranked_pages):
 
     expect(vehicle).to_be_disabled()
     select_vehicle('M333YK47')
+    language = page.locator('#ui-language')
+    agent_requests = []
+    page.on('request', lambda req: agent_requests.append(req.post_data_json) if req.url.endswith('/agent/run') else None)
+    language.select_option('uz')
+    language.select_option('ru')
+    assert not agent_requests
     open_ticket.click()
     expect(ticket).to_be_focused()
     expect(page.get_by_role('tabpanel', name='Заявка')).to_contain_text('Сначала получите результат диагностики')
@@ -60,23 +70,81 @@ def exercise(page, base_url, ranked_pages):
     expect(page.get_by_role('heading', name='Отклонение', exact=True)).to_be_visible()
     chat.click()
     expect(thread).to_contain_text('Отклонение')
+    dictionaries = Path('app/frontend/src/locales')
+    uz = json.loads((dictionaries / 'uz.json').read_text())
+    kk = json.loads((dictionaries / 'kk.json').read_text())
+    question.fill('Почему это опасно?')
+    assert set(language.locator('option').evaluate_all('options => options.map(option => option.value)')) == set(get_args(Language))
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as hindi:
+        language.select_option('hi')
+    hindi_answer = hindi.value.json()['localized']
+    assert hindi_answer['language'] == 'hi'
+    expect(thread).to_contain_text(hindi_answer['labels']['untranslated'])
+    held = []
+    page.route('**/agent/run', lambda route: held.append(route), times=1)
+    with page.expect_request(lambda r: r.url.endswith('/agent/run')):
+        language.select_option('tg')
+    expect(thread.locator('.diagnostic-verdict')).to_have_count(0)
+    page.locator('#tab-result').click()
+    expect(page.locator('#panel-result .report')).to_have_count(0)
+    expect(page.locator('#panel-result .translation-status')).to_be_visible()
+    page.locator('#tab-chat').click()
+    language.select_option('kk')
+    language.select_option('uz')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run') and r.request.post_data_json.get('language') == 'uz') as localized:
+        held[0].continue_()
+    assert [req.get('language', 'ru') for req in agent_requests] == ['ru', 'hi', 'tg', 'uz']
+    answer = localized.value.json()['localized']
+    assert answer['language'] == 'uz' and not answer['message']['translated']
+    expect(thread.locator('.turn')).to_have_count(1)
+    expect(thread).to_contain_text(answer['labels']['untranslated'])
+    page.get_by_role('tab', name=uz['Результат'], exact=True).click()
+    report = page.get_by_role('tabpanel', name=uz['Результат'], exact=True)
+    expect(report.get_by_role('heading', name=answer['labels']['section.operation'])).to_be_visible()
+    expect(report).to_contain_text(answer['claims'][0]['text'])
+    expect(report.locator('.report-lead')).to_be_visible()
+    expect(report.locator('.report-action').first).to_be_visible()
+    for width in (320, 390, 1440):
+        page.set_viewport_size({'width': width, 'height': 844})
+        assert report.evaluate('el => el.scrollWidth <= el.clientWidth + 1')
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.get_by_role('tab', name=uz['Чат'], exact=True).click()
     canonical = 'yamz-236-operations-2010'
     legacy = 'yamz-236_re_2010'
     route = f'/api/documents/{canonical}/pages/52'
     current = page.request.get(base_url + route)
     old = page.request.get(base_url + route.replace(canonical, legacy))
     assert current.ok and old.ok and current.json() == old.json() and old.json()['page'] == 52
-    question.fill('Почему это опасно?')
+    # Use the real worker response and substitute one accepted translation to test bilingual rendering offline.
+    def accepted_translation(route):
+        upstream = route.fetch()
+        body = upstream.json()
+        risk = next(i for i, claim in enumerate(body['claims']) if claim['kind'] == 'risk')
+        body['localized']['claims'][risk] = {
+            'text': 'Dvigatel to‘xtaganidan keyin tekshiring.', 'translated': True, 'original': 'Проверяйте после остановки двигателя.',
+        }
+        route.fulfill(response=upstream, json=body)
+
+    page.route('**/agent/run', accepted_translation, times=1)
+    uz_question = page.get_by_label(uz['Вопрос по двигателю'], exact=True)
+    expect(uz_question).to_have_value('Почему это опасно?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as followup_response:
-        question.press('Enter')
+        uz_question.press('Enter')
     cited = followup_response.value.json()
+    reply = thread.locator('.turn').last
+    expect(reply.get_by_text('Dvigatel to‘xtaganidan keyin tekshiring.', exact=True)).to_be_visible()
+    original = next(line['original'] for line in cited['localized']['claims'] if line['text'] == 'Dvigatel to‘xtaganidan keyin tekshiring.')
+    expect(reply).not_to_contain_text(original)
+    expect(reply).not_to_contain_text(cited['localized']['labels']['original'])
     assert any(s['document_id'] == canonical and s['pdf_page'] == 52 for s in cited['evidence']['items'])
     with page.expect_response(lambda r: r.url == base_url + route) as cited_page:
-        thread.get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+        reply.get_by_role('button', name=re.compile(r'52\b')).first.click()
     assert cited_page.value.ok
-    expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
+    expect(page.get_by_text(uz['Страница {page} из {total}'].format(page=52,total=172))).to_be_visible()
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
-    page.get_by_role('button', name='К чату').click()
+    page.get_by_role('button', name=uz['К чату']).click()
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')):
+        language.select_option('ru')
     question.fill('Можно ли своим ходом перегнать машину на базу?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
         question.press('Enter')
@@ -87,21 +155,23 @@ def exercise(page, base_url, ranked_pages):
     else:
         expect(thread).to_contain_text('Рекомендуется дефектовка')
     page.get_by_role('tab', name='Результат', exact=True).click()
-    open_ticket.click()
+    language.select_option('kk')
+    page.get_by_role('button', name=kk['К заявке'], exact=True).click()
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
-        create_ticket.click()
+        page.get_by_role('button', name=kk['Создать заявку'], exact=True).click()
+    assert response.value.json()['language'] == 'ru'
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
     with page.expect_response(lambda r: r.url == base_url + route) as draft_page:
-        page.get_by_role('tabpanel', name='Заявка').get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+        page.get_by_role('tabpanel', name=kk['Заявка']).get_by_role('button', name=re.compile(r'52\b')).first.click()
     assert draft_page.value.ok
-    expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
+    expect(page.get_by_text(kk['Страница {page} из {total}'].format(page=52,total=172))).to_be_visible()
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
-    page.get_by_role('button', name='К заявке').click()
-    page.get_by_label('Приоритет', exact=True).select_option('high')
+    page.get_by_role('button', name=kk['К заявке']).click()
+    page.get_by_label(kk['Приоритет'], exact=True).select_option('high')
     with page.expect_response(lambda r: r.url.endswith('/agent/tickets/confirm')) as response:
-        page.get_by_role('button', name='Подтвердить заявку').click()
+        page.get_by_role('button', name=kk['Подтвердить заявку']).click()
     confirmed = response.value
     assert confirmed.ok
     assert confirmed.request.post_data_json['urgency'] == 'high'
@@ -110,6 +180,7 @@ def exercise(page, base_url, ranked_pages):
     replay = page.request.post(confirmed.url, data=confirmed.request.post_data_json)
     assert replay.ok and replay.json()['ticket_id'] == receipt
 
+    language.select_option('ru')
     select_vehicle('P456AT178')
     for measurement, verdict, reason in [('S-0001', 'Норма', 'Заявка на дефектовку не требуется'),
                                          ('S-0003', 'Сбой проверки', 'Повторите замер')]:
@@ -144,7 +215,8 @@ def exercise(page, base_url, ranked_pages):
     select_vehicle('T801PO178')
     session.select_option('S-0046')
     diagnose.click()
-    expect(report).to_contain_text('F11')
+    expect(report).to_contain_text('Рециркуляция отработавших газов')
+    expect(report).not_to_contain_text('Код F11')
     open_ticket.click()
     handoff = page.get_by_role('region', name='Рекомендация на дефектовку')
     for field in ('T801PO178', 'ЯМЗ-236М2', 'S-0046', 'F11', 'порядку автопарка'):

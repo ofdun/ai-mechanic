@@ -53,3 +53,4 @@ def test_statuses_follow_the_latest_check_and_ticket_urgency(checks):
     assert 'дефектовка до выпуска в рейс' in statuses['HIGH'].reason
     assert 'не норма и не доказанная неисправность' in statuses['FAILED'].reason
     assert statuses['FAILED'].anomaly_score is None
+    assert (statuses['HIGH'].anomaly_type, statuses['HIGH'].urgency) == ('F01', 'high')

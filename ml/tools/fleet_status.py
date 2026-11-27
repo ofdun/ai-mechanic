@@ -40,6 +40,10 @@ class FleetStatus(BaseModel):
     session_id: str | None = None
     checked_at: str | None = None
     anomaly_score: float | None = None
+    # For a fault: what the web needs to write the reason in the mechanic's language.
+    anomaly_type: str | None = None
+    anomaly_title: str | None = None
+    urgency: Literal['low', 'medium', 'high'] | None = None
     rank: int = 0
 
 
@@ -70,7 +74,8 @@ def vehicle_status(vehicle: Vehicle, checks: Checks) -> tuple[FleetStatus, tuple
     reason = (f'{session.anomaly_type} «{session.anomaly_title}», оценка аномалии {score_text(score)}: '
               f'{URGENCY_STEPS[urgency]}.')
     state = 'quarantine' if urgency == 'high' else 'attention'
-    return FleetStatus(state=state, kind='fault', reason=reason, **base), (0 if state == 'quarantine' else 1,
+    fault = {'anomaly_type': session.anomaly_type, 'anomaly_title': session.anomaly_title, 'urgency': urgency}
+    return FleetStatus(state=state, kind='fault', reason=reason, **base, **fault), (0 if state == 'quarantine' else 1,
                                                                             -['low', 'medium', 'high'].index(urgency), -score)
 
 
