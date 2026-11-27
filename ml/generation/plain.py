@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 MAX_LINES = 3
 LEAD_CHARS = 120
 LINE_CHARS = 140
+ASSESSMENT_CHARS = 200
+ASSESSMENT_LABEL = 'Оценка агента, не из руководства'
 
 
 class PlainOutput(BaseModel):
@@ -24,6 +26,7 @@ class PlainOutput(BaseModel):
 
     lead: str = Field(max_length=LEAD_CHARS)
     lines: list[str] = Field(max_length=MAX_LINES)
+    assessment: str = Field(max_length=ASSESSMENT_CHARS)
 
 
 def safe_line(line: str, claims: list[TechnicalClaim], engine_model: str) -> bool:
@@ -41,11 +44,22 @@ def safe_line(line: str, claims: list[TechnicalClaim], engine_model: str) -> boo
     return not mentions_other_engine(text, engine_model)
 
 
+def safe_assessment(text: str, claims: list[TechnicalClaim], engine_model: str) -> bool:
+    """The agent's own view may warn, but never permits operation or brings numbers the claims lack."""
+    text = ' '.join(text.split())
+    if not text or len(text) > ASSESSMENT_CHARS or grants_permission(text):
+        return False
+    stated = set().union(*(claim_numbers(claim.text) for claim in claims))
+    return claim_numbers(text) <= stated and not mentions_other_engine(text, engine_model)
+
+
 def plain_text(output: PlainOutput, claims: list[TechnicalClaim], engine_model: str) -> str:
-    """The checked lead and lines as chat text; an unsafe lead drops the whole summary."""
+    """The checked lead, lines and labelled assessment as chat text; an unsafe lead drops the whole summary."""
     if not safe_line(output.lead, claims, engine_model):
         return ''
     lines = [' '.join(line.split()) for line in output.lines[:MAX_LINES] if safe_line(line, claims, engine_model)]
+    if safe_assessment(output.assessment, claims, engine_model):
+        lines.append(f'⚠️ {ASSESSMENT_LABEL}: {" ".join(output.assessment.split())}')
     return '\n'.join([' '.join(output.lead.split()), *dict.fromkeys(lines)])
 
 

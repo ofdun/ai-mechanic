@@ -48,7 +48,7 @@ def test_a_uses_planned_models_and_filters_unsupported_claims():
     good = claim('Проверить регулировку форсунки.')
     replies = iter([{'claims': [good, claim('10 Н·м.'), claim('110 бар.'), claim('Чужой двигатель.', 'wrong-engine'),
                                 claim('Самостоятельная операция.', kind='operation')]}, {'indexes': [0, 1, 2]},
-                    {'lead': 'Проверьте регулировку форсунки.', 'lines': ['Замените форсунку на 99 бар.']}])
+                    {'lead': 'Проверьте регулировку форсунки.', 'lines': ['Замените форсунку на 99 бар.'], 'assessment': ''}])
     workflow, http, requests, _ = configured_workflow('a', replies)
     with http:
         result = workflow.run(PLAN, None)
@@ -72,7 +72,7 @@ def test_b_performs_one_corrective_lookup_and_finalizer_can_only_select_claims()
         {'indexes': [0], 'corrective_query': 'Герметичность соединения'},
         {'claims': [original, extra]},
         {'indexes': [1, 0, 99, -1, 1]},
-        {'lead': 'Проверьте герметичность соединения.', 'lines': []},
+        {'lead': 'Проверьте герметичность соединения.', 'lines': [], 'assessment': ''},
     ])
     workflow, http, requests, queries = configured_workflow('b', replies, corrective_page=True)
     with http:
@@ -102,7 +102,7 @@ def test_b_reconsiders_earlier_instruction_when_corrective_lookup_finds_conflict
         {'indexes': [0], 'corrective_query': 'Условия в ремонтном руководстве'},
         {'claims': [earlier, later]},
         {'indexes': [0, 1]},
-        {'lead': 'Руководства пишут по-разному.', 'lines': []},
+        {'lead': 'Руководства пишут по-разному.', 'lines': [], 'assessment': ''},
     ])
     workflow, http, requests, _ = configured_workflow('b', replies)
     results = iter([EvidenceBundle(items=[manual_a]), EvidenceBundle(items=[manual_b])])
@@ -136,7 +136,7 @@ def test_a_asks_the_other_manual_and_keeps_both_sides_of_a_disagreement():
         {'claims': [first]},
         {'claims': [other]},
         {'indexes': [0, 1]},
-        {'lead': 'Руководства пишут по-разному про 15 минут.', 'lines': ['Регулируйте зазоры через 20 минут.']},
+        {'lead': 'Руководства пишут по-разному про 15 минут.', 'lines': ['Регулируйте зазоры через 20 минут.'], 'assessment': ''},
     ])
     workflow, http, requests, _ = configured_workflow('a', replies)
     workflow.retriever = SimpleNamespace(search=lambda plan: EvidenceBundle(items=[manual_a, manual_b]))
@@ -152,7 +152,7 @@ def test_a_asks_the_other_manual_and_keeps_both_sides_of_a_disagreement():
 
 def test_a_skips_the_second_look_when_every_manual_is_cited():
     replies = iter([{'claims': [claim('Проверить регулировку форсунки.')]}, {'indexes': [0]},
-                    {'lead': 'Проверьте регулировку форсунки.', 'lines': []}])
+                    {'lead': 'Проверьте регулировку форсунки.', 'lines': [], 'assessment': ''}])
     workflow, http, requests, _ = configured_workflow('a', replies)
     with http:
         workflow.run(PLAN, None)

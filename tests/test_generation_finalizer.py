@@ -226,5 +226,18 @@ def test_plain_lines_may_only_restate_claims():
     assert not safe_line('Можно продолжать эксплуатацию.', claims[:1], ENGINE)
     assert not safe_line('Не запускайте двигатель.', claims[:1], ENGINE)
     assert not safe_line('Для ЯМЗ-536 давление 400-700 кПа.', claims, ENGINE)
-    output = PlainOutput(lead='Давление масла выше 900 кПа.', lines=['Давление масла 400-700 кПа.'])
+    output = PlainOutput(lead='Давление масла выше 900 кПа.', lines=['Давление масла 400-700 кПа.'], assessment='')
     assert plain_text(output, claims, ENGINE) == ''
+
+
+def test_agent_assessment_is_labelled_and_never_permits_driving():
+    from ml.generation.plain import PlainOutput, plain_text
+    claims = [claim('operation', 'При увеличенных зазорах в подшипниках двигатель направляют в ремонт.')]
+    warning = PlainOutput(lead='Двигатель по руководству направляют в ремонт.', lines=[],
+                          assessment='Своим ходом не ехать: может провернуть вкладыш. Лучше эвакуатор.')
+    assert plain_text(warning, claims, ENGINE).splitlines()[-1] == (
+        '⚠️ Оценка агента, не из руководства: Своим ходом не ехать: может провернуть вкладыш. Лучше эвакуатор.')
+    permit = warning.model_copy(update={'assessment': 'Можно ехать своим ходом до базы.'})
+    numbers = warning.model_copy(update={'assessment': 'Не больше 50 км на малых оборотах.'})
+    assert plain_text(permit, claims, ENGINE) == plain_text(numbers, claims, ENGINE) == (
+        'Двигатель по руководству направляют в ремонт.')

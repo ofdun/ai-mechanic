@@ -101,7 +101,7 @@ def test_generator_case_metrics(corpus):
 
 def test_workflow_a_and_abstention(corpus):
     usage = oracle.Usage()
-    replies = iter([{'claims': [GOOD, INVENTED]}, {'indexes': [0]}, {'lead': 'Ответ простыми словами.', 'lines': []},
+    replies = iter([{'claims': [GOOD, INVENTED]}, {'indexes': [0]}, {'lead': 'Ответ простыми словами.', 'lines': [], 'assessment': ''},
                     {'claims': []}])
     client, settings, http = client_for(replies, usage)
     with http:
