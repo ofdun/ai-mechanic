@@ -161,5 +161,14 @@
   "Страницы руководства": "Qo'llanma sahifalari",
   "Исполнитель": "Ijrochi",
   "Дата": "Sana",
-  "Подпись": "Imzo"
+  "Подпись": "Imzo",
+  "оценка аномалии {value}": "anomaliya bahosi {value}",
+  "сбой": "nosozlik",
+  "Для оценки динамики нужны хотя бы две успешные проверки.": "Dinamikani baholash uchun kamida ikkita muvaffaqiyatli tekshiruv kerak.",
+  "Оценка аномалии растёт: {path}. Состояние ухудшается — стоит запланировать дефектовку.": "Anomaliya bahosi oshmoqda: {path}. Holat yomonlashmoqda — defektovkani rejalashtirgan ma'qul.",
+  "Оценка аномалии снижается: {path}.": "Anomaliya bahosi pasaymoqda: {path}.",
+  "Оценка аномалии выросла по сравнению с прошлой проверкой: {path}.": "Anomaliya bahosi oldingi tekshiruvga nisbatan oshdi: {path}.",
+  "Оценка аномалии снизилась по сравнению с прошлой проверкой: {path}.": "Anomaliya bahosi oldingi tekshiruvga nisbatan pasaydi: {path}.",
+  "Оценка аномалии колеблется: {path}.": "Anomaliya bahosi o'zgarib turibdi: {path}.",
+  "Оценка аномалии стабильна: {path}.": "Anomaliya bahosi barqaror: {path}."
 }

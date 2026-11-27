@@ -5,6 +5,7 @@ import { CheckCircle2, CircleAlert, Printer, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { AnswerChecks } from './AnswerChecks'
 import { Source } from './ManualReader'
+import { ScoreChart, score } from './ScoreChart'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -239,10 +240,13 @@ export function VehicleHistory({ vehicleId, sessions }) {
   }
   return <section className="history-report"><h3>{t('История проверок ·')} {vehicleId}</h3>
     {sessions.length ? <>
+      <ScoreChart sessions={sessions} id={'score-trend-' + vehicleId} />
       <ol className="vehicle-history">{sessions.map(row =>
         <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at, language)}</time>
           <small>{t('Замер {id}', { id: row.session_id })}</small></div>
-          <div><strong>{t(outcomes[row.status])}</strong><p>{t(meanings[row.status])}</p></div></li>)}</ol>
+          <div><strong>{t(outcomes[row.status])}</strong>
+            {row.anomaly_score != null && <span className="meta"> · {t('оценка аномалии {value}', { value: score(row.anomaly_score) })}</span>}
+            <p>{t(meanings[row.status])}</p></div></li>)}</ol>
     </> : <p>{t('У этой машины пока нет проверок.')}</p>}
   </section>
 }

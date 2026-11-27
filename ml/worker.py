@@ -53,7 +53,8 @@ def create_app():
     def fleet():
         return {'vehicles': [vehicle.model_dump(include={
             'vehicle_id': True, 'engine_model': True, 'make': True, 'model': True,
-            'sessions': {'__all__': {'session_id', 'checked_at', 'status'}},
+            # anomaly_score feeds the score chart (B2); a failed check has none and is drawn as a gap.
+            'sessions': {'__all__': {'session_id', 'checked_at', 'status', 'anomaly_score'}},
         }) for vehicle in pipeline.vehicles.vehicles.values()]}
 
     @app.post('/run')
