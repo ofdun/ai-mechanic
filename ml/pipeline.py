@@ -100,7 +100,8 @@ class Pipeline:
 
         diagnostic = context.diagnostic if context is not None else None
         recent_messages = context.recent_messages if context is not None else ()
-        if diagnostic and (self.measurement_issue(diagnostic) or self.ticket_mismatch(vehicle, diagnostic)):
+        if diagnostic and (self.measurement_issue(diagnostic, request.accept_signal_warning)
+                           or self.ticket_mismatch(vehicle, diagnostic)):
             diagnostic = None
             recent_messages = ()
         if request.command == 'auto':
@@ -136,11 +137,19 @@ class Pipeline:
             response.message = self.finalizer.compose(response)
         return response
 
-    def measurement_issue(self, result: DiagnosticResult) -> str | None:
+    def warning_confirmable(self, result: DiagnosticResult) -> bool:
+        """Noisy but confident: the only case the mechanic may override, never a bad or failed record."""
+        return (result.status != 'check_failed' and result.signal_quality == 'warning'
+                and self.settings.repeat_on_warning and self.settings.confirm_signal_warning
+                and result.confidence is not None and result.confidence >= self.settings.min_diagnostic_confidence)
+
+    def measurement_issue(self, result: DiagnosticResult, accepted_warning: bool = False) -> str | None:
         if result.status == 'check_failed' or result.signal_quality == 'bad':
             return 'По этой записи нельзя оценить работу двигателя. Повторите замер.'
         threshold = self.settings.min_diagnostic_confidence
         noisy = result.signal_quality == 'warning'
+        if accepted_warning and self.warning_confirmable(result):
+            return None
         if result.confidence is not None and result.confidence >= threshold and not (noisy and self.settings.repeat_on_warning):
             return None
         quality = 'В записи есть помехи. ' if noisy else ''
@@ -163,7 +172,8 @@ class Pipeline:
     def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse) -> None:
         result = self.services.diagnose(request.vehicle_id, request.session_id)
         response.diagnostic = result
-        problem = self.measurement_issue(result)
+        response.min_confidence = self.settings.min_diagnostic_confidence
+        problem = self.measurement_issue(result, request.accept_signal_warning)
         mismatch = self.ticket_mismatch(vehicle, result)
         if mismatch and result.signal_quality != 'bad':
             next_step = problem or 'Повторите замер или направьте машину на дефектовку.'
@@ -175,7 +185,16 @@ class Pipeline:
             if result.status == 'anomaly' and result.signal_quality == 'warning':
                 response.message = f'Предварительная гипотеза ИИ — «{result.anomaly_title}». {problem}'
             response.requires_remeasurement = True
+            response.warning_confirmable = self.warning_confirmable(result)
+            if response.warning_confirmable:
+                response.message += ' Если повторить замер нельзя, подтвердите, что понимаете: запись с помехами.'
             return
+        if result.signal_quality == 'warning':
+            # Reached only after the mechanic's confirmation (or with REPEAT_ON_WARNING off): keep it visible.
+            response.signal_warning_accepted = request.accept_signal_warning
+            response.limitations.append('Запись с помехами: вывод сделан по ней после подтверждения механика. '
+                                        'При сомнениях повторите замер.' if request.accept_signal_warning
+                                        else 'Запись с помехами. При сомнениях повторите замер.')
         if result.status == 'normal':
             response.message = 'На записи звук двигателя в пределах нормы.'
             return
@@ -256,6 +275,7 @@ class Pipeline:
         conclusion, urgency = ticket_fields(result, response.claims)
         draft = TicketDraft(
             draft_id=uuid4().hex, engine_model=response.engine_model,
+            signal_warning_accepted=response.signal_warning_accepted,
             urgency_reason=(f'По правилу для кода {result.anomaly_type}'
                             if result.anomaly_type in self.settings.ticket_urgency_by_fault
                             else None),
@@ -284,7 +304,7 @@ class Pipeline:
         if draft.engine_model != vehicle.engine_model:
             raise AgentError('DRAFT_STALE', 'Модель двигателя не совпадает с черновиком. Подготовьте новый.')
         result = self.services.diagnose(confirmation.vehicle_id, confirmation.session_id)
-        if problem := self.measurement_issue(result):
+        if problem := self.measurement_issue(result, draft.signal_warning_accepted):
             raise AgentError('REMEASUREMENT_REQUIRED', problem)
         if result != original or result.status != 'anomaly' or self.ticket_mismatch(vehicle, result):
             raise AgentError('DRAFT_STALE', 'Диагностика изменилась. Подготовьте новый черновик.')

@@ -154,6 +154,8 @@ class TicketDraft(BaseModel):
     payload: TicketPayload
     engine_model: Text | None = None
     urgency_reason: Text | None = None
+    # The mechanic confirmed a draft from a noisy recording (signal_quality=warning); checked again on send.
+    signal_warning_accepted: bool = False
 
 
 class TicketDecision(BaseModel):
@@ -185,6 +187,8 @@ class AgentTurn(BaseModel):
     command: Literal['auto', 'diagnose', 'draft_ticket'] = 'auto'
     message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)] | None = None
     language: Language = 'ru'
+    # «Понимаю, что запись с помехами»: lets a noisy but confident recording reach a verdict and a ticket.
+    accept_signal_warning: bool = False
 
 
 class AgentRequest(AgentTurn):
@@ -225,6 +229,11 @@ class AgentResponse(BaseModel):
     summary: str = ''
     diagnostic: DiagnosticResult | None = None
     requires_remeasurement: bool = False
+    # The record is noisy but confident: the mechanic may continue after an explicit confirmation.
+    warning_confirmable: bool = False
+    signal_warning_accepted: bool = False
+    # The confidence threshold the verdict was checked against, shown to the mechanic.
+    min_confidence: float | None = None
     recognition_error: bool = False
     manual_referral: str | None = None
     can_create_ticket: bool = False
