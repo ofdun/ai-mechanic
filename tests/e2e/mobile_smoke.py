@@ -39,6 +39,65 @@ def serve(app):
             worker.join(timeout=10)
 
 
+def exercise_dictation(context, base_url):
+    page = context.new_page()
+    page.add_init_script("""window.SpeechRecognition = class {
+        start() { window.mic = this }
+        stop() { this.onend() }
+        abort() { window.mic = null }
+    }""")
+    page.goto(base_url)
+    page.get_by_label('Двигатель', exact=True).select_option('Учебный Д-01')
+    page.get_by_label('Транспортное средство').select_option('ДЕМО-01')
+    page.get_by_role('tab', name='Чат', exact=True).tap()
+    mic = page.get_by_role('button', name='Надиктовать сообщение')
+    field = page.get_by_label('Вопрос по двигателю')
+    send = page.get_by_role('button', name='Отправить', exact=True)
+    posts = []
+    page.on('request', lambda req: posts.append(req.url) if req.method == 'POST' else None)
+
+    def dictate(text):
+        mic.tap()
+        page.evaluate("""text => {
+            const result = Object.assign([{ transcript: text }], { isFinal: true })
+            window.mic.onresult({results: [result]})
+        }""", text)
+        page.get_by_role('button', name='Остановить диктовку').tap()
+
+    page.once('dialog', lambda prompt: prompt.dismiss())
+    mic.tap()
+    assert not page.evaluate('!!window.mic')
+    page.once('dialog', lambda prompt: prompt.accept())
+    dictate('Запусти диагностику')
+    expect(field).to_have_value('Запусти диагностику')
+    assert not posts
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as diagnosis:
+        send.tap()
+    assert diagnosis.value.json()['diagnostic']['status'] == 'anomaly'
+
+    dictate('Почему это')
+    field.fill('Почему это опасно?')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as answer:
+        send.tap()
+    assert answer.value.json()['evidence']['items']
+    expect(page.get_by_role('log').get_by_role('button', name=f'{MANUAL}, стр. 2').last).to_be_visible()
+
+    dictate('Создай заявку')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as draft:
+        send.tap()
+    assert draft.value.json()['ticket_draft']
+    assert not any(url.endswith('/agent/tickets/confirm') for url in posts)
+
+    field.fill('Черновик')
+    mic.tap()
+    page.evaluate("window.mic.onerror({error: 'not-allowed'}); window.mic.onend()")
+    expect(page.get_by_text('Проверьте доступ к микрофону', exact=False)).to_be_visible()
+    expect(field).to_have_value('Черновик')
+    expect(send).to_be_enabled()
+    page.close()
+    print('PASS — диктовка, правка, диагностика, источник, черновик без отправки и отказ микрофона')
+
+
 def exercise(context, base_url):
     page = context.new_page()
     errors = []
@@ -313,6 +372,9 @@ def main():
         context = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
         stack.callback(context.close)
         print(f'Chromium {browser.version} · 390×844 · учебные HTTP-сервисы')
+        voice_context = browser.new_context(viewport={'width': 320, 'height': 780}, has_touch=True, is_mobile=True)
+        exercise_dictation(voice_context, base_url)
+        voice_context.close()
         first_ticket = exercise(context, base_url)
         assert len(ticket_posts) == 1, f'Ожидалась одна запись в ТОиР, отправлено {len(ticket_posts)}'
 
