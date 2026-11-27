@@ -5,9 +5,10 @@ keeps the excerpt's numbers, prohibitions and conditions, and a repair step conc
 Every rejected claim gets machine-readable reasons, so verification quality can be measured.
 """
 import re
+from decimal import Decimal
 from dataclasses import dataclass
 
-from ml.contracts import Evidence, EvidenceBundle, TechnicalClaim, TechnicalDraft, VerifiedResponse
+from ml.contracts import AnswerVerification, CheckedPage, Evidence, EvidenceBundle, TechnicalClaim, TechnicalDraft, VerifiedResponse
 from ml.generation.claims import MAX_CLAIMS, GroundedClaim, quote_of
 from ml.generation.profiles import mentions_unit
 from ml.generation.text import (
@@ -82,6 +83,26 @@ class VerificationReport:
         return [check for check in self.checks if not check.accepted]
 
 
+def answer_verification(engine_model, claims, evidence, reports):
+    """Describe source checks for retained claims, counting verifier rejections across passes."""
+    if not engine_model or not any(report.checks for report in reports):
+        return None
+    kept = {(c.kind, c.text, tuple(c.evidence_ids)) for c in claims}
+    sources = {s.evidence_id: s for s in evidence.items if engine_model in s.engine_models}
+    pages = {}
+    for report in reports:
+        for claim in report.accepted:
+            if (claim.kind, claim.text, tuple(claim.evidence_ids)) not in kept:
+                continue
+            for key in claim.evidence_ids:
+                if key in sources:
+                    values = claim_numbers(claim.text, ignore=(sources[key].manual,))
+                    pages.setdefault(key, set()).update(values)
+    return AnswerVerification(engine_model=engine_model,
+                              pages=[CheckedPage(evidence_id=k, numbers=sorted(v, key=Decimal)) for k, v in pages.items()],
+                              rejected_claims=sum(len(report.rejected) for report in reports))
+
+
 def is_contents_page(text: str) -> bool:
     lines = [line for line in text.splitlines() if line.strip()]
     leaders = sum(bool(_LEADER_LINE.search(line)) for line in lines)
@@ -123,7 +144,9 @@ class EvidenceVerifier:
         self.max_claims = max_claims
 
     def verify(self, draft: TechnicalDraft, evidence: EvidenceBundle) -> VerifiedResponse:
-        return VerifiedResponse(claims=self.inspect(draft, evidence).accepted)
+        report = self.inspect(draft, evidence)
+        return VerifiedResponse(claims=report.accepted, verification=answer_verification(
+            self.engine_model, report.accepted, evidence, [report]))
 
     def inspect(
         self, draft: TechnicalDraft, evidence: EvidenceBundle, *,
