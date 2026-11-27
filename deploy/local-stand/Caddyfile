@@ -3,7 +3,8 @@
 }
 https://{$STAND_HOST}, https://gateway {
 	tls internal
-	basic_auth {
+	@private not path /manifest.json /icons/*
+	basic_auth @private {
 		{$STAND_USER} {$STAND_PASSWORD_HASH}
 	}
 	header >Cache-Control "private, no-store"
