@@ -301,6 +301,7 @@ li + li { margin-top: .35rem; }
   .print-signoff { display: grid; grid-template-columns: 2fr 1fr 1.2fr; gap: 6mm; margin-top: 10mm; break-inside: avoid; }
   .print-signoff p { padding-top: 9mm; border-bottom: .75pt solid #000; }
   .print-signoff span { display: block; transform: translateY(5mm); font-size: 8.5pt; }
+}
 .score-chart { margin: .75rem 0 1rem; max-width: 26rem; }
 .score-chart svg { display: block; width: 100%; height: auto; overflow: visible; font-size: 12px; font-variant-numeric: tabular-nums; }
 .score-chart .grid line { stroke: var(--line); stroke-width: 1; }
