@@ -20,6 +20,7 @@ from demo.sessions import SESSION_SECONDS, WebSessions
 class SessionOption(BaseModel):
     session_id: str
     checked_at: datetime
+    status: str
 
 
 class VehicleOption(BaseModel):

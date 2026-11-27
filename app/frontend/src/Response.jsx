@@ -162,13 +162,17 @@ export function Response({ result }) {
     {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? 'Страницы по теме для самостоятельной проверки' : 'Источники ответа'}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
-    {result.action === 'get_diagnostic_history' && <section><h4>История проверок · {result.vehicle_id}</h4>
-      {result.history?.length ? <ol className="vehicle-history">{[...result.history].reverse().map(row =>
-        <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
-          <small>{row.session_id}</small></div><strong>{outcomes[row.status]}</strong></li>)}</ol>
-        : <p>У этой машины пока нет проверок.</p>}
-    </section>}
+    {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
   </article>
+}
+
+export function VehicleHistory({ vehicleId, sessions }) {
+  return <section><h4>История проверок · {vehicleId}</h4>
+    {sessions.length ? <ol className="vehicle-history">{sessions.map(row =>
+      <li key={row.session_id}><div><time dateTime={row.checked_at}>{formatDate(row.checked_at)}</time>
+        <small>{row.session_id}</small></div><strong>{outcomes[row.status]}</strong></li>)}</ol>
+      : <p>У этой машины пока нет проверок.</p>}
+  </section>
 }
 
 const priorities = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }

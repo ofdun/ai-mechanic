@@ -229,6 +229,8 @@ def exercise(context, base_url):
     expect(vehicle).to_have_value('ДЕМО-02')
     expect(vehicle.locator('option')).to_have_count(1)
     expect(measurement).to_have_value('REPEAT-DEMO')
+    agent_calls = []
+    page.on('request', lambda req: agent_calls.append(req.url) if '/agent/' in req.url else None)
     page.get_by_role('button', name='История проверок').tap()
     history = thread.locator('.vehicle-history')
     expect(thread.get_by_role('heading', name='История проверок · ДЕМО-02')).to_be_visible()
@@ -236,6 +238,7 @@ def exercise(context, base_url):
     expect(history.locator('li').first).to_contain_text('REPEAT-DEMO')
     expect(history.locator('li').first).to_contain_text('Сбой проверки')
     expect(history.locator('li').last).to_contain_text('Норма')
+    assert not agent_calls
     measurement.select_option('NORMAL-DEMO')
     expect(history).to_have_count(0)
     engine.select_option('')

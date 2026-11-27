@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createRoot } from 'react-dom/client'
 import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Send, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
-import { DiagnosticReport, DiagnosticVerdict, Draft, Response } from './Response'
+import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } from './Response'
 import { ManualNavigation } from './ManualReader'
 import './style.css'
 
@@ -127,7 +127,7 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
     const pane = chatBody.current
     const turn = pane?.querySelector('.turn:last-child')
     if (turn) pane.scrollTop += turn.getBoundingClientRect().top - pane.getBoundingClientRect().top
-  }, [turns.length])
+  }, [turns.length, turns.at(-1)?.kind])
   function selectTab(next) {
     setView(next)
     document.getElementById('tab-' + next)?.focus()
@@ -225,9 +225,9 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
   return <ManualNavigation sessionKey={id} returnLabel={returnLabels[view]}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
       <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />Параметры замера</h2>
-        <button className="history-action" type="button" disabled={!sessionId || !!pending} aria-controls="panel-chat" onClick={() => {
+        <button className="history-action" type="button" aria-controls="panel-chat" onClick={() => {
           selectTab('chat')
-          run('chat', { question: 'Покажи историю проверок' })
+          setTurns(old => [...old.filter(turn => turn.kind !== 'history'), { kind: 'history' }])
         }}><History aria-hidden="true" />История проверок</button>
       </div>
       <div id="selection">
@@ -270,6 +270,7 @@ function Workspace({ vehiclesByEngine, engineFilter, vehicle, sessionId, changeE
         <div role="log" aria-label="Сообщения">
         {turns.map(({ id, kind, result, question, error: turnError }) => kind === 'verdict'
           ? <div className="turn" key="verdict"><DiagnosticVerdict result={result} /></div>
+          : kind === 'history' ? <div className="turn" key="history"><VehicleHistory vehicleId={vehicle.vehicle_id} sessions={vehicle.sessions.slice(0, 5)} /></div>
           : <div className="turn" key={id}>
           <div className="question"><strong>Вы</strong><p>{question}</p></div>
           {turnError ? <div className="chat-error"><p>Ответ не получен. {turnError}</p>

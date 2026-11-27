@@ -53,7 +53,7 @@ def create_app():
     def fleet():
         return {'vehicles': [vehicle.model_dump(include={
             'vehicle_id': True, 'engine_model': True, 'make': True, 'model': True,
-            'sessions': {'__all__': {'session_id', 'checked_at'}},
+            'sessions': {'__all__': {'session_id', 'checked_at', 'status'}},
         }) for vehicle in pipeline.vehicles.vehicles.values()]}
 
     @app.post('/run')

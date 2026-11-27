@@ -72,7 +72,7 @@ def test_web_routes_and_conversation_isolation(host, monkeypatch):
             catalog = listing.json()['vehicles']
             assert (catalog[0]['make'], catalog[0]['model']) == ('Марка', 'Марка-1')
             assert (catalog[1]['make'], catalog[1]['model']) == (None, None)
-            assert set(catalog[0]['sessions'][0]) == {'session_id', 'checked_at'}
+            assert set(catalog[0]['sessions'][0]) == {'session_id', 'checked_at', 'status'}
             target = {'vehicle_id': 'TRUCK-A', 'session_id': 'S1'}
             diagnosis = await first.post('/agent/run', json={**target, 'command': 'diagnose'})
             assert diagnosis.status_code == 200
