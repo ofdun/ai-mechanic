@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -15,9 +16,11 @@ from ml.contracts import (
     DiagnosticResult,
     EvidenceBundle,
     Generator,
+    PastTicket,
     Retriever,
     SearchPlan,
     SearchWorkflow,
+    SessionRecord,
     TechnicalClaim,
     TicketConfirmation,
     TicketDraft,
@@ -35,7 +38,10 @@ from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
 from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers, requested_names
 from ml.tools.tickets import TicketStore
+from ml.tools.vehicle_memory import diagnosis_memory, history_memory
 from ml.vehicles import VehicleDirectory
+
+logger = logging.getLogger(__name__)
 
 
 def scope_evidence(evidence: EvidenceBundle, engine_model: str) -> EvidenceBundle:
@@ -88,8 +94,16 @@ class Pipeline:
     def ticket_store_for(self, actor_id: str) -> TicketStore:
         return self.tickets
 
+    def past_tickets(self, vehicle_id: str) -> list[PastTicket] | None:
+        """Tickets of this vehicle, or None when the store is unavailable: memory must not break a diagnosis."""
+        try:
+            return self.tickets.created(vehicle_id)
+        except AgentError:
+            logger.warning('Ticket store unavailable for vehicle memory', exc_info=True)
+            return None
+
     def run(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
-        vehicle, _ = self.vehicles.get(request.vehicle_id, request.session_id)
+        vehicle, current = self.vehicles.get(request.vehicle_id, request.session_id)
         if context is not None and (
             context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
         ) != (request.actor_id, request.vehicle_id, request.session_id, request.conversation_id, vehicle.engine_model):
@@ -119,7 +133,7 @@ class Pipeline:
         )
 
         if decision.action in ('diagnose', 'draft_ticket'):
-            self.run_diagnosis(request, vehicle, message, response)
+            self.run_diagnosis(request, vehicle, message, response, current)
         elif decision.action == 'search_manuals':
             response.message = 'Вопрос по руководству выбранного двигателя.'
             self.search(response, SearchPlan(
@@ -129,6 +143,9 @@ class Pipeline:
         elif decision.action == 'get_diagnostic_history':
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
+            tickets = self.past_tickets(vehicle.vehicle_id)
+            response.memory = history_memory(vehicle, tickets)
+            response.past_tickets = tickets or []
         response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
         question = (request.message or '').casefold().replace(vehicle.engine_model.casefold(), ' ')
         names = requested_names(question) if response.action == 'search_manuals' else None
@@ -168,7 +185,8 @@ class Pipeline:
                     'Диагноз по записи поставить нельзя.')
         return None
 
-    def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse) -> None:
+    def run_diagnosis(self, request: AgentRequest, vehicle: Vehicle, message: str, response: AgentResponse,
+                      current: SessionRecord) -> None:
         result = self.services.diagnose(request.vehicle_id, request.session_id)
         response.diagnostic = result
         problem = self.measurement_issue(result)
@@ -184,6 +202,10 @@ class Pipeline:
                 response.message = f'Предварительная гипотеза ИИ — «{result.anomaly_title}». {problem}'
             response.requires_remeasurement = True
             return
+        # Memory only for a reliable result: a failed or misread check is not compared with the past.
+        tickets = self.past_tickets(vehicle.vehicle_id)
+        response.memory = diagnosis_memory(vehicle, current, result, tickets)
+        response.past_tickets = tickets or []
         if result.status == 'normal':
             response.message = 'На записи звук двигателя в пределах нормы.'
             return
