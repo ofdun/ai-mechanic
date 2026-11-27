@@ -84,7 +84,7 @@ with httpx.Client(timeout=settings.http_timeout_seconds) as http:
 |---|---|
 | Роман | `ParsedDocument` с физическими страницами `DocumentPage`. Для страницы с более узкой применимостью заполните `DocumentPage.engine_models` |
 | Валерий | `Retriever.search(SearchPlan) -> EvidenceBundle`, передаётся как `retriever=` |
-| Алексей | `Generator.generate(SearchPlan, EvidenceBundle, DiagnosticResult | None) -> TechnicalDraft`, передаётся как `generator=`. `Verifier.verify(TechnicalDraft, EvidenceBundle) -> VerifiedResponse` подключается через `verifier=` |
+| Алексей | `ml.generation`: `ClaimGenerator` и `TechnicalReasoner` реализуют `Generator`, `EvidenceVerifier` реализует `Verifier`, `MechanicFinalizer` собирает ответ механику. Описание в разделе «Generation и Verification» |
 | Елисей | `Pipeline.run(AgentRequest) -> AgentResponse` и `Pipeline.confirm_ticket(TicketConfirmation) -> TicketReceipt` |
 
 Для создания фрагмента из страницы используйте `Evidence.from_page`. Он сохраняет применимость страницы и позволяет сузить её для отдельного фрагмента. Пайплайн возвращает поисковый план и доступные фрагменты. Технические рекомендации и черновик требуют Generator и Verifier. В ответ попадают утверждения из исходного черновика, которые одобрил Verifier и у которых есть применимые ссылки.
@@ -100,6 +100,42 @@ DATA_DIR=../data AGENT_ARCHITECTURE=baseline uv run python -m ml --pdf-index art
   --vehicle M333YK47 --session S-0005 --command draft_ticket
 DATA_DIR=../data uv run python -m ml confirm \
   --vehicle M333YK47 --session S-0005 --draft-id ID_ИЗ_ЧЕРНОВИКА --confirm
+```
+
+### Retrieval по всем руководствам
+
+Состояние, контракты и что учесть другим участникам — в [docs/retrieval.md](docs/retrieval.md).
+
+`ml.retrieval.RetrievalEngine` реализует `Retriever`. Путь запроса: `SearchPlan → фильтр модели → BM25 и exact dense на каждый запрос плана → RRF → cross-encoder → родительские страницы и соседи → бюджет → EvidenceBundle`. Фильтр модели двигателя применяется до любого top-k, `DocumentPage.engine_models` сужает применимость страницы. Параметры и гипотезы RET-01…RET-10 лежат в `configs/retrieval.yaml`.
+
+| Модуль | Что делает |
+|---|---|
+| `chunking` | Загрузка `ParsedDocument`, `page` (страница целиком) и `structural` (абзацы внутри страницы, строки таблиц сохраняются). Фрагмент не пересекает физическую страницу |
+| `sparse` | Snowball для русского, `0,25` = `0.25`, BM25 |
+| `embeddings`, `dense` | sentence-transformers (`BAAI/bge-m3` по умолчанию, пресеты Qwen3-Embedding и e5-instruct), точный косинус на NumPy. Векторы привязаны к фрагментам индекса по хешу ID |
+| `fusion` | Reciprocal Rank Fusion запросов плана и методов |
+| `reranker` | Cross-encoder, например `BAAI/bge-reranker-v2-m3` |
+| `engine` | Сборка и чтение индекса, режимы `sparse`, `dense`, `hybrid`, контекст `page` или `chunk`, соседние страницы, бюджет слов |
+
+Источник корпуса — выгрузка ingestion (`ml/ingestion/export_pages.py`): `DATA_DIR/pages.jsonl` с записью на физическую страницу и каталог `DATA_DIR/manifest.json`. Из каталога берётся `manual` для ссылок и заявки — обозначение руководства, а если его нет, название. `build --source` также принимает каталог файлов `ParsedDocument`. Строки `models` должны совпадать с `vehicles.json`, `build` предупреждает о моделях ТС без руководств.
+
+```bash
+DATA_DIR=../data uv run python -m ml.retrieval build                 # → artifacts/indexes/manuals
+uv sync --extra dense
+uv run --extra dense python -m ml.retrieval embed                    # векторы config.embedder, на CPU десятки минут
+uv run python -m ml.retrieval search --engine ЯМЗ-536 --query 'момент затяжки болтов головки цилиндров'
+uv run python -m ml --retrieval-index artifacts/indexes/manuals run --vehicle M333YK47 --session S-0005 \
+  --message 'Как проверить форсунки?'
+```
+
+Для `mode: dense` или `hybrid` и для `reranker` нужен `--extra dense`. Сравнение эмбеддеров: `embed --model Qwen/Qwen3-Embedding-0.6B` кладёт векторы рядом, выбор — полем `embedder` в конфиге. Смена `chunker` требует `build` и повторного `embed`, устаревшие векторы отклоняются.
+
+Формат golden set описан в [evaluation/datasets](evaluation/datasets/README.md). `evaluation.retrieval` считает Hit@K, Recall@K, MRR, nDCG@K по физическим страницам и задержку поиска, `--run-file` готовит JSON прогона для журнала экспериментов. Для сравнения конфигураций передайте разные `--config`.
+
+```bash
+uv run python -m evaluation.retrieval --golden evaluation/datasets/retrieval.jsonl --split dev \
+  --output evaluation/results/ret-01.json --run-file evaluation/results/ret-01-run.json \
+  --run-id ret-01-bm25-page-<commit> --commit <commit> --dataset 'golden v1, dev'
 ```
 
 ### Архитектуры A и B через OpenRouter
@@ -138,6 +174,53 @@ app.include_router(create_agent_router(pipeline, current_actor_id))
 | `POST /agent/tickets/confirm` | JSON с `vehicle_id`, `session_id`, `draft_id`, `draft_version`, `confirmed=true` и выбранным `urgency` |
 
 Известные ошибки ядра возвращаются как `detail` с полями `code`, `message` и `retryable`. Для серверной памяти можно передать `load_context(actor_id, conversation_id)` при создании router. Приложение команды хранит результаты предыдущих ходов и управляет сроком жизни `Pipeline` и HTTP-клиента.
+
+### Generation и Verification
+
+Модуль `ml/generation/` превращает вердикт Mock ML и найденные страницы руководств в проверенный ответ механику.
+
+| Файл | Что делает |
+|---|---|
+| `generator.py` | `ClaimGenerator`, архитектура A. LLM возвращает атомарные утверждения. К каждому прикладывается дословная выдержка со страницы в поле `quote` |
+| `reasoner.py` | `TechnicalReasoner`, архитектура B. Сильная модель строит цепочку признак → причина → проверка → норматив → ремонт |
+| `verifier.py` | `EvidenceVerifier` проверяет каждое утверждение кодом, без LLM. Для каждого отказа возвращает код причины |
+| `finalizer.py` | `MechanicFinalizer` собирает ответ по порядку ТЗ: вердикт → признаки → гипотезы → проверки → нормативы → ремонт → источники → ограничения. Фактов от себя не добавляет |
+| `profiles.py` | Словарь узлов F01–F14, оценка риска агентом и базовая срочность |
+
+Утверждение проходит verifier, только если выполнено всё сразу:
+
+- выдержка найдена на указанной странице руководства для двигателя из карточки ТС, а не в оглавлении. Поиск выдерживает переносы, склеенные ячейки и перемешанные колонки таблиц PDF, но не допускает пропуска букв внутри слова или слов «не», «если», «при» и подобных;
+- каждое число утверждения есть в выдержке, стоит в том же порядке, диапазон не обрезан, единицы не пересчитаны. Число из соседней строки таблицы нельзя приклеить к чужой подписи;
+- сохранены запреты и условия источника. Запреты, разрешения на эксплуатацию и модели двигателя, которых нет в источнике, не добавлены;
+- после диагностики операция и запчасть относятся к узлу из диагноза.
+
+`Pipeline` всегда считает вывод и срочность заявки. Срочность: базовая критичность типа неисправности плюс поправка на один уровень по `anomaly_score` (≥ 0,85 повышает, < 0,40 понижает). Прямой запрет эксплуатации в проверенной выдержке всегда даёт `high`. Если источники расходятся, `limitations` получает строку с обеими формулировками и страницами и советом уточнить у специалиста. Веб-клиент сам рисует утверждения, поэтому `message` остаётся коротким. Для текстового канала передайте `finalizer=MechanicFinalizer()`: тогда `message` содержит весь ответ по порядку ТЗ, расхождения показаны рядом. Структурированная версия ответа доступна через `MechanicFinalizer().answer(response)`.
+
+Бенчмарк проверки на руководствах заказчика (гипотеза GEN-07). Материалы и их текст остаются локально, в отчёт попадают только счётчики:
+
+```bash
+uv run python -m evaluation.generation.verifier_benchmark --pages DATA/pages.jsonl --pdf-dir DATA --output run.json
+```
+
+Метрики генерации на эталонном наборе считает Oracle Context. Генератор получает эталонные страницы вопроса из `evaluation/datasets/customer_questions.jsonl` и две отвлекающие страницы тех же руководств. Поиск в замере не участвует.
+
+| Метрика | Как считается |
+|---|---|
+| `answer_correctness` | Модель-судья сравнивает ответ с эталоном: верно — 1, частично — 0,5. Считается только с `--judge-model` |
+| `numeric_accuracy` | Доля чисел эталона, которые есть в ответе. Номера страниц, рисунков и приложений не учитываются |
+| `citation_accuracy` | Доля утверждений ответа со ссылкой на эталонную страницу, а не на отвлекающую |
+| `unsupported_claim_rate` | Доля черновых утверждений, отклонённых `EvidenceVerifier`. До механика они не доходят |
+| `abstention_accuracy` | Ответа нет ровно там, где эталон ожидает отказ |
+
+Также выводятся покрытие эталонных страниц, доля показанных расхождений источников, причины отказов verifier, задержка p50/p95 и стоимость цикла. `pages.jsonl` и `manifest.json` выпускает `ml/ingestion/export_pages.py`. Без `--allow-external-evidence` страницы руководств не уходят провайдеру. `--dry-run` проверяет данные без вызовов LLM:
+
+```bash
+uv run python -m evaluation.generation.oracle_context --pages DATA/pages.jsonl --dry-run
+LLM_API_KEY=... uv run python -m evaluation.generation.oracle_context --pages DATA/pages.jsonl --pipeline a \
+  --split dev --allow-external-evidence --judge-model z-ai/glm-5.3 --output oracle-a.json --run-file run-a.json
+```
+
+`--pipeline` принимает `generator`, `reasoner`, `a` или `b`. Файл `--run-file` готов для `context.py finish --run-file`. `--cases-output` сохраняет ответы по кейсам с цитатами руководств, поэтому храните его только локально.
 
 ### Черновик и подтверждение
 
