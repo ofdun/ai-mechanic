@@ -51,6 +51,9 @@ def test_worker_searches_team_index_in_local_profile(tmp_path, monkeypatch, exte
 
     monkeypatch.setattr(OpenRouterClient, 'complete_json', complete_json)
     with TestClient(create_app()) as client:
+        listed = client.get('/fleet').json()['vehicles'][0]['sessions'][0]
+        assert set(listed) == {'session_id', 'checked_at', 'status', 'anomaly_score'}
+        assert listed['anomaly_score'] == fleet[0].sessions[0].anomaly_score
         response = client.post('/run', json={'turn': {
             'vehicle_id': fleet[0].vehicle_id, 'session_id': fleet[0].sessions[0].session_id,
             'actor_id': 'mechanic', 'message': 'Как проверить маркировку золотника?',
