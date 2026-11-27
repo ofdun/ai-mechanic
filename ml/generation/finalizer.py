@@ -143,6 +143,7 @@ class MechanicFinalizer:
             answer = self.history(response)
         elif response.action in {'diagnose', 'draft_ticket'} and response.diagnostic is not None:
             answer = self.diagnosis(response)
+            answer.sections.extend(memory_section(response))
         elif response.action == 'search_manuals':
             answer = self.manual_answer(response)
         else:
@@ -292,7 +293,8 @@ class MechanicFinalizer:
             return MechanicAnswer(tone='info', verdict='📈 История проверок пуста.')
         items = [AnswerItem(text=describe_session(session)) for session in sessions]
         return MechanicAnswer(tone='info', verdict=f'📈 Последние проверки {response.vehicle_id}',
-                              details=[trend(sessions)], sections=[AnswerSection(title='Проверки', items=items)])
+                              details=[trend(sessions)], sections=[AnswerSection(title='Проверки', items=items),
+                                                                    *memory_section(response)])
 
     # Ticket fields ----------------------------------------------------------------------------
 
@@ -360,6 +362,10 @@ def localized_text(response: AgentResponse) -> str:
             lines.extend(['', f'{names["section." + kind]}:', *grouped[kind]])
     if find_conflicts(response.claims, sources):
         lines.extend(['', f'⚖️ {names["conflict.title"]}. {names["conflict.note"]}'])
+    if answer.memory:
+        lines.extend(['', f'{names["memory"]}:'])
+        for text in answer.memory:
+            lines.extend(rendered(text))
     if answer.limitations:
         lines.append('')
         for text in answer.limitations:
@@ -380,6 +386,16 @@ def item(claim: TechnicalClaim, sources: dict[str, Evidence]) -> AnswerItem:
 
 
 STATUS_LABELS = {'normal': 'норма', 'anomaly': 'отклонение', 'check_failed': 'сбой записи'}
+
+
+MEMORY_TITLE = 'По этой машине'
+
+
+def memory_section(response: AgentResponse) -> list[AnswerSection]:
+    """B1: earlier checks and tickets of the same vehicle, after the answer itself."""
+    if not response.memory:
+        return []
+    return [AnswerSection(title=MEMORY_TITLE, items=[AnswerItem(text=line) for line in response.memory])]
 
 
 def describe_session(session: SessionRecord) -> str:

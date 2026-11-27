@@ -19,7 +19,7 @@ LANGUAGE_NAMES: dict[Language, str] = {
 LABEL_KEYS = (
     'section.observation', 'section.cause', 'section.risk', 'section.check', 'section.reference_value',
     'section.operation', 'section.spare_part', 'conflict.title', 'conflict.note', 'assessment', 'original',
-    'quote', 'decision_note', 'ml_note', 'urgency.high', 'urgency.medium', 'urgency.low', 'untranslated', 'page',
+    'quote', 'decision_note', 'ml_note', 'urgency.high', 'urgency.medium', 'urgency.low', 'untranslated', 'page', 'memory',
 )
 
 LABELS: dict[Language, dict[str, str]] = {
@@ -43,6 +43,7 @@ LABELS: dict[Language, dict[str, str]] = {
         'urgency.low': 'низкий — проверить узел при следующей проверке',
         'untranslated': 'Перевод не прошёл проверку, показан русский текст.',
         'page': 'стр.',
+        'memory': 'По этой машине',
     },
     'uz': {
         'section.observation': 'Belgilar',
@@ -65,6 +66,7 @@ LABELS: dict[Language, dict[str, str]] = {
         'urgency.low': "past — keyingi tekshiruvda uzelni ko'rib chiqing",
         'untranslated': "Tarjima tekshiruvdan o'tmadi, rus tilidagi matn ko'rsatildi.",
         'page': 'bet',
+        'memory': "Ushbu mashina bo'yicha",
     },
     'tg': {
         'section.observation': 'Аломатҳо',
@@ -87,6 +89,7 @@ LABELS: dict[Language, dict[str, str]] = {
         'urgency.low': 'паст — дар санҷиши навбатӣ агрегатро тафтиш кунед',
         'untranslated': 'Тарҷума аз санҷиш нагузашт, матни русӣ нишон дода шуд.',
         'page': 'саҳ.',
+        'memory': 'Дар бораи ин мошин',
     },
     'ky': {
         'section.observation': 'Белгилер',
@@ -108,6 +111,7 @@ LABELS: dict[Language, dict[str, str]] = {
         'urgency.low': 'төмөн — кийинки текшерүүдө түйүндү карап чыгыңыз',
         'untranslated': 'Котормо текшерүүдөн өткөн жок, орусча текст көрсөтүлдү.',
         'page': 'бет',
+        'memory': 'Бул машина боюнча',
     },
     'kk': {
         'section.observation': 'Белгілер',
@@ -129,6 +133,7 @@ LABELS: dict[Language, dict[str, str]] = {
         'urgency.low': 'төмен — келесі тексеруде торапты қарап шығыңыз',
         'untranslated': 'Аударма тексеруден өтпеді, орысша мәтін көрсетілді.',
         'page': 'бет',
+        'memory': 'Осы машина бойынша',
     },
     'hi': {
         'section.observation': 'लक्षण',
@@ -150,6 +155,7 @@ LABELS: dict[Language, dict[str, str]] = {
         'urgency.low': 'निम्न — अगली जाँच में इस हिस्से को देखें',
         'untranslated': 'अनुवाद जाँच में पास नहीं हुआ, रूसी पाठ दिखाया गया है।',
         'page': 'पृ.',
+        'memory': 'इस गाड़ी के बारे में',
     },
 }
 

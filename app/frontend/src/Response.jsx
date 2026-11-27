@@ -40,6 +40,13 @@ function ManualAnswer({ summary, children }) {
   </>
 }
 
+// B1: earlier checks and tickets of this vehicle, written by the agent from its own records.
+function VehicleMemory({ result, className = 'report-row' }) {
+  const t = useUiText()
+  if (!result.memory?.length) return null
+  return <section className={className}><h4>{t('По этой машине')}</h4><div><Entries items={result.memory} /></div></section>
+}
+
 function verdict(result) {
   if (result.recognition_error) return { status: 'recognition_error', title: outcomes.recognition_error }
   if (result.requires_remeasurement && result.diagnostic.status !== 'check_failed')
@@ -103,6 +110,10 @@ function LocalizedResponse({ result, compact = false, report = false }) {
       {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
       {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
     </>}
+    {answer.memory?.length > 0 && <section className={report ? 'report-row' : 'claims'}>
+      <h4>{labels.memory || t('По этой машине')}</h4>
+      <div>{answer.memory.map((line, index) => <AnswerLine key={index} line={line} />)}</div>
+    </section>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
       .map((line, index) => <AnswerLine key={index} line={line} />)}
     {!compact && <AnswerChecks result={result} />}
@@ -165,6 +176,7 @@ export function DiagnosticReport({ result }) {
       })}
       {!!actions.length && <section className="report-row report-action"><h4>{t('Что делать дальше')}</h4><div>{actions.map(citedClaim)}</div></section>}
     </ManualAnswer>
+    <VehicleMemory result={result} />
     {!!result.limitations?.length && <section className="report-row"><h4>{t('Что осталось уточнить')}</h4><div><Entries items={result.limitations} /></div></section>}
     {!!references.length && <footer className="report-row report-sources"><h4>{t('Руководство')}</h4>
       <div>{references.map((source, index) => <div key={pageKey(source)}>
@@ -190,6 +202,7 @@ export function DiagnosticVerdict({ result }) {
     <p>{message}</p>
     {status === 'normal' && <p>{t('По результату этой проверки можно продолжить эксплуатацию.')}</p>}
     {details && <p className="meta">{details}</p>}
+    <VehicleMemory result={result} className="claims" />
   </div>
 }
 
@@ -225,6 +238,7 @@ export function Response({ result }) {
     {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? t('Страницы по теме для самостоятельной проверки') : t('Источники ответа')}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
+    {result.action === 'get_diagnostic_history' && <VehicleMemory result={result} className="claims" />}
     {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
     <AnswerChecks result={result} />
   </article>
