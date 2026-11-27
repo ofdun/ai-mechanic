@@ -16,6 +16,9 @@ from ml.generation.verifier import EvidenceVerifier
 from ml.pipeline import scope_evidence
 from ml.providers.openrouter import OpenRouterClient
 
+# Selection replies are only indexes, but a model that reasons by default can spend the whole budget thinking.
+SELECTION_TOKENS = 4000
+
 
 class QueryOutput(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -103,7 +106,7 @@ class LLMEvidenceWorkflow:
             return SearchOutcome(plan=plan, evidence=evidence, claims=[])
         approval = self.client.complete_json('a_verifier_finalizer', self.settings.a_verifier_model, messages(
             prompts.REVIEW, **self.review_payload(plan, evidence, diagnostic, draft),
-        ), ApprovalOutput)
+        ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
         return SearchOutcome(plan=plan, evidence=evidence, claims=approved_indexes(draft, approval.indexes))
 
     def run_evidence_grounded(self, plan: SearchPlan, diagnostic: DiagnosticResult | None) -> SearchOutcome:
@@ -136,5 +139,5 @@ class LLMEvidenceWorkflow:
         final = self.client.complete_json('b_finalizer', self.settings.b_finalizer_model, messages(
             prompts.FINAL_SELECTION, question=plan.original_query,
             verified_claims=[claim.model_dump() for claim in approved],
-        ), ApprovalOutput)
+        ), ApprovalOutput, max_tokens=SELECTION_TOKENS)
         return SearchOutcome(plan=plan, evidence=evidence, claims=approved_indexes(approved, final.indexes))

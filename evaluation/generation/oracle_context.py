@@ -292,7 +292,8 @@ def run_case(case: Case, corpus: Corpus, settings: Settings, client: OpenRouterC
             final = workflow.run(plan, None).claims
             drafts = workflow.drafts or []
     except AgentError as error:
-        result.error = error.code
+        role = str(error).split(':', 1)[0] if ':' in str(error) else ''
+        result.error = f'{error.code} ({role})' if role else error.code
         result.seconds = time.monotonic() - started
         return finish_usage(result, usage)
     result.seconds = time.monotonic() - started
