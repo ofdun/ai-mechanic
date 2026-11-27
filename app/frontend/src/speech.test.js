@@ -42,3 +42,9 @@ test('short sentences are merged into one utterance', () => {
   assert.deepEqual(speechChunks('Норма. Можно ехать.'), ['Норма. Можно ехать.'])
   assert.deepEqual(speechChunks('Без точки в конце'), ['Без точки в конце'])
 })
+
+test('preserves decimal values and part designations and skips bare punctuation', () => {
+  const line = 'Зазор 0.25 мм. Обозначение 536.3902150.'
+  assert.deepEqual(speechChunks(line), [line])
+  assert.deepEqual(speechChunks('…'), [])
+})

@@ -22,8 +22,8 @@ export function speechChunks(text) {
   // Emoji and the "·" separator are visual only: engines would spell out their names.
   const clean = String(text || '').replace(/[\p{Extended_Pictographic}️‍]/gu, '')
     .replace(/\s+·\s+/g, ', ').replace(/\s+/g, ' ').replace(/^[\s,]+/, '').trim()
-  if (!clean) return []
-  const sentences = clean.match(/[^.!?…]+(?:[.!?…]+|$)/g).map(part => part.trim()).filter(Boolean)
+  if (!/[\p{L}\p{N}]/u.test(clean)) return []
+  const sentences = clean.split(/(?<=[.!?…])\s+/u)
   const chunks = []
   for (const sentence of sentences) {
     let rest = sentence
