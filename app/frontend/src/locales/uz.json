@@ -224,5 +224,7 @@
   "Понимаю, что запись с помехами и вывод может быть неточным": "Yozuv xalaqitli ekanini va xulosa noaniq bo'lishi mumkinligini tushunaman",
   "Порог уверенности {value}": "Ishonch chegarasi {value}",
   "Продолжить с этой записью": "Shu yozuv bilan davom etish",
-  "Помехи могут исказить вывод. Лучше повторить замер.": "Xalaqitlar xulosani buzishi mumkin. O'lchovni takrorlagan ma'qul."
+  "Помехи могут исказить вывод. Лучше повторить замер.": "Xalaqitlar xulosani buzishi mumkin. O'lchovni takrorlagan ma'qul.",
+  "Прочитать ответ": "Javobni o‘qib berish",
+  "Стоп": "To‘xtatish"
 }
