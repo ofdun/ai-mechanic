@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import cached_property
@@ -195,6 +196,13 @@ class Pipeline:
                 response.summary = outcome.summary
                 if response.action == 'search_manuals':
                     response.message = outcome.summary
+            if response.action == 'search_manuals' and response.claims and re.search(
+                r'\b(?:чинить|починить|отремонтировать|ремонтировать)\b', plan.original_query, re.I
+            ) and not any(claim.kind == 'operation' for claim in response.claims):
+                response.limitations.append(
+                    f'Порядок ремонта для двигателя {plan.engine_model} подтвердить не удалось. '
+                    'Уточните, какой признак неисправности вы наблюдаете.'
+                )
             return
         if self.retriever is None:
             response.limitations.append('Сейчас поиск по руководствам недоступен.')
