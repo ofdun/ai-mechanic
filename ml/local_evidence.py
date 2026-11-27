@@ -2,9 +2,10 @@
 import re
 from typing import TYPE_CHECKING
 
-from ml.contracts import EvidenceBundle, SearchOutcome, TechnicalClaim
+from ml.contracts import AnswerVerification, CheckedPage, EvidenceBundle, SearchOutcome, TechnicalClaim
 from ml.planner.local import is_diagnostic_followup
 from ml.reviewed_checks import ReviewCatalog
+from ml.tools.part_numbers import DESIGNATION, named_designation, requested_names
 
 if TYPE_CHECKING:
     from ml.architectures import LLMEvidenceWorkflow
@@ -75,6 +76,19 @@ class LocalEvidence:
         if other_engine or asks_to_drive:
             return SearchOutcome(plan=plan, claims=[], evidence=EvidenceBundle())
 
+        names = requested_names(models.sub(' ', question))
+        if names:
+            for item in self.retriever.search(plan).items:
+                if plan.engine_model not in item.engine_models:
+                    continue
+                for line in item.text.splitlines():
+                    for match in DESIGNATION.finditer(line):
+                        quoted = named_designation(line, match, names)
+                        if not quoted:
+                            continue
+                        claim = TechnicalClaim(kind='observation', text=quoted, quote=quoted,
+                                               evidence_ids=[item.evidence_id])
+                        return SearchOutcome(plan=plan, claims=[claim], evidence=EvidenceBundle(items=[item]))
         followup = diagnostic is not None and is_diagnostic_followup(question)
         diagnosis_lookup = diagnostic is not None and (plan.anomaly_type is not None or followup)
         if diagnosis_lookup:
@@ -87,7 +101,9 @@ class LocalEvidence:
             return result
         if self.generation is not None:
             if result.claims:
-                return self.generation.outcome(plan, result.evidence, result.claims)
+                written = self.generation.outcome(plan, result.evidence, result.claims)
+                written.verification = result.verification
+                return written
             return self.generation.run(plan, diagnostic)
         if result.claims or diagnosis_lookup:
             return result
@@ -95,7 +111,12 @@ class LocalEvidence:
         if not re.search(r'сколько|момент|давлен|норматив|допуск|температур|зазор|размер|затяж|затян', question):
             self.passages(plan, question, pages, claims)
         evidence = list(pages.values()) if claims else candidate_pages(self.retriever, plan, question)
-        return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=evidence))
+        verification = result.verification
+        if pages:
+            verification = AnswerVerification(engine_model=plan.engine_model,
+                pages=[CheckedPage(evidence_id=key) for key in pages],
+                rejected_claims=verification.rejected_claims if verification else None)
+        return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=evidence), verification=verification)
 
     def passages(self, plan, source_query, pages, claims):
         # Restrict verbatim excerpts to a single complete instruction about the named component.

@@ -140,6 +140,16 @@ class PdfPageRetriever:
             raise AgentError('RAG_INDEX_UNAVAILABLE', 'Индекс PDF недоступен. Запустите сборку индекса.') from error
         return self.evidence(row) if row else None
 
+    def figure_pages(self, engine_model: str, pattern: re.Pattern) -> list[Evidence]:
+        try:
+            with closing(sqlite3.connect(self.index.resolve().as_uri() + '?mode=ro', uri=True)) as db:
+                rows = db.execute('SELECT document_id, manual, engine, pdf_page, text FROM manual_pages '
+                                  'WHERE engine=? AND text != ? ORDER BY document_id, pdf_page',
+                                  (unicodedata.normalize('NFC', engine_model), '')).fetchall()
+        except sqlite3.Error as error:
+            raise AgentError('RAG_INDEX_UNAVAILABLE', 'Индекс PDF недоступен. Запустите сборку индекса.') from error
+        return [self.evidence(row) for row in rows if pattern.search(row[4])]
+
     def search(self, plan: SearchPlan) -> EvidenceBundle:
         queries = [fault_query(plan.anomaly_type) or '', plan.rewritten_query, plan.original_query, *plan.subqueries]
         query = page_query(queries)
@@ -177,7 +187,7 @@ class ReviewedOperations:
 
     def verify(self, draft: TechnicalDraft, evidence: EvidenceBundle) -> VerifiedResponse:
         supported = self.operations(evidence)
-        return VerifiedResponse(claims=[claim for claim in draft.claims if claim in supported])
+        return VerifiedResponse.from_reviewed(ENGINE, draft, supported)
 
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:

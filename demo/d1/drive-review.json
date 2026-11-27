@@ -1,0 +1,51 @@
+{
+  "page": "demo-d1-training:1",
+  "sha256": "10f71c0c2583f055b6369a33dd71807184637e0ddb44da695a54394086ebc33b",
+  "entries": [
+    {
+      "fault_code": "F01",
+      "claims": [
+        {
+          "kind": "risk",
+          "text": "При смещении меток показания учебного стенда становятся недостоверными.",
+          "evidence_ids": [
+            "demo-d1-training:1"
+          ]
+        },
+        {
+          "kind": "check",
+          "text": "Проверьте совпадение установочных меток на учебном диске и корпусе.",
+          "evidence_ids": [
+            "demo-d1-training:1"
+          ]
+        },
+        {
+          "kind": "operation",
+          "text": "Если метки не совпадают, замените учебный диск и повторите проверку.",
+          "evidence_ids": [
+            "demo-d1-training:1"
+          ]
+        },
+        {
+          "kind": "spare_part",
+          "text": "Учебный диск 901-1000001.",
+          "evidence_ids": [
+            "demo-d1-training:1"
+          ]
+        }
+      ]
+    },
+    {
+      "topic": "demo_d1_torque",
+      "claims": [
+        {
+          "kind": "reference_value",
+          "text": "Для учебного макета момент затяжки крышек коренных подшипников — 6 Н·м.",
+          "evidence_ids": [
+            "demo-d1-training:1"
+          ]
+        }
+      ]
+    }
+  ]
+}

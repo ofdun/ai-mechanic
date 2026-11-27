@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     vehicles_path: Path | None = None
     manual_manifest_path: Path | None = None
     reviewed_evidence_path: Path | None = None
+    # Tightening sequences checked by people against manual figures; a local file, not in the repository.
+    reviewed_sequences_path: Path | None = None
     web_retrieval_mode: Literal['legacy', 'team'] = 'legacy'
     retrieval_config_path: Path | None = None
     artifacts_dir: Path = Path('artifacts')
@@ -22,8 +24,13 @@ class Settings(BaseSettings):
     http_timeout_seconds: Annotated[float, Field(gt=0, le=90)] = 20
     min_diagnostic_confidence: Annotated[float, Field(ge=0, le=1)] = 0.70
     repeat_on_warning: bool = True
+    # With repeat_on_warning: a confident noisy record may still go on after the mechanic confirms the noise.
+    confirm_signal_warning: bool = True
     default_ticket_urgency: TicketUrgency = 'medium'
     ticket_urgency_by_fault: dict[FaultCode, TicketUrgency] = Field(default_factory=dict)
+    # Audit log of questions, answers, sources and tickets, kept apart from service logs.
+    audit_enabled: bool = True
+    audit_retention_days: Annotated[int, Field(ge=1, le=3650)] = 90
     planner_mode: Literal['llm', 'local', 'offline'] = 'llm'
     agent_architecture: Literal['baseline', 'a', 'b'] = 'a'
     allow_external_evidence: bool = False
