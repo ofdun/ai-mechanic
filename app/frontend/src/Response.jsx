@@ -5,6 +5,7 @@ import { formatDate } from './api'
 import { Source } from './ManualReader'
 import { ScoreChart, score } from './ScoreChart'
 import { PartNumbers } from './Parts'
+import { TighteningFigures } from './Figures'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -109,6 +110,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
       {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
       {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
       <PartNumbers result={result} className={report ? 'report-row' : 'claims'} />
+      <TighteningFigures result={result} className={report ? 'report-row' : 'claims'} />
     </>}
     {answer.memory?.length > 0 && <section className={report ? 'report-row' : 'claims'}>
       <h4>{labels.memory || t('По этой машине')}</h4>
@@ -229,6 +231,7 @@ export function Response({ result }) {
       })}
     </ManualAnswer>
     {!repeat && !result.recognition_error && <PartNumbers result={result} />}
+    <TighteningFigures result={result} />
     {!insufficient && limitations.length > 0 && <section className="limitations"><h4>{t('Ограничения')}</h4>
       <Entries items={limitations} /></section>}
     {insufficient && <div className="search-fallback">

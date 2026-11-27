@@ -37,6 +37,7 @@ from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
 from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers
+from ml.tools.figures import ReviewedSequence, attach_sequences, figure_note, load_sequences, sequence_figures
 from ml.tools.tickets import TicketStore
 from ml.tools.vehicle_memory import diagnosis_memory, history_memory
 from ml.vehicles import VehicleDirectory
@@ -140,6 +141,7 @@ class Pipeline:
                 engine_model=vehicle.engine_model, original_query=message,
                 rewritten_query=decision.rewritten_query or message, subqueries=decision.subqueries,
             ), diagnostic)
+            self.link_sequence_figures(response, message)
         elif decision.action == 'get_diagnostic_history':
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
@@ -157,6 +159,20 @@ class Pipeline:
         if self.finalizer is not None:
             response.message = self.finalizer.compose(response)
         return response
+
+    @cached_property
+    def reviewed_sequences(self) -> list[ReviewedSequence]:
+        return load_sequences(self.settings.reviewed_sequences_path)
+
+    def link_sequence_figures(self, response: AgentResponse, question: str) -> None:
+        """«В каком порядке затягивать…»: the figure goes with the answer; steps only from a reviewed sequence."""
+        figures = sequence_figures(response, question)
+        if not figures:
+            return
+        response.figures = attach_sequences(figures, response.evidence.items, self.reviewed_sequences)
+        for figure in response.figures:
+            if not figure.sequence:
+                response.limitations.append(figure_note(figure))
 
     def measurement_issue(self, result: DiagnosticResult) -> str | None:
         if result.status == 'check_failed' or result.signal_quality == 'bad':

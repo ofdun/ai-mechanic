@@ -195,6 +195,17 @@ class PartNumber(BaseModel):
     evidence_id: Text
 
 
+class FigureReference(BaseModel):
+    """A figure with a tightening order on a page of this engine's manual."""
+    figure: Text
+    caption: str | None = None
+    manual: Text
+    document_id: Text
+    pdf_page: PageNumber
+    # Numbered steps only from a sequence people checked against this page; empty means «open the figure».
+    sequence: list[str] = Field(default_factory=list)
+
+
 class AgentTurn(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -257,6 +268,7 @@ class AgentResponse(BaseModel):
     # Part designations from the pages behind the answer; none is taken from external catalogues.
     part_numbers: list[PartNumber] = Field(default_factory=list)
     part_numbers_note: str | None = None
+    figures: list[FigureReference] = Field(default_factory=list)
     ticket_draft: TicketDraft | None = None
     limitations: list[str] = Field(default_factory=list)
     language: Language = 'ru'
