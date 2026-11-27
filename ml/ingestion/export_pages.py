@@ -8,6 +8,7 @@ import re
 import sys
 import unicodedata
 from collections import defaultdict
+from contextlib import ExitStack
 from itertools import zip_longest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -122,7 +123,7 @@ def extract_text(text_page, document, pdf_page):
     return text
 
 
-def read_document_pages(document, source):
+def verify_source(document, source):
     digest = hashlib.sha256()
     with source.open("rb") as file:
         for block in iter(lambda: file.read(1024 * 1024), b""):
@@ -130,9 +131,22 @@ def read_document_pages(document, source):
     if digest.hexdigest() != document["sha256"]:
         raise ValueError(f"SHA-256 отличается от каталога: {source.name}")
 
+
+def read_document_pages(document, source, *, text_engine="pdfium", ocr=None):
+    verify_source(document, source)
     sections = document.get("sections", [])
     offset = document.get("printed_page_offset")
-    with pypdfium2.PdfDocument(source) as pdf:
+    reviewed_pages = set(document.get("visual_order_pages", []))
+    reviewed_pages.update(row["pdf_page"] for row in document.get("table_rows", []))
+    with ExitStack() as stack:
+        pdf = stack.enter_context(pypdfium2.PdfDocument(source))
+        mu_pdf = None
+        if text_engine == "pymupdf" or ocr is not None:
+            try:
+                import pymupdf
+            except ImportError as error:
+                raise ValueError("Для этого режима нужен PyMuPDF.") from error
+            mu_pdf = stack.enter_context(pymupdf.open(source))
         page_count = len(pdf)
         if page_count != document["expected_pages"]:
             raise ValueError(
@@ -141,13 +155,22 @@ def read_document_pages(document, source):
 
         for page_index in range(page_count):
             pdf_page = page_index + 1
-            page = pdf[page_index]
-            try:
-                text_page = page.get_textpage()
-                raw_text = extract_text(text_page, document, pdf_page)
-            finally:
-                page.close()
+            if text_engine == "pymupdf" and pdf_page not in reviewed_pages:
+                raw_text = mu_pdf[page_index].get_text(sort=True)
+            else:
+                page = pdf[page_index]
+                try:
+                    raw_text = extract_text(page.get_textpage(), document, pdf_page)
+                finally:
+                    page.close()
             printed_page, text = page_content(raw_text, pdf_page, offset)
+            if ocr is not None and not text:
+                try:
+                    recognized = ocr.read(mu_pdf[page_index])
+                except (RuntimeError, ValueError) as error:
+                    raise ValueError(f"{document['document_id']}, физическая стр. {pdf_page}: {error}") from error
+                ocr_folio, text = page_content(recognized.text, pdf_page, offset)
+                printed_page = printed_page or ocr_folio
             section = next(
                 (item["title"] for item in sections if item["first_page"] <= pdf_page <= item["last_page"]),
                 None,
@@ -160,8 +183,8 @@ def read_document_pages(document, source):
             }
 
 
-def export_pages(manifest_path, output):
-    documents = list(read_manifest(manifest_path))
+def export_pages(manifest_path, output, *, data_dir=None, text_engine="pdfium", ocr=None):
+    documents = list(read_manifest(manifest_path, data_dir))
     input_paths = {manifest_path.resolve(), *(source.resolve() for _, source in documents)}
     if output.resolve() in input_paths:
         raise ValueError(f"Путь выгрузки совпадает с исходным файлом: {output}")
@@ -177,7 +200,7 @@ def export_pages(manifest_path, output):
             page_count = 0
             for document, source in documents:
                 manual = manual_name(document)
-                for page in read_document_pages(document, source):
+                for page in read_document_pages(document, source, text_engine=text_engine, ocr=ocr):
                     record = {
                         "document_id": document["document_id"],
                         "manual": manual,
@@ -194,8 +217,8 @@ def export_pages(manifest_path, output):
     return len(documents), page_count
 
 
-def export_parsed_documents(manifest_path, output):
-    documents = list(read_manifest(manifest_path))
+def export_parsed_documents(manifest_path, output, *, data_dir=None, text_engine="pdfium", ocr=None):
+    documents = list(read_manifest(manifest_path, data_dir))
     input_paths = {manifest_path.resolve(), *(source.resolve() for _, source in documents)}
     filenames = []
     for document, _ in documents:
@@ -218,7 +241,7 @@ def export_parsed_documents(manifest_path, output):
         for (document, source), filename in zip(documents, filenames):
             pages = [
                 {key: value for key, value in page.items() if value is not None}
-                for page in read_document_pages(document, source)
+                for page in read_document_pages(document, source, text_engine=text_engine, ocr=ocr)
             ]
             parsed_document = {
                 "document_id": document["document_id"],
@@ -240,7 +263,11 @@ def main():
     parser = argparse.ArgumentParser(description="Выгрузка текстового слоя PDF по страницам или руководствам.")
     default_data = Path(os.environ.get("DATA_DIR", PROJECT_ROOT / "data"))
     parser.add_argument("--manifest", type=Path, default=default_data / "manifest.json")
+    parser.add_argument("--data-dir", type=Path, help="Каталог PDF, если они лежат отдельно от манифеста.")
     parser.add_argument("--format", choices=("pages", "parsed"), default="pages")
+    parser.add_argument("--text-engine", choices=("pdfium", "pymupdf"), default="pdfium")
+    parser.add_argument("--ocr", choices=("paddleocr", "pp-structure"),
+                        help="Локальное OCR для страниц без текста после очистки.")
     parser.add_argument(
         "--output", type=Path,
         help="Файл pages.jsonl для pages или каталог artifacts/parsed для parsed.",
@@ -248,13 +275,21 @@ def main():
     args = parser.parse_args()
 
     try:
+        ocr = None
+        if args.ocr:
+            if __package__:
+                from .page_ocr import PageOCR
+            else:
+                from page_ocr import PageOCR
+            ocr = PageOCR(args.ocr)
+        options = {"data_dir": args.data_dir, "text_engine": args.text_engine, "ocr": ocr}
         if args.format == "parsed":
             artifacts = Path(os.environ.get("ARTIFACTS_DIR", PROJECT_ROOT / "artifacts"))
             output = args.output or artifacts / "parsed"
-            documents, pages = export_parsed_documents(args.manifest, output)
+            documents, pages = export_parsed_documents(args.manifest, output, **options)
         else:
             output = args.output or args.manifest.with_name("pages.jsonl")
-            documents, pages = export_pages(args.manifest, output)
+            documents, pages = export_pages(args.manifest, output, **options)
     except (OSError, ValueError, KeyError, TypeError, pypdfium2.PdfiumError) as error:
         print(f"Ошибка выгрузки: {error}", file=sys.stderr)
         return 1
