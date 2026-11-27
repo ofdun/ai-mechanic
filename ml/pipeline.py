@@ -18,7 +18,6 @@ from ml.contracts import (
     Retriever,
     SearchPlan,
     SearchWorkflow,
-    SessionRecord,
     TechnicalClaim,
     TicketConfirmation,
     TicketDraft,
@@ -94,13 +93,13 @@ class Pipeline:
         return self.tickets
 
     def run(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
-        vehicle, current = self.vehicles.get(request.vehicle_id, request.session_id)
+        vehicle, _ = self.vehicles.get(request.vehicle_id, request.session_id)
         if context is not None and (
             context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
         ) != (request.actor_id, request.vehicle_id, request.session_id, request.conversation_id, vehicle.engine_model):
             raise AgentError('CONTEXT_MISMATCH', 'Контекст не соответствует пользователю, диалогу или выбранной сессии ТС.')
         if request.command == 'record_inspection':
-            return self.record_inspection(request, vehicle, current)
+            return self.record_inspection(request, vehicle, context.diagnostic if context else None)
         message = request.message or {
             'diagnose': 'Запусти диагностику выбранной сессии.',
             'draft_ticket': 'Подготовь черновик заявки на дефектовку.',
@@ -146,9 +145,12 @@ class Pipeline:
             response.message = self.finalizer.compose(response)
         return response
 
-    def record_inspection(self, request: AgentRequest, vehicle: Vehicle, session: SessionRecord) -> AgentResponse:
+    def record_inspection(self, request: AgentRequest, vehicle: Vehicle, diagnostic: DiagnosticResult | None) -> AgentResponse:
         """Stores what the mechanic found. The diagnosis, its context and any ticket stay as they were."""
-        self.inspections.add(request.actor_id, session, request.inspection)
+        if (diagnostic is None or diagnostic.status != 'anomaly' or self.measurement_issue(diagnostic)
+                or self.ticket_mismatch(vehicle, diagnostic)):
+            raise AgentError('INSPECTION_UNAVAILABLE', 'Для записи осмотра получите достоверное отклонение в этом диалоге.')
+        self.inspections.add(request.actor_id, diagnostic, request.inspection)
         response = AgentResponse(
             request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
             engine_model=vehicle.engine_model, conversation_id=request.conversation_id, action='record_inspection',
@@ -156,8 +158,6 @@ class Pipeline:
             inspections=self.inspections.for_vehicle(vehicle.vehicle_id),
         )
         response.language = request.language
-        if request.language != 'ru':
-            response.localized = self.localizer.localize(response, request.language)
         return response
 
     def measurement_issue(self, result: DiagnosticResult) -> str | None:

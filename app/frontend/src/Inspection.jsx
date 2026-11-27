@@ -16,14 +16,16 @@ export function InspectionForm({ disabled, onSave }) {
   const [outcome, setOutcome] = useState('')
   const [mark, setMark] = useState('')
   const [comment, setComment] = useState('')
-  function submit(event) {
+  const [saved, setSaved] = useState(false)
+  async function submit(event) {
     event.preventDefault()
-    onSave({ outcome, ...(mark && { marks: mark }), ...(comment.trim() && { comment: comment.trim() }) })
+    if (!await onSave({ outcome, ...(mark && { marks: mark }), ...(comment.trim() && { comment: comment.trim() }) })) return
+    setSaved(true)
     setOutcome('')
     setMark('')
     setComment('')
   }
-  return <form className="inspection-form" onSubmit={submit}>
+  return <form className="inspection-form" onChange={() => setSaved(false)} onSubmit={submit}>
     <h4>{t('Результат осмотра')}</h4>
     <fieldset><legend>{t('Что показал осмотр')}</legend>
       {Object.entries(outcomes).map(([value, label]) => <label key={value}>
@@ -40,6 +42,7 @@ export function InspectionForm({ disabled, onSave }) {
     </label>
     <p className="meta">{t('Запись не меняет диагноз и заявку. «Метки совпали» не значит, что двигатель исправен.')}</p>
     <button type="submit" className="secondary" disabled={disabled || !outcome}>{t('Записать результат осмотра')}</button>
+    {saved && <p role="status">{t('Результат осмотра сохранён')}</p>}
   </form>
 }
 

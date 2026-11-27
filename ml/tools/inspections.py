@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from ml.contracts import AgentError, InspectionInput, InspectionRecord, SessionRecord
+from ml.contracts import AgentError, InspectionInput, InspectionRecord, DiagnosticResult
 
 
 class InspectionStore:
@@ -33,7 +33,7 @@ class InspectionStore:
         except sqlite3.Error as error:
             raise AgentError('INSPECTION_STORAGE_UNAVAILABLE', 'Хранилище результатов осмотра недоступно.') from error
 
-    def add(self, actor_id: str, session: SessionRecord, found: InspectionInput) -> InspectionRecord:
+    def add(self, actor_id: str, session: DiagnosticResult, found: InspectionInput) -> InspectionRecord:
         record = InspectionRecord(
             **found.model_dump(), inspection_id=uuid4().hex, vehicle_id=session.vehicle_id,
             session_id=session.session_id, model_version=session.model_version, anomaly_type=session.anomaly_type,

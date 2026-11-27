@@ -5,6 +5,7 @@ import { CheckCircle2, CircleAlert, Printer, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { AnswerChecks } from './AnswerChecks'
 import { Source } from './ManualReader'
+import { InspectionList } from './Inspection'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -100,7 +101,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
       {labels['conflict.title'] && result.message.includes('⚖️ ' + labels['conflict.title']) &&
         <p className="limitations"><strong>{labels['conflict.title']}</strong> {labels['conflict.note']}</p>}
       {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
-      {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+      {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
     </>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
       .map((line, index) => <AnswerLine key={index} line={line} />)}
@@ -224,9 +225,20 @@ export function Response({ result }) {
     {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? t('Страницы по теме для самостоятельной проверки') : t('Источники ответа')}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
-    {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+    {result.action === 'get_diagnostic_history' && <HistoryReply result={result} />}
     <AnswerChecks result={result} />
   </article>
+}
+
+function HistoryReply({ result }) {
+  const t = useUiText()
+  return <>
+    <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />
+    {!!result.inspections?.length && <section className="history-report">
+      <h3>{t('Результаты осмотра')}</h3>
+      <InspectionList records={result.inspections} vehicleId={result.vehicle_id} />
+    </section>}
+  </>
 }
 
 export function VehicleHistory({ vehicleId, sessions }) {

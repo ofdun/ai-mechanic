@@ -251,7 +251,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       }
       const body = kind === 'chat' ? { message: text } : { command: kind }
       if (kind === 'record_inspection') body.inspection = inspection
-      const result = await request('/agent/run', { ...pair, conversation_id: id, ...(kind !== 'draft_ticket' && language !== 'ru' && { language }), ...body }, controller.signal)
+      const result = await request('/agent/run', { ...pair, conversation_id: id, ...(!['draft_ticket', 'get_diagnostic_history', 'record_inspection'].includes(kind) && language !== 'ru' && { language }), ...body }, controller.signal)
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
@@ -274,7 +274,10 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         setOpenedDialog(id)
       }
       if (kind === 'chat') updateTurn({ result })
-      if (kind === 'record_inspection' || kind === 'get_diagnostic_history') setInspections(result.inspections || [])
+      if (kind === 'record_inspection' || kind === 'get_diagnostic_history') {
+        setInspections(result.inspections || [])
+        return true
+      }
       if (result.diagnostic || result.action === 'draft_ticket') {
         setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))

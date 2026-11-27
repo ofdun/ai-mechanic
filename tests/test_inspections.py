@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from ml.config import Settings
-from ml.contracts import AgentRequest, InspectionInput
+from ml.contracts import AgentError, AgentRequest, ConversationContext, DiagnosticResult, InspectionInput
 from ml.generation import MechanicFinalizer
 from ml.pipeline import Pipeline
 
@@ -34,8 +34,11 @@ def pipeline(tmp_path: Path):
 
 
 def record(pipeline, **found):
-    return pipeline.run(AgentRequest(actor_id='mechanic', vehicle_id='M1', session_id='S-1',
-                                     command='record_inspection', inspection=InspectionInput(**found)))
+    turn = AgentRequest(actor_id='mechanic', vehicle_id='M1', session_id='S-1', conversation_id='dialog',
+                        command='record_inspection', inspection=InspectionInput(**found))
+    context = ConversationContext(actor_id='mechanic', vehicle_id='M1', session_id='S-1', conversation_id='dialog',
+                                  engine_model='ЗМЗ-40905.10', diagnostic=DiagnosticResult(**dict(SESSION, model_version='live-v2')))
+    return pipeline.run(turn, context=context)
 
 
 def test_record_is_stored_with_the_check_and_model_version(pipeline):
@@ -43,7 +46,7 @@ def test_record_is_stored_with_the_check_and_model_version(pipeline):
     assert result.action == 'record_inspection' and result.diagnostic is None and result.ticket_draft is None
     assert result.message == 'Результат осмотра записан. Диагноз и заявка не меняются.'
     [saved] = result.inspections
-    assert (saved.vehicle_id, saved.session_id, saved.model_version, saved.anomaly_type) == ('M1', 'S-1', 'neuro-1.2', 'F14')
+    assert (saved.vehicle_id, saved.session_id, saved.model_version, saved.anomaly_type) == ('M1', 'S-1', 'live-v2', 'F14')
     assert (saved.outcome, saved.marks, saved.comment) == ('other_cause', 'matched', 'Натяжитель исправен, шум от генератора')
     assert saved.recorded_at.tzinfo is not None
     # Nothing is asked from the acoustic model or TOiR, so the diagnosis and the ticket cannot change.
@@ -68,3 +71,28 @@ def test_inspection_goes_only_with_its_command():
                      inspection=InspectionInput(outcome='confirmed'))
     with pytest.raises(ValidationError):
         InspectionInput(outcome='confirmed', angle=12)                          # no angle is entered
+
+
+def test_inspection_requires_a_diagnosed_anomaly(pipeline):
+    request = AgentRequest(actor_id='mechanic', vehicle_id='M1', session_id='S-1',
+                           command='record_inspection', inspection=InspectionInput(outcome='confirmed'))
+    with pytest.raises(AgentError, match='достоверное отклонение'):
+        pipeline.run(request)
+    assert pipeline.inspections.export() == []
+
+
+@pytest.mark.parametrize('changes', [
+    {'status': 'normal', 'anomaly_type': None, 'anomaly_title': None},
+    {'signal_quality': 'bad'},
+    {'confidence': 0.01},
+    {'anomaly_type': 'F08'},  # Diesel fault on the selected gasoline engine.
+])
+def test_ineligible_measurement_cannot_collect_feedback(pipeline, changes):
+    turn = AgentRequest(actor_id='mechanic', vehicle_id='M1', session_id='S-1', conversation_id='dialog',
+                        command='record_inspection', inspection=InspectionInput(outcome='confirmed'))
+    context = ConversationContext(actor_id='mechanic', vehicle_id='M1', session_id='S-1', conversation_id='dialog',
+                                  engine_model='ЗМЗ-40905.10', diagnostic=DiagnosticResult(**dict(SESSION, **changes)))
+    with pytest.raises(AgentError, match='достоверное отклонение'):
+        pipeline.run(turn, context=context)
+    assert pipeline.inspections.export() == []
+    assert pipeline.upstream_calls == []

@@ -18,6 +18,9 @@ func excerpt(s string) string {
 }
 
 func nextContext(actor string, t Turn, prev *Conversation, data json.RawMessage) (*Conversation, error) {
+	if t.Command == "record_inspection" || t.Command == "get_diagnostic_history" {
+		return nil, nil // Explicit form and history operations do not enter the chat transcript.
+	}
 	var resp struct {
 		Message    string
 		Engine     string `json:"engine_model"`
