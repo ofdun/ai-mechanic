@@ -37,11 +37,17 @@ def exercise(page, base_url, ranked_pages):
     thread = page.get_by_role('log')
     question = page.get_by_label('Вопрос по двигателю')
 
+    engines = page.get_by_label('Двигатель', exact=True)
+    def select_vehicle(vid):
+        engines.select_option(next(v['engine_model'] for v in catalog if v['vehicle_id'] == vid))
+        vehicle.select_option(vid)
+
+    expect(vehicle).to_be_disabled()
+    select_vehicle('M333YK47')
     open_ticket.click()
     expect(ticket).to_be_focused()
     expect(page.get_by_role('tabpanel', name='Заявка')).to_contain_text('Сначала получите результат диагностики')
     expect(create_ticket).to_be_disabled()
-    vehicle.select_option('M333YK47')
     session.select_option('S-0005')
     result_tab = page.get_by_role('tab', name='Результат', exact=True)
     result_tab.click()
@@ -85,7 +91,7 @@ def exercise(page, base_url, ranked_pages):
     replay = page.request.post(confirmed.url, data=confirmed.request.post_data_json)
     assert replay.ok and replay.json()['ticket_id'] == receipt
 
-    vehicle.select_option('P456AT178')
+    select_vehicle('P456AT178')
     for measurement, verdict, reason in [('S-0001', 'Норма', 'Заявка на дефектовку не требуется'),
                                          ('S-0003', 'Сбой проверки', 'Повторите замер')]:
         session.select_option(measurement)
@@ -96,7 +102,7 @@ def exercise(page, base_url, ranked_pages):
         expect(page.get_by_role('tabpanel', name='Заявка')).to_contain_text(reason)
         expect(create_ticket).to_be_disabled()
 
-    vehicle.select_option('Y652CK98')
+    select_vehicle('Y652CK98')
     session.select_option('S-0132')
     result_tab.click()
     diagnose.click()
@@ -107,7 +113,7 @@ def exercise(page, base_url, ranked_pages):
     ticket.click()
     expect(create_ticket).to_be_disabled()
 
-    vehicle.select_option('P854BT78')
+    select_vehicle('P854BT78')
     session.select_option('S-0021')
     result_tab.click()
     diagnose.click()
@@ -116,7 +122,7 @@ def exercise(page, base_url, ranked_pages):
     expect(report).to_contain_text('порог для этой проверки 70%')
     expect(report).to_contain_text('помехи')
 
-    vehicle.select_option('T801PO178')
+    select_vehicle('T801PO178')
     session.select_option('S-0046')
     diagnose.click()
     expect(report).to_contain_text('F11')
@@ -127,9 +133,8 @@ def exercise(page, base_url, ranked_pages):
     expect(create_ticket).to_be_disabled()
 
     target = next(v for v in catalog if v['engine_model'] == 'ЗМЗ-5234.10')
-    engines = page.get_by_label('Двигатель', exact=True)
     engines.select_option(label=target['engine_model'])
-    expect(vehicle.locator('option')).to_have_count(sum(v['engine_model'] == target['engine_model'] for v in catalog))
+    expect(vehicle.locator('option:enabled')).to_have_count(sum(v['engine_model'] == target['engine_model'] for v in catalog))
     vehicle.select_option(target['vehicle_id'])
     chat.click()
     query = 'Как проверить термостат?'
@@ -165,8 +170,6 @@ def exercise(page, base_url, ranked_pages):
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
     page.get_by_role('button', name='К чату').click()
     expect(question).to_be_visible()
-    engines.select_option(label='Все двигатели')
-    expect(vehicle.locator('option')).to_have_count(50)
     expect(vehicle).to_have_value(target['vehicle_id'])
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     assert not errors, errors

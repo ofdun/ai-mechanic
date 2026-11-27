@@ -39,8 +39,6 @@ function App() {
         sessions: [...vehicle.sessions].sort((a, b) => Date.parse(b.checked_at) - Date.parse(a.checked_at)),
       }))
       setCatalog(sorted)
-      setVehicleId(sorted[0]?.vehicle_id || '')
-      setSessionId(sorted[0]?.sessions[0]?.session_id || '')
     }).catch(err => {
       if (!controller.signal.aborted) setError(err.message)
     })
@@ -54,7 +52,7 @@ function App() {
   }
   function changeEngine(engine) {
     setEngineFilter(engine)
-    if (engine && vehicle.engine_model !== engine) changeVehicle(vehiclesByEngine.get(engine)[0].vehicle_id, 'engine')
+    changeVehicle('', 'engine')
   }
   function changeSession(id) {
     selectionControl.current = 'session'
@@ -68,7 +66,7 @@ function App() {
     <main>
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
-        : !vehicle ? <p role="status">В справочнике пока нет транспортных средств.</p>
+        : !catalog.length ? <p role="status">В справочнике пока нет транспортных средств.</p>
         : <Workspace key={JSON.stringify([vehicleId, sessionId])}
           {...{ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
     </main>
@@ -96,14 +94,11 @@ function ticketUnavailableReason(result) {
   return result.limitations?.join(' ') || result.message
 }
 
-function VehicleOptions({ vehiclesByEngine, engineFilter }) {
-  const shown = engineFilter ? [[engineFilter, vehiclesByEngine.get(engineFilter)]] : vehiclesByEngine
-  return Array.from(shown, ([engine, vehicles]) => <optgroup key={engine} label={engine}>
-    {vehicles.map(({ vehicle_id, make, model }) => {
-      const name = model?.startsWith(make || '') ? model : [make, model].filter(Boolean).join(' ')
-      return <option key={vehicle_id} value={vehicle_id}>{[vehicle_id, name, engine].filter(Boolean).join(' · ')}</option>
-    })}
-  </optgroup>)
+function VehicleOptions({ vehicles }) {
+  return vehicles.map(({ vehicle_id, make, model }) => {
+    const name = model?.startsWith(make || '') ? model : [make, model].filter(Boolean).join(' ')
+    return <option key={vehicle_id} value={vehicle_id}>{[vehicle_id, name].filter(Boolean).join(' · ')}</option>
+  })
 }
 
 function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
@@ -142,7 +137,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
   }
   const running = useRef(null)
   useEffect(() => () => running.current?.abort(), [])
-  const pair = { vehicle_id: vehicle.vehicle_id, session_id: sessionId }
+  const pair = { vehicle_id: vehicle?.vehicle_id, session_id: sessionId }
   async function run(kind, turn) {
     const text = turn?.question ?? question.trim()
     const retryId = turn?.id
@@ -228,20 +223,20 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
       <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />Параметры замера</h2>
       </div>
       <div id="selection">
-      <div className="vehicle-picker"><label htmlFor="vehicle">Транспортное средство</label>
-      <select id="vehicle" value={vehicle.vehicle_id} disabled={pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
-        <VehicleOptions vehiclesByEngine={vehiclesByEngine} engineFilter={engineFilter} />
-      </select>
-      </div>
       <div><label htmlFor="engine">Двигатель</label>
-      <select id="engine" value={engineFilter} disabled={pending === 'confirm'} onChange={e => changeEngine(e.target.value)}>
-        <option value="">Все двигатели</option>
+      <select id="engine" required value={engineFilter} disabled={pending === 'confirm'} onChange={e => changeEngine(e.target.value)}>
+        <option value="" disabled>Выберите двигатель</option>
         {Array.from(vehiclesByEngine.keys(), engine => <option key={engine} value={engine}>{engine}</option>)}
       </select></div>
-      <div><label htmlFor="session">Проверка</label>
-      <select id="session" value={sessionId} disabled={!vehicle.sessions.length || pending === 'confirm'} onChange={e => changeSession(e.target.value)}>
-        {!vehicle.sessions.length && <option>Нет проверок</option>}
-        {vehicle.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
+      <div><label htmlFor="vehicle">Транспортное средство</label>
+      <select id="vehicle" required value={vehicle?.vehicle_id || ''} disabled={!engineFilter || pending === 'confirm'} onChange={e => changeVehicle(e.target.value)}>
+        <option value="" disabled>Выберите машину</option>
+        <VehicleOptions vehicles={vehiclesByEngine.get(engineFilter) || []} />
+      </select></div>
+      <div className="session-picker"><label htmlFor="session">Проверка</label>
+      <select id="session" value={sessionId} disabled={!vehicle?.sessions.length || pending === 'confirm'} onChange={e => changeSession(e.target.value)}>
+        {!vehicle?.sessions.length && <option value="">{vehicle ? 'Нет проверок' : 'Сначала выберите машину'}</option>}
+        {vehicle?.sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.session_id} · {formatDate(s.checked_at)}</option>)}
       </select></div>
       <button className="primary" disabled={!sessionId || !!pending} onClick={() => run('diagnose')}>Получить результат диагностики<ArrowRight aria-hidden="true" /></button>
       </div>
@@ -254,6 +249,11 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
             aria-selected={view === id} tabIndex={view === id ? 0 : -1}
             onKeyDown={e => navigateTabs(e, index)} onClick={() => setView(id)}><Icon aria-hidden="true" />{label}</button>)}
       </div>
+      {!vehicle ? <div className="pane" id={'panel-' + view} role="tabpanel" aria-labelledby={'tab-' + view} tabIndex={0}>
+        <EmptyView icon={Gauge} title={engineFilter ? 'Выберите машину' : 'Выберите двигатель'}>
+          {engineFilter ? 'В списке транспорта доступны машины с выбранным двигателем.' : 'Затем выберите машину, чтобы открыть её проверки.'}
+        </EmptyView>
+      </div> : <>
       <div className="pane" hidden={view !== 'result'} id="panel-result" aria-labelledby="tab-result" role="tabpanel" tabIndex={0}>
         {diagnosis ? <DiagnosticReport result={diagnosis} /> : <EmptyView icon={ScanLine}
           title={sessionId ? 'Результат ещё не запрошен' : 'У этой машины пока нет проверок'}>
@@ -309,6 +309,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
           onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? 'Отправлено в ТОиР' : 'Отправка заблокирована'
             : draft ? 'Подтвердить заявку' : 'Создать заявку'}</button>}
       </div>
+      </>}
       <div className="panel-status" role="status">{error || (pending && pending !== 'chat' &&
         <>{pendingLabels[pending]}<span className="pending-dots">…</span></>)}</div>
     </section>
