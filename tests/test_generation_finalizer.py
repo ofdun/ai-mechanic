@@ -242,3 +242,21 @@ def test_agent_assessment_is_labelled_and_never_permits_driving():
     categorical = warning.model_copy(update={'assessment': 'Перегонять нельзя, только эвакуатор.'})
     assert plain_text(permit, claims, ENGINE) == plain_text(numbers, claims, ENGINE) == plain_text(
         categorical, claims, ENGINE) == 'Двигатель по руководству направляют в ремонт.'
+
+
+def test_assessment_keeps_whole_sentences_only():
+    from ml.generation.plain import whole_sentences
+    assert whole_sentences('Работу лучше доверить тому, у кого есть стенд для проверки и регули-', 200) == ''
+    long = 'Риск высокий. Лучше проверить сразу. ' + 'Иначе двигатель может заклинить ' * 8
+    assert whole_sentences(long, 200) == 'Риск высокий. Лучше проверить сразу.'
+    assert whole_sentences('Лучше проверить до выезда', 200) == 'Лучше проверить до выезда'
+
+
+def test_lone_digit_from_a_broken_table_is_rejected():
+    from ml.generation.text import number_fragments, number_problems
+    page = 'Болты крепления крышек корен\nподшипников:\nных\n− вертикальные 4\n− горизонтальные 120 (10-12)'
+    assert number_fragments('Вертикальные — 4, горизонтальные — 120 Н·м (10-12 кгс·м).', page)
+    assert not number_fragments('Горизонтальные — 120 Н·м (10-12 кгс·м).', page)
+    assert not number_fragments('Шайбы — 4 шт.', '− шайбы 4\n− болты 6')
+    # A unit exponent next to a value is not a thousands group.
+    assert number_problems('Холостой ход — 550–650 мин⁻¹.', 'на холостом ходу, мин-1 550…650') == []

@@ -11,7 +11,7 @@ from ml.contracts import Evidence, EvidenceBundle, TechnicalClaim, TechnicalDraf
 from ml.generation.claims import MAX_CLAIMS, GroundedClaim, quote_of
 from ml.generation.profiles import mentions_unit
 from ml.generation.text import (
-    Normalized, align, claim_numbers, content_stems, fold, has_condition, has_negation, left_context, number_problems,
+    Normalized, align, claim_numbers, content_stems, fold, has_condition, has_negation, left_context, number_fragments, number_problems,
     numbers_stay_with_words, sentence_bounds, splits_token, words,
 )
 
@@ -35,6 +35,7 @@ REASONS = {
     'number_not_in_quote': 'число утверждения отсутствует в цитате',
     'numbers_out_of_order': 'числа утверждения идут не в том порядке, что в цитате',
     'range_truncated': 'диапазон норматива передан не полностью',
+    'number_fragment': 'число взято из обрывка таблицы, а не из целой строки',
     'unknown_engine_in_claim': 'утверждение упоминает модель двигателя, которой нет в источнике',
     'other_engine_in_quote': 'цитата относится к другой модели двигателя',
     'unrelated_to_quote': 'утверждение не следует из цитаты',
@@ -195,6 +196,8 @@ class EvidenceVerifier:
         ignore = (source.manual,)
         stated_numbers = claim_numbers(claim.text, ignore=ignore)
         reasons.extend(number_problems(claim.text, excerpt, ignore=ignore))
+        if number_fragments(claim.text, excerpt, ignore=ignore):
+            reasons.append('number_fragment')
         if unknown_engine(claim.text, sentence + ' ' + scope, engine_model):
             reasons.append('unknown_engine_in_claim')
         if mentions_other_engine(scope, engine_model) and (
