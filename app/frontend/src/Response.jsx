@@ -36,6 +36,12 @@ function ManualAnswer({ summary, children }) {
   </>
 }
 
+// B1: earlier checks and tickets of this vehicle, written by the agent from its own records.
+function VehicleMemory({ result, className = 'report-row' }) {
+  if (!result.memory?.length) return null
+  return <section className={className}><h4>По этой машине</h4><div><Entries items={result.memory} /></div></section>
+}
+
 function verdict(result) {
   if (result.recognition_error) return { status: 'recognition_error', title: outcomes.recognition_error }
   if (result.requires_remeasurement && result.diagnostic.status !== 'check_failed')
@@ -104,6 +110,7 @@ export function DiagnosticReport({ result }) {
       })}
       {!!actions.length && <section className="report-row report-action"><h4>Что делать дальше</h4><div>{actions.map(citedClaim)}</div></section>}
     </ManualAnswer>
+    <VehicleMemory result={result} />
     {!!result.limitations?.length && <section className="report-row"><h4>Что осталось уточнить</h4><div><Entries items={result.limitations} /></div></section>}
     {!!references.length && <footer className="report-row report-sources"><h4>Руководство</h4>
       <div>{references.map((source, index) => <div key={pageKey(source)}>
@@ -130,6 +137,7 @@ export function DiagnosticVerdict({ result }) {
       {!message.includes(diagnostic.anomaly_title) && ' · ' + diagnostic.anomaly_title}
       {confidence && !message.includes(confidence) && ' · Уверенность ИИ ' + confidence}
     </p>}
+    <VehicleMemory result={result} className="claims" />
   </div>
 }
 
@@ -163,6 +171,7 @@ export function Response({ result }) {
     {referencePages.size > 0 && <section className="claims"><h4>{insufficient ? 'Страницы по теме для самостоятельной проверки' : 'Источники ответа'}</h4>
       {Array.from(referencePages, ([key, source]) => <div key={key}><Source source={source} /></div>)}
     </section>}
+    {result.action === 'get_diagnostic_history' && <VehicleMemory result={result} className="claims" />}
     {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
   </article>
 }
