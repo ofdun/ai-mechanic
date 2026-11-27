@@ -41,7 +41,7 @@ class TrainingGuide:
 
     def verify(self, draft, evidence):
         approved = self.claims(evidence)
-        return VerifiedResponse(claims=[claim for claim in draft.claims if claim in approved])
+        return VerifiedResponse.from_reviewed(ENGINE, draft, approved)
 
 
 class TrainingPipeline(Pipeline):
