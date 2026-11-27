@@ -35,10 +35,33 @@ def exercise(page, url):
     comment = form.get_by_label('Комментарий')
     save = form.get_by_role('button', name='Записать результат осмотра')
     assert form.get_by_role('spinbutton').count() == 0
+    expect(form.get_by_role('group', name='Для проверки по меткам')).to_have_count(0)
     checks = []
     for index, (outcome, marks) in enumerate([
         ('confirmed', None), ('not_confirmed', 'matched'), ('other_cause', 'not_matched'),
     ]):
+        if index == 1:
+            page.locator('#tab-ticket').click()
+            assert page.locator('#panel-ticket .draft').inner_text() == draft_text
+            page.locator('#tab-result').click()
+            # The shipped injector case has no mark-alignment step. Exercise the other UI
+            # path with a cited instruction in an otherwise real diagnosis response.
+            def with_mark_instruction(route):
+                reply = route.fetch()
+                body = reply.json()
+                source = dict(body['evidence']['items'][0], evidence_id='inspection-test-marks',
+                              text='Проверьте совпадение установочных меток.')
+                body['evidence']['items'].append(source)
+                body['claims'].append(dict(kind='check', text=source['text'], evidence_ids=[source['evidence_id']]))
+                route.fulfill(response=reply, json=body)
+            page.route('**/agent/run', with_mark_instruction, times=1)
+            run(page.get_by_role('button', name='Получить результат диагностики'))
+            expect(form.get_by_role('group', name='Для проверки по меткам')).to_be_visible()
+            page.locator('#tab-ticket').click()
+            run(page.get_by_role('button', name='Создать заявку', exact=True))
+            draft_text = page.locator('#panel-ticket .draft').inner_text()
+            page.locator('#tab-result').click()
+            report = page.locator('#panel-result .report').inner_text()
         form.locator(f'input[value="{outcome}"]').check()
         if marks:
             form.locator(f'input[value="{marks}"]').check()

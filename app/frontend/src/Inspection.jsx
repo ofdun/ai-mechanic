@@ -10,16 +10,33 @@ const outcomes = {
 }
 const marks = { '': 'Метки не проверялись', matched: 'Метки совпали', not_matched: 'Метки не совпадают' }
 
+// Use the canonical report even when its displayed text has been translated.
+function instructsMarkCheck(text) {
+  return (text || '').split(/[.!?;\n]+/u).some(step =>
+    /(?<![а-яё])(?:метк(?:а|и|у|е|ой|ам|ами|ах)|меток)(?![а-яё])/iu.test(step) &&
+    /(?:провер|убед|контрол)[^.!?;]{0,100}совпа|должн[а-яё]*\s+совпа|совмест(?:ить|ите)|совмещ(?:ать|айте)|свер(?:ить|ьте|яйте)|провер(?:ить|ьте)\s+(?:установочные\s+)?метки/iu.test(step) &&
+    !/не\s+(?:требу|провер|свер|совмещ|совмест|следует|нужно)|необязательно/iu.test(step))
+}
+
+function hasMarkCheck(report) {
+  const pages = report.evidence?.items || []
+  return report.claims?.some(claim =>
+    ['check', 'operation'].includes(claim.kind) && instructsMarkCheck(claim.text) &&
+    pages.some(page => claim.evidence_ids.includes(page.evidence_id) &&
+      page.engine_models.includes(report.engine_model) && instructsMarkCheck(page.text)))
+}
+
 /** What the mechanic found after the defect check. Stored for the model team; it changes no verdict or ticket. */
-export function InspectionForm({ disabled, onSave }) {
+export function InspectionForm({ report, disabled, onSave }) {
   const t = useUiText()
+  const showMarks = hasMarkCheck(report)
   const [outcome, setOutcome] = useState('')
   const [mark, setMark] = useState('')
   const [comment, setComment] = useState('')
   const [saved, setSaved] = useState(false)
   async function submit(event) {
     event.preventDefault()
-    if (!await onSave({ outcome, ...(mark && { marks: mark }), ...(comment.trim() && { comment: comment.trim() }) })) return
+    if (!await onSave({ outcome, ...(showMarks && mark && { marks: mark }), ...(comment.trim() && { comment: comment.trim() }) })) return
     setSaved(true)
     setOutcome('')
     setMark('')
@@ -32,15 +49,15 @@ export function InspectionForm({ disabled, onSave }) {
         <input type="radio" name="inspection-outcome" value={value} required checked={outcome === value}
           disabled={disabled} onChange={() => setOutcome(value)} />{t(label)}</label>)}
     </fieldset>
-    <fieldset><legend>{t('Для проверки по меткам')}</legend>
+    {showMarks && <fieldset><legend>{t('Для проверки по меткам')}</legend>
       {Object.entries(marks).map(([value, label]) => <label key={value}>
         <input type="radio" name="inspection-marks" value={value} checked={mark === value}
           disabled={disabled} onChange={() => setMark(value)} />{t(label)}</label>)}
-    </fieldset>
+    </fieldset>}
     <label className="inspection-comment">{t('Комментарий')}
       <textarea value={comment} maxLength={1000} rows={2} disabled={disabled} onChange={e => setComment(e.target.value)} />
     </label>
-    <p className="meta">{t('Запись не меняет диагноз и заявку. «Метки совпали» не значит, что двигатель исправен.')}</p>
+    {showMarks && <p className="meta">{t('Запись не меняет диагноз и заявку. «Метки совпали» не значит, что двигатель исправен.')}</p>}
     <button type="submit" className="secondary" disabled={disabled || !outcome}>{t('Записать результат осмотра')}</button>
     {saved && <p role="status">{t('Результат осмотра сохранён')}</p>}
   </form>
