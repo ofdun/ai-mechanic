@@ -60,23 +60,53 @@ def exercise(page, base_url, ranked_pages):
     expect(page.get_by_role('heading', name='Отклонение', exact=True)).to_be_visible()
     chat.click()
     expect(thread).to_contain_text('Отклонение')
+    language = page.get_by_role('combobox', name='Язык ответа')
+    expect(language.locator('option')).to_have_count(5)
+    language.select_option('uz')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as localized:
+        diagnose.click()
+    answer = localized.value.json()['localized']
+    assert answer['language'] == 'uz' and not answer['message']['translated']
+    expect(thread.locator('.turn')).to_have_count(1)
+    expect(thread).to_contain_text(answer['labels']['untranslated'])
+    result_tab.click()
+    report = page.get_by_role('tabpanel', name='Результат', exact=True)
+    expect(report.get_by_role('heading', name=answer['labels']['section.operation'])).to_be_visible()
+    expect(report).to_contain_text(answer['claims'][0]['text'])
+    chat.click()
     canonical = 'yamz-236-operations-2010'
     legacy = 'yamz-236_re_2010'
     route = f'/api/documents/{canonical}/pages/52'
     current = page.request.get(base_url + route)
     old = page.request.get(base_url + route.replace(canonical, legacy))
     assert current.ok and old.ok and current.json() == old.json() and old.json()['page'] == 52
+    # Use the real worker response and substitute one accepted translation to test bilingual rendering offline.
+    def accepted_translation(route):
+        upstream = route.fetch()
+        body = upstream.json()
+        risk = next(i for i, claim in enumerate(body['claims']) if claim['kind'] == 'risk')
+        body['localized']['claims'][risk] = {
+            'text': 'Sinov tarjimasi', 'translated': True, 'original': body['claims'][risk]['text'],
+        }
+        route.fulfill(response=upstream, json=body)
+
+    page.route('**/agent/run', accepted_translation, times=1)
     question.fill('Почему это опасно?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as followup_response:
         question.press('Enter')
     cited = followup_response.value.json()
+    reply = thread.locator('.turn').last
+    expect(reply.get_by_text('Sinov tarjimasi', exact=True)).to_be_visible()
+    original = next(line['original'] for line in cited['localized']['claims'] if line['text'] == 'Sinov tarjimasi')
+    expect(reply.locator('.original-line').filter(has_text=original)).to_contain_text(cited['localized']['labels']['original'])
     assert any(s['document_id'] == canonical and s['pdf_page'] == 52 for s in cited['evidence']['items'])
     with page.expect_response(lambda r: r.url == base_url + route) as cited_page:
-        thread.get_by_role('button', name=re.compile(r'стр\. 52\b')).first.click()
+        reply.get_by_role('button', name=re.compile(r'bet 52\b')).first.click()
     assert cited_page.value.ok
     expect(page.get_by_text('Страница 52 из 172')).to_be_visible()
     page.wait_for_function('document.querySelector(".manual img")?.naturalWidth > 0')
     page.get_by_role('button', name='К чату').click()
+    language.select_option('ru')
     question.fill('Можно ли своим ходом перегнать машину на базу?')
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
         question.press('Enter')
@@ -87,9 +117,11 @@ def exercise(page, base_url, ranked_pages):
     else:
         expect(thread).to_contain_text('Рекомендуется дефектовка')
     page.get_by_role('tab', name='Результат', exact=True).click()
+    language.select_option('kk')
     open_ticket.click()
     with page.expect_response(lambda r: r.url.endswith('/agent/run')) as response:
         create_ticket.click()
+    assert response.value.json()['language'] == 'ru'
     draft = response.value.json()['ticket_draft']['payload']
     assert draft['operations'] and draft['references'] and draft['anomaly_type'] == 'F08'
     assert (draft['vehicle_id'], draft['session_id']) == ('M333YK47', 'S-0005')
@@ -110,6 +142,7 @@ def exercise(page, base_url, ranked_pages):
     replay = page.request.post(confirmed.url, data=confirmed.request.post_data_json)
     assert replay.ok and replay.json()['ticket_id'] == receipt
 
+    language.select_option('ru')
     select_vehicle('P456AT178')
     for measurement, verdict, reason in [('S-0001', 'Норма', 'Заявка на дефектовку не требуется'),
                                          ('S-0003', 'Сбой проверки', 'Повторите замер')]:
@@ -144,7 +177,8 @@ def exercise(page, base_url, ranked_pages):
     select_vehicle('T801PO178')
     session.select_option('S-0046')
     diagnose.click()
-    expect(report).to_contain_text('F11')
+    expect(report).to_contain_text('Рециркуляция отработавших газов')
+    expect(report).not_to_contain_text('Код F11')
     open_ticket.click()
     handoff = page.get_by_role('region', name='Рекомендация на дефектовку')
     for field in ('T801PO178', 'ЯМЗ-236М2', 'S-0046', 'F11', 'порядку автопарка'):

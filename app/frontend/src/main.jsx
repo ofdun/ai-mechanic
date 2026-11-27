@@ -27,7 +27,14 @@ function selectedSession(vehicle) {
   return vehicle.sessions.some(session => session.session_id === saved) ? saved : vehicle.sessions[0]?.session_id || ''
 }
 
+const answerLanguages = { ru: 'Русский', uz: 'Oʻzbekcha', tg: 'Тоҷикӣ', ky: 'Кыргызча', kk: 'Қазақша' }
+const languageKey = 'ai-mechanic.answerLanguage'
+
 function App() {
+  const [language, setLanguage] = useState(() => {
+    const saved = readPreference(languageKey)
+    return Object.hasOwn(answerLanguages, saved) ? saved : 'ru'
+  })
   const [view, setView] = useState('result')
   const [catalog, setCatalog] = useState(null)
   const [error, setError] = useState('')
@@ -98,13 +105,21 @@ function App() {
   return <>
     <header className="mast"><div className="mast-inner">
       <h1><a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>Цифровой механик</a></h1>
+      <label className="answer-language">Язык ответа
+        <select value={language} onChange={event => {
+          setLanguage(event.target.value)
+          savePreference(languageKey, event.target.value)
+        }}>
+          {Object.entries(answerLanguages).map(([code, name]) => <option key={code} lang={code} value={code}>{name}</option>)}
+        </select>
+      </label>
     </div></header>
     <main>
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>
         : !catalog ? <p role="status">Загружаем список транспорта…</p>
         : !catalog.length ? <p role="status">В справочнике пока нет транспортных средств.</p>
         : <Workspace key={JSON.stringify([vehicleId, sessionId])}
-          {...{ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
+          {...{ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
     </main>
   </>
 }
@@ -137,7 +152,7 @@ function VehicleOptions({ vehicles }) {
   })
 }
 
-function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
+function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
   const { id, turns, setTurns, reset, warning } = useChatHistory(vehicle?.vehicle_id, sessionId)
   const [openedDialog, setOpenedDialog] = useState(null)
   const historyLocked = turns.length > 0 && openedDialog !== id
@@ -210,7 +225,7 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
         return
       }
       const body = kind === 'chat' ? { message: text } : { command: kind }
-      const result = await request('/agent/run', { ...pair, conversation_id: id, ...body }, controller.signal)
+      const result = await request('/agent/run', { ...pair, conversation_id: id, ...(kind !== 'draft_ticket' && language !== 'ru' && { language }), ...body }, controller.signal)
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
@@ -218,10 +233,14 @@ function Workspace({ view, setView, vehiclesByEngine, engineFilter, vehicle, ses
       if (kind === 'diagnose' && result.diagnostic) {
         const verdict = { id: conversationId(), kind: 'verdict', result }
         setTurns(old => {
-          const previous = old.findLast(turn => turn.kind === 'verdict')?.result.diagnostic
+          const last = old.findLast(turn => turn.kind === 'verdict')
+          const previous = last?.result.diagnostic
           const current = result.diagnostic
           if (previous && Object.keys(previous).length === Object.keys(current).length &&
-              Object.keys(current).every(key => previous[key] === current[key])) return old
+              Object.keys(current).every(key => previous[key] === current[key])) {
+            if (last.result.localized?.language === result.localized?.language) return old
+            return old.map(turn => turn === last ? { ...turn, result } : turn)
+          }
           return [...old, verdict]
         })
         setOpenedDialog(id)

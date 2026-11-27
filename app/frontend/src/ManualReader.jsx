@@ -4,9 +4,9 @@ import { request } from './api'
 
 const OpenManual = createContext(null)
 
-export function Source({ source, number }) {
+export function Source({ source, number, pageLabel = 'стр.' }) {
   const open = useContext(OpenManual)
-  const title = source.manual + ', стр.\u00a0' + source.pdf_page
+  const title = source.manual + ', ' + pageLabel + '\u00a0' + source.pdf_page
   return <button type="button" className={number ? 'citation' : 'source'}
     aria-label={number ? `Источник ${number}, ${title}` : title}
     onClick={event => open(source, event.currentTarget)}>

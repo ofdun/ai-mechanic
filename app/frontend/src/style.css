@@ -244,3 +244,7 @@ li + li { margin-top: .35rem; }
   .workspace { grid-template-rows: auto minmax(20rem, 1fr); }
   .pane { overscroll-behavior-y: auto; }
 }
+
+.answer-language { margin-left: auto; display: flex; align-items: center; gap: .5rem; color: inherit; }
+.answer-language select { width: auto; min-height: 44px; }
+.original-line { display: block; margin-top: .25rem; color: var(--muted); }

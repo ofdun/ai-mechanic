@@ -44,7 +44,67 @@ function verdict(result) {
   return { status, title: outcomes[status] }
 }
 
+function anomalyDetails({ diagnostic, message }, status) {
+  if (status !== 'anomaly') return ''
+  const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  return [
+    diagnostic.anomaly_title && !message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
+    confidence && !message.includes(confidence) && 'Уверенность ИИ ' + confidence,
+  ].filter(Boolean).join(' · ')
+}
+
+function AnswerLine({ line, labels }) {
+  return <p><span lang={line.translated === false ? 'ru' : undefined}>{line.text}</span>
+    {line.original && <small className="original-line">{labels.original} · <span lang="ru">{line.original}</span></small>}
+  </p>
+}
+
+function LocalizedResponse({ result, compact = false }) {
+  const { localized: answer, diagnostic } = result
+  const { labels } = answer
+  const { sources, verified, summary } = verifiedClaims(result)
+  const status = diagnostic && verdict(result)
+  const showClaims = !result.requires_remeasurement && !result.recognition_error
+  const pages = new Map()
+  if (!verified.length && result.action === 'search_manuals') {
+    for (const source of sources.values()) pages.set(pageKey(source), source)
+  }
+  const details = status && anomalyDetails({ diagnostic, message: answer.message.original || answer.message.text }, status.status)
+  const lines = summary ? answer.summary : []
+  return <article className={compact ? 'diagnostic-verdict' : 'reply'} lang={answer.language}>
+    {status && <div className={'verdict ' + status.status} lang="ru"><h3>{status.title}</h3>
+      {recordingWarnings[diagnostic.signal_quality] && <span>{recordingWarnings[diagnostic.signal_quality]}</span>}
+    </div>}
+    {(compact || !lines.length || result.action !== 'search_manuals') &&
+      <AnswerLine line={answer.message} labels={labels} />}
+    {details && <p className="meta" lang="ru">{details}</p>}
+    {!compact && <>
+      {lines.map((line, index) => <AnswerLine key={index} line={line} labels={labels} />)}
+      {showClaims && Object.entries(sections).map(([kind, title]) => {
+        const claims = verified.filter(claim => claim.kind === kind)
+        return claims.length > 0 && <section className="claims" key={kind}>
+          <h4>{labels['section.' + kind] || title}</h4>
+          {claims.map(claim => {
+            const index = result.claims.indexOf(claim)
+            return <div key={index}>
+              <AnswerLine line={answer.claims[index] || { text: claim.text, translated: false }} labels={labels} />
+              {claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} pageLabel={labels.page} />)}
+            </div>
+          })}
+        </section>
+      })}
+      {labels['conflict.title'] && result.message.includes('⚖️ ' + labels['conflict.title']) &&
+        <p className="limitations"><strong>{labels['conflict.title']}</strong> {labels['conflict.note']}</p>}
+      {Array.from(pages, ([key, source]) => <Source key={key} source={source} pageLabel={labels.page} />)}
+      {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+    </>}
+    {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
+      .map((line, index) => <AnswerLine key={index} line={line} labels={labels} />)}
+  </article>
+}
+
 export function DiagnosticReport({ result }) {
+  if (result.localized) return <LocalizedResponse result={result} />
   const { diagnostic } = result
   const { sources, verified, summary } = verifiedClaims(result)
   const { status, title: statusTitle } = verdict(result)
@@ -78,13 +138,7 @@ export function DiagnosticReport({ result }) {
       })}</span>
     </p>
   }
-  const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
-  const reading = [
-    recordingWarnings[diagnostic.signal_quality],
-    status === 'anomaly' && diagnostic.anomaly_type && 'Код ' + diagnostic.anomaly_type,
-    status === 'anomaly' && !result.message.includes(diagnostic.anomaly_title) && diagnostic.anomaly_title,
-    status === 'anomaly' && confidence && !result.message.includes(confidence) && 'Уверенность ИИ ' + confidence,
-  ].filter(Boolean).join(' · ')
+  const reading = [recordingWarnings[diagnostic.signal_quality], anomalyDetails(result, status)].filter(Boolean).join(' · ')
   const OutcomeIcon = { anomaly: CircleAlert, recognition_error: CircleAlert, check_failed: RotateCcw, normal: CheckCircle2 }[status]
   const lead = status === 'normal' ? 'По результату этой проверки можно продолжить эксплуатацию.' : result.message
   const title = status === 'anomaly' && diagnostic.anomaly_title
@@ -114,9 +168,10 @@ export function DiagnosticReport({ result }) {
 }
 
 export function DiagnosticVerdict({ result }) {
+  if (result.localized) return <LocalizedResponse result={result} compact />
   const { diagnostic, message } = result
   const { status, title } = verdict(result)
-  const confidence = diagnostic.confidence == null ? '' : Math.round(diagnostic.confidence * 100) + '%'
+  const details = anomalyDetails(result, status)
   const warning = recordingWarnings[diagnostic.signal_quality]
   return <div className="diagnostic-verdict">
     <div className={'verdict ' + status}>
@@ -125,15 +180,12 @@ export function DiagnosticVerdict({ result }) {
     </div>
     <p>{message}</p>
     {status === 'normal' && <p>По результату этой проверки можно продолжить эксплуатацию.</p>}
-    {status === 'anomaly' && <p className="meta">
-      Код {diagnostic.anomaly_type}
-      {!message.includes(diagnostic.anomaly_title) && ' · ' + diagnostic.anomaly_title}
-      {confidence && !message.includes(confidence) && ' · Уверенность ИИ ' + confidence}
-    </p>}
+    {details && <p className="meta">{details}</p>}
   </div>
 }
 
 export function Response({ result }) {
+  if (result.localized) return <LocalizedResponse result={result} />
   const { diagnostic, message, requires_remeasurement: repeat } = result
   const { sources, verified, summary } = verifiedClaims(result)
   const limitations = result.limitations || []
