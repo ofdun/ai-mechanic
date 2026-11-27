@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Protocol, Sequence
 
@@ -33,7 +34,7 @@ class SearchArguments(BaseModel):
 TOOL_DESCRIPTIONS = {
     'diagnose': 'Получить результат диагностики выбранной сессии по команде пользователя.',
     'search_manuals': 'Ответить на технический вопрос по руководствам выбранного двигателя.',
-    'get_diagnostic_history': 'Показать прошлые проверки выбранного ТС или динамику.',
+    'get_diagnostic_history': 'Показать прошлые проверки выбранного ТС, динамику, повторы неисправностей и прошлые заявки.',
     'draft_ticket': 'Подготовить черновик заявки на дефектовку. Отправка выполняется отдельным действием.',
     'clarify': 'Уточнить запрос, если подходящее действие неясно.',
 }
@@ -95,6 +96,9 @@ class OfflinePlanner:
         *, recent_messages: Sequence[str] = (),
     ) -> Decision:
         text = message.casefold().replace('ё', 'е')
+        # «Какие заявки были» asks about the past, not for a new draft.
+        if re.search(r'\b(?:был|были|была|раньше|прошл|повтор)', text):
+            return Decision('get_diagnostic_history')
         if any(term in text for term in ('заявк', 'черновик')):
             return Decision('draft_ticket')
         if any(term in text for term in ('истори', 'динамик', 'прошлые проверк')):

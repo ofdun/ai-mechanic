@@ -268,7 +268,8 @@ def exercise(context, base_url):
 
     question.fill('Можно ли перегнать машину на базу?')
     page.get_by_role('button', name='Отправить', exact=True).tap()
-    expect(page.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()
+    # The new answer only: an earlier answer in the thread may carry the same phrase.
+    expect(thread.locator('.turn').last.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()
     print('PASS — C2, уточнение без применимого источника')
 
     question.fill('Сколько стоит маркировка учебного узла?')
@@ -364,7 +365,8 @@ def exercise(context, base_url):
     expect(verdict).to_have_count(0)
     question.fill('Почему это опасно?')
     send.tap()
-    expect(page.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()
+    # The new answer only: an earlier answer in the thread may carry the same phrase.
+    expect(thread.locator('.turn').last.get_by_text(re.compile('Рекомендуется дефектовка'))).to_be_visible()
     expect(page.get_by_text(RISK, exact=False)).to_have_count(0)
     print('PASS — норма, смена ТС очищает предыдущую заявку, ответ и источник')
 

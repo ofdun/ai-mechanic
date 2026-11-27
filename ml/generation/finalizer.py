@@ -143,6 +143,7 @@ class MechanicFinalizer:
             answer = self.history(response)
         elif response.action in {'diagnose', 'draft_ticket'} and response.diagnostic is not None:
             answer = self.diagnosis(response)
+            answer.sections.extend(memory_section(response))
         elif response.action == 'search_manuals':
             answer = self.manual_answer(response)
             # A tightening order people checked against the figure; without it the limitation points to the figure.
@@ -297,7 +298,8 @@ class MechanicFinalizer:
             return MechanicAnswer(tone='info', verdict='📈 История проверок пуста.')
         items = [AnswerItem(text=describe_session(session)) for session in sessions]
         return MechanicAnswer(tone='info', verdict=f'📈 Последние проверки {response.vehicle_id}',
-                              details=[trend(sessions)], sections=[AnswerSection(title='Проверки', items=items)])
+                              details=[trend(sessions)], sections=[AnswerSection(title='Проверки', items=items),
+                                                                    *memory_section(response)])
 
     # Ticket fields ----------------------------------------------------------------------------
 
@@ -365,6 +367,10 @@ def localized_text(response: AgentResponse) -> str:
             lines.extend(['', f'{names["section." + kind]}:', *grouped[kind]])
     if find_conflicts(response.claims, sources):
         lines.extend(['', f'⚖️ {names["conflict.title"]}. {names["conflict.note"]}'])
+    if answer.memory:
+        lines.extend(['', f'{names["memory"]}:'])
+        for text in answer.memory:
+            lines.extend(rendered(text))
     if answer.limitations:
         lines.append('')
         for text in answer.limitations:
@@ -387,6 +393,16 @@ def item(claim: TechnicalClaim, sources: dict[str, Evidence]) -> AnswerItem:
 STATUS_LABELS = {'normal': 'норма', 'anomaly': 'отклонение', 'check_failed': 'сбой записи'}
 
 
+MEMORY_TITLE = 'По этой машине'
+
+
+def memory_section(response: AgentResponse) -> list[AnswerSection]:
+    """B1: earlier checks and tickets of the same vehicle, after the answer itself."""
+    if not response.memory:
+        return []
+    return [AnswerSection(title=MEMORY_TITLE, items=[AnswerItem(text=line) for line in response.memory])]
+
+
 def describe_session(session: SessionRecord) -> str:
     text = f'{session.checked_at:%d.%m.%Y} · {session.session_id} — {STATUS_LABELS[session.status]}'
     if session.status == 'anomaly':
@@ -405,16 +421,17 @@ def trend(sessions: list[SessionRecord]) -> str:
     if len(scores) < 2:
         return 'Для оценки динамики нужны хотя бы две успешные проверки.'
     path = ' → '.join(decimal(score) for score in scores)
-    steps = [later - earlier for earlier, later in zip(scores, scores[1:])]
-    if all(step >= 0 for step in steps) and scores[-1] - scores[0] >= TREND_STEP:
+    # Rounded: 0.30 - 0.20 is 0.0999… in floating point, and a 0.10 rise must count as one.
+    steps = [round(later - earlier, 6) for earlier, later in zip(scores, scores[1:])]
+    if all(step >= 0 for step in steps) and round(scores[-1] - scores[0], 6) >= TREND_STEP:
         return f'Оценка аномалии растёт: {path}. Состояние ухудшается — стоит запланировать дефектовку.'
-    if all(step <= 0 for step in steps) and scores[0] - scores[-1] >= TREND_STEP:
+    if all(step <= 0 for step in steps) and round(scores[0] - scores[-1], 6) >= TREND_STEP:
         return f'Оценка аномалии снижается: {path}.'
     if steps[-1] >= TREND_STEP:
         return f'Оценка аномалии выросла по сравнению с прошлой проверкой: {path}.'
     if steps[-1] <= -TREND_STEP:
         return f'Оценка аномалии снизилась по сравнению с прошлой проверкой: {path}.'
-    if max(scores) - min(scores) >= TREND_STEP:
+    if round(max(scores) - min(scores), 6) >= TREND_STEP:
         return f'Оценка аномалии колеблется: {path}.'
     return f'Оценка аномалии стабильна: {path}.'
 
