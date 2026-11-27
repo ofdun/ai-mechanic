@@ -54,10 +54,8 @@ function anomalyDetails({ diagnostic, message }, status, t) {
   ].filter(Boolean).join(' · ')
 }
 
-function AnswerLine({ line, labels, className }) {
-  return <p className={className}><span lang={line.translated === false ? 'ru' : undefined}>{line.text}</span>
-    {line.original && <small className="original-line">{labels.original} · <span lang="ru">{line.original}</span></small>}
-  </p>
+function AnswerLine({ line, className }) {
+  return <p className={className} lang={line.translated === false ? 'ru' : undefined}>{line.text}</p>
 }
 
 function LocalizedResponse({ result, compact = false, report = false }) {
@@ -80,10 +78,10 @@ function LocalizedResponse({ result, compact = false, report = false }) {
         : recordingWarnings[diagnostic.signal_quality] && <span>{t(recordingWarnings[diagnostic.signal_quality])}</span>}
     </div>}
     {(compact || !lines.length || result.action !== 'search_manuals') &&
-      <AnswerLine className={report ? 'report-lead' : undefined} line={answer.message} labels={labels} />}
+      <AnswerLine className={report ? 'report-lead' : undefined} line={answer.message} />}
     {!report && details && <p className="meta">{details}</p>}
     {!compact && <>
-      {lines.map((line, index) => <AnswerLine key={index} line={line} labels={labels} />)}
+      {lines.map((line, index) => <AnswerLine key={index} line={line} />)}
       {showClaims && Object.entries(sections).map(([kind, title]) => {
         const claims = verified.filter(claim => claim.kind === kind)
         return claims.length > 0 && <section className={report ? ['operation', 'check'].includes(kind) ? 'report-row report-action' : 'report-row' : 'claims'} key={kind}>
@@ -91,7 +89,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
           <div>{claims.map(claim => {
             const index = result.claims.indexOf(claim)
             return <div key={index}>
-              <AnswerLine line={answer.claims[index] || { text: claim.text, translated: false }} labels={labels} />
+              <AnswerLine line={answer.claims[index] || { text: claim.text, translated: false }} />
               {claim.evidence_ids.map(id => <Source key={id} source={sources.get(id)} />)}
             </div>
           })}</div>
@@ -103,7 +101,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
       {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
     </>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
-      .map((line, index) => <AnswerLine key={index} line={line} labels={labels} />)}
+      .map((line, index) => <AnswerLine key={index} line={line} />)}
   </article>
 }
 

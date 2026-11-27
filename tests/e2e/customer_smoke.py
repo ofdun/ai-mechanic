@@ -121,7 +121,7 @@ def exercise(page, base_url, ranked_pages):
         body = upstream.json()
         risk = next(i for i, claim in enumerate(body['claims']) if claim['kind'] == 'risk')
         body['localized']['claims'][risk] = {
-            'text': 'Sinov tarjimasi', 'translated': True, 'original': body['claims'][risk]['text'],
+            'text': 'Dvigatel to‘xtaganidan keyin tekshiring.', 'translated': True, 'original': 'Проверяйте после остановки двигателя.',
         }
         route.fulfill(response=upstream, json=body)
 
@@ -132,9 +132,10 @@ def exercise(page, base_url, ranked_pages):
         uz_question.press('Enter')
     cited = followup_response.value.json()
     reply = thread.locator('.turn').last
-    expect(reply.get_by_text('Sinov tarjimasi', exact=True)).to_be_visible()
-    original = next(line['original'] for line in cited['localized']['claims'] if line['text'] == 'Sinov tarjimasi')
-    expect(reply.locator('.original-line').filter(has_text=original)).to_contain_text(cited['localized']['labels']['original'])
+    expect(reply.get_by_text('Dvigatel to‘xtaganidan keyin tekshiring.', exact=True)).to_be_visible()
+    original = next(line['original'] for line in cited['localized']['claims'] if line['text'] == 'Dvigatel to‘xtaganidan keyin tekshiring.')
+    expect(reply).not_to_contain_text(original)
+    expect(reply).not_to_contain_text(cited['localized']['labels']['original'])
     assert any(s['document_id'] == canonical and s['pdf_page'] == 52 for s in cited['evidence']['items'])
     with page.expect_response(lambda r: r.url == base_url + route) as cited_page:
         reply.get_by_role('button', name=re.compile(r'52\b')).first.click()
