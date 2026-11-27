@@ -11,6 +11,7 @@ from ml.contracts import (
     SearchPlan, SearchWorkflow, TechnicalClaim, TicketConfirmation, TicketDraft, TicketPayload, TicketReceipt,
     TicketReference, Vehicle, Verifier,
 )
+from ml.generation.finalizer import MechanicFinalizer, conflict_notes, ticket_fields
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
 from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
@@ -41,6 +42,7 @@ class Pipeline:
         verifier: Verifier | None = None,
         search_workflow: SearchWorkflow | None = None,
         planner: Planner | None = None,
+        finalizer: MechanicFinalizer | None = None,
     ):
         self.settings = settings
         self.vehicles = VehicleDirectory.load(settings)
@@ -49,6 +51,7 @@ class Pipeline:
         self.generator = generator
         self.verifier = verifier
         self.search_workflow = search_workflow
+        self.finalizer = finalizer
         self.planner = planner or {
             'llm': lambda: LLMPlanner(OpenRouterClient(http, settings)),
             'local': LocalPlanner,
@@ -105,6 +108,9 @@ class Pipeline:
         elif decision.action == 'get_diagnostic_history':
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
+        response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
+        if self.finalizer is not None:
+            response.message = self.finalizer.compose(response)
         return response
 
     def measurement_issue(self, result: DiagnosticResult) -> str | None:
@@ -182,6 +188,10 @@ class Pipeline:
             response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
             if not response.claims:
                 response.limitations.append('В руководстве по этому двигателю недостаточно сведений для вывода.')
+            elif outcome.summary and len(response.claims) == len(outcome.claims):
+                response.summary = outcome.summary
+                if response.action == 'search_manuals':
+                    response.message = outcome.summary
             return
         if self.retriever is None:
             response.limitations.append('Сейчас поиск по руководствам недоступен.')
@@ -210,6 +220,7 @@ class Pipeline:
         parts = [claim for claim in response.claims if claim.kind == 'spare_part']
         cited = {key for claim in operations + parts for key in claim.evidence_ids}
         references = dict.fromkeys((item.manual, item.pdf_page) for item in response.evidence.items if item.evidence_id in cited)
+        conclusion, urgency = ticket_fields(result, response.claims)
         draft = TicketDraft(
             draft_id=uuid4().hex, engine_model=response.engine_model,
             urgency_reason=(f'По правилу для кода {result.anomaly_type}'
@@ -218,8 +229,9 @@ class Pipeline:
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
             payload=TicketPayload(
                 vehicle_id=result.vehicle_id, session_id=result.session_id, anomaly_type=result.anomaly_type,
-                conclusion=f'Предполагаемое отклонение {result.anomaly_type} · {result.anomaly_title}. Требуется дефектовка.',
-                urgency=self.settings.ticket_urgency_by_fault.get(result.anomaly_type, self.settings.default_ticket_urgency),
+                conclusion=conclusion,
+                # A fleet rule in settings overrides the urgency computed from the fault, score and manual.
+                urgency=self.settings.ticket_urgency_by_fault.get(result.anomaly_type, urgency),
                 operations=list(dict.fromkeys(claim.text for claim in operations)),
                 spare_parts=list(dict.fromkeys(claim.text for claim in parts)),
                 references=[TicketReference(manual=manual, pdf_page=page) for manual, page in references],

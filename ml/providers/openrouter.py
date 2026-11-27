@@ -44,6 +44,9 @@ class OpenRouterClient:
             options['reasoning'] = {'effort': 'low'}
         elif model == 'deepseek/deepseek-v4.1-flash':
             options['reasoning'] = {'enabled': False}
+        elif model.startswith('z-ai/glm-'):
+            # GLM cannot switch reasoning off, and by default it can think through the whole token limit.
+            options['reasoning'] = {'effort': 'minimal'}
         message = self._complete(role, model, messages, max_tokens=max_tokens, response_format={
             'type': 'json_schema',
             'json_schema': {'name': response_type.__name__, 'strict': True, 'schema': response_type.model_json_schema()},
