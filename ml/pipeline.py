@@ -34,6 +34,7 @@ from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
 from ml.tools.tickets import TicketStore
+from ml.usage import collect
 from ml.vehicles import VehicleDirectory
 
 
@@ -88,6 +89,12 @@ class Pipeline:
         return self.tickets
 
     def run(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
+        with collect() as usage:
+            response = self.respond(request, context=context)
+        response.usage = usage.summary()
+        return response
+
+    def respond(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
         vehicle, _ = self.vehicles.get(request.vehicle_id, request.session_id)
         if context is not None and (
             context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
@@ -279,6 +286,11 @@ class Pipeline:
         return draft
 
     def confirm_ticket(self, confirmation: TicketConfirmation) -> TicketReceipt:
+        with collect() as usage:
+            receipt = self.send_ticket(confirmation)
+        return receipt.model_copy(update={'usage': usage.summary()})
+
+    def send_ticket(self, confirmation: TicketConfirmation) -> TicketReceipt:
         if not confirmation.confirmed:
             raise AgentError('CONFIRMATION_REQUIRED', 'Нужно явное подтверждение механика.')
         tickets = self.ticket_store_for(confirmation.actor_id)

@@ -7,6 +7,7 @@ import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } 
 import { ManualNavigation } from './ManualReader'
 import { useChatHistory } from './chatHistory'
 import { ChatComposer } from './ChatComposer'
+import { CycleCost, useCycleMetrics, useServiceMode } from './serviceMode'
 import './style.css'
 
 const lastVehicleKey = 'ai-mechanic.lastVehicleId'
@@ -178,6 +179,8 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   const [ticketStatus, setTicketStatus] = useState(null)
   const [diagnosis, setDiagnosis] = useState(null)
   const [ticketHint, setTicketHint] = useState('')
+  const serviceMode = useServiceMode()
+  const metrics = useCycleMetrics()
   const chatBody = useRef(null)
   const composer = useRef(null)
   const focusQuestion = useRef(false)
@@ -217,6 +220,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
     const controller = new AbortController()
     if (kind === 'diagnose') lastRequestedLanguage.current = language
     running.current = controller
+    const measure = metrics.start(languageRefresh ? 'refresh' : kind)
     setPending(kind)
     setError('')
     const turnId = kind === 'chat' ? retryId ?? conversationId() : null
@@ -239,6 +243,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           ...pair, draft_id, draft_version, confirmed: true, urgency: draft.urgency,
         }, controller.signal)
         if (controller.signal.aborted) return
+        measure.done(receipt.usage)
         setTicketStatus({ ticketId: receipt.ticket_id })
         setDraft(null)
         setCanDraft(false)
@@ -249,6 +254,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
         throw new Error('Ответ относится к другой проверке. Получите результат заново.')
+      measure.done(result.usage, { newCycle: kind === 'diagnose' && !languageRefresh && Boolean(result.diagnostic) })
       if (result.diagnostic && !(kind === 'draft_ticket' && sameDiagnostic(diagnosis?.diagnostic, result.diagnostic))) {
         if (kind !== 'diagnose') lastRequestedLanguage.current = result.language || 'ru'
         setDiagnosis(result)
@@ -278,6 +284,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       }
     } catch (err) {
       if (controller.signal.aborted) return
+      measure.fail(err)
       if (kind === 'confirm') {
         if (!err.code || ['TICKET_OUTCOME_UNKNOWN', 'DUPLICATE_TICKET', 'TICKET_IN_PROGRESS'].includes(err.code)) {
           setTicketStatus({ message: err.code === 'DUPLICATE_TICKET' ? 'Для этой проверки уже есть заявка или попытка отправки. Сверьте её статус в ТОиР.'
@@ -349,6 +356,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           title={sessionId ? t('Результат ещё не запрошен') : t('У этой машины пока нет проверок')}>
           {sessionId ? t('Проверьте параметры замера и нажмите «Получить результат диагностики».') : t('Выберите другую машину в списке транспорта.')}
         </EmptyView>}
+        {serviceMode && <CycleCost cycle={metrics.cycle} />}
       </div>
       <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
         <header className="dialog-bar">

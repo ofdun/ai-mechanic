@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from ml.config import Settings
 from ml.contracts import AgentError, DiagnosticResult, TicketPayload, TicketReceipt
+from ml.usage import measured
 
 
 class FleetServices:
@@ -11,6 +12,7 @@ class FleetServices:
         self.ml_url = f'{str(settings.ml_api_url).rstrip("/")}/diagnose'
         self.toir_url = f'{str(settings.maintenance_api_url).rstrip("/")}/tickets'
 
+    @measured('diagnosis', 'service')
     def diagnose(self, vehicle_id: str, session_id: str) -> DiagnosticResult:
         try:
             response = self.http.post(self.ml_url, json={'vehicle_id': vehicle_id, 'session_id': session_id})
@@ -28,6 +30,7 @@ class FleetServices:
             raise AgentError('ML_SCHEMA_ERROR', 'Получен результат другого замера. Запросите выбранную проверку ещё раз.')
         return result
 
+    @measured('toir_ticket', 'service')
     def create_ticket(self, payload: TicketPayload) -> TicketReceipt:
         try:
             response = self.http.post(self.toir_url, json=payload.model_dump(mode='json'))

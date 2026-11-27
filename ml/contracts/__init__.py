@@ -193,9 +193,39 @@ class TicketConfirmation(TicketDecision):
     actor_id: Text
 
 
+class CallUsage(BaseModel):
+    """One measured step of a turn. ``None`` means the provider did not report the value."""
+    step: str
+    kind: Literal['llm', 'retrieval', 'service']
+    model: str | None = None
+    provider: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cost_usd: float | None = None
+    latency_ms: int = 0
+    retries: int = 0
+    ok: bool = True
+
+
+class TurnUsage(BaseModel):
+    """Measured calls of one request to the agent, for the service view; not shown to the mechanic."""
+    latency_ms: int
+    steps: list[CallUsage] = Field(default_factory=list)
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    # Sum of the costs the provider returned; ``cost_complete`` is False when a paid call returned none.
+    cost_usd: float | None = None
+    cost_complete: bool = True
+    retries: int = 0
+    failed_calls: int = 0
+
+
 class TicketReceipt(BaseModel):
     ticket_id: Text
     status: Literal['created']
+    usage: TurnUsage | None = None
 
 
 class AgentTurn(BaseModel):
@@ -260,6 +290,7 @@ class AgentResponse(BaseModel):
     language: Language = 'ru'
     # The answer in ``language``; Russian fields above stay the source of truth for checks and the ticket.
     localized: 'LocalizedAnswer | None' = None
+    usage: TurnUsage | None = None
 
 
 class LocalizedText(BaseModel):
