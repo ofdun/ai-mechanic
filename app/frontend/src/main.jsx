@@ -68,8 +68,7 @@ function App() {
   }
   return <>
     <header className="mast"><div className="mast-inner">
-      <a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>Цифровой механик</a>
-      <h1>Диагностика двигателя</h1>
+      <h1><a className="wordmark" href="#panel-result" onClick={openResult}><span className="brand-mark"><Wrench aria-hidden="true" /></span>Цифровой механик</a></h1>
     </div></header>
     <main>
       {error ? <div role="alert" className="error"><p>{error}</p><button onClick={() => setAttempt(n => n + 1)}>Повторить загрузку</button></div>

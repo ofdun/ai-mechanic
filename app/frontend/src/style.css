@@ -43,10 +43,8 @@ svg.lucide { width: 1.15em; height: 1.15em; flex: none; stroke-width: 1.8; }
 .mast-inner, main { width: min(100%, 120rem); padding-inline: var(--gutter); margin-inline: auto; }
 .mast-inner { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1.25rem; min-height: 64px; }
 .wordmark { color: inherit; text-decoration: none; min-height: 44px; display: inline-flex; gap: .65rem; align-items: center; font-size: 1.12rem; font-weight: 740; letter-spacing: -.025em; }
-.wordmark:hover { text-decoration: underline; text-underline-offset: .2em; }
 .wordmark:focus-visible { outline-color: var(--lime); }
 .brand-mark { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 6px; color: var(--ink); background: var(--lime); }
-.mast h1 { padding-inline-start: 1.25rem; border-left: 1px solid var(--line); font-size: 1rem; color: #e5eee7; font-weight: 500; letter-spacing: 0; }
 main { flex: 1; display: flex; flex-direction: column; padding-block: clamp(.8rem, 2vh, 1.6rem); }
 .inspection { flex: 1; display: flex; flex-direction: column; }
 .workspace { flex: 1; display: grid; grid-template-rows: auto minmax(19rem, 1fr); gap: clamp(.75rem, 1.5vh, 1.2rem); }
@@ -226,7 +224,6 @@ li + li { margin-top: .35rem; }
   .mast-inner { min-height: 52px; justify-content: space-between; gap: .6rem; }
   .wordmark { font-size: 1rem; gap: .45rem; }
   .brand-mark { width: 1.7rem; height: 1.7rem; }
-  .mast h1 { font-size: .75rem; padding: 0; border: 0; text-align: right; }
   main { padding-bottom: max(.6rem, env(safe-area-inset-bottom)); }
   .controls { padding: .8rem var(--inset); }
   .controls-heading { margin-bottom: .55rem; }
