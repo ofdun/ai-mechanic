@@ -21,6 +21,8 @@ def manual_router(settings, index, documents=None):
         document_id, legacy_id = document_id_variants(document_id)
         if documents is not None and document_id in documents:
             name, digest = documents[document_id]
+        elif documents is not None and legacy_id is not None and legacy_id in documents:
+            name, digest = documents[legacy_id]
         elif document_id in catalog:
             entry = catalog[document_id]
             name, digest = entry['file'], entry['sha256']
