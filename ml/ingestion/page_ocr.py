@@ -1,6 +1,6 @@
 """Optional local OCR and structured table extraction for rendered PDF pages."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from html.parser import HTMLParser
 
@@ -9,6 +9,34 @@ from html.parser import HTMLParser
 class OCRPage:
     text: str
     tables: tuple[str, ...] = ()
+    blocks: list[dict] = field(default_factory=list)
+
+
+def raster_regions(page):
+    """Return displayed raster areas with little native text, in rendered page coordinates."""
+    import pymupdf
+
+    regions = []
+    for image in page.get_image_info():
+        rect = (pymupdf.Rect(image["bbox"]) * page.rotation_matrix) & page.rect
+        if rect.is_empty or rect.width < 36 or rect.height < 36:
+            continue
+        # Merge overlapping tiles and repeated occurrences of the same displayed area.
+        changed = True
+        while changed:
+            changed = False
+            for existing in list(regions):
+                if not (existing & rect).is_empty:
+                    regions.remove(existing)
+                    rect |= existing
+                    changed = True
+        regions.append(rect)
+    found = []
+    for rect in sorted(regions, key=lambda box: (box.y0, box.x0)):
+        native = page.get_text(clip=rect * page.derotation_matrix).strip()
+        if len(native) < 20:
+            found.append(rect)
+    return found
 
 
 class TableText(HTMLParser):
@@ -80,15 +108,36 @@ class PageOCR:
         # PaddleOCR's ndarray input expects BGR.
         pixels = np.frombuffer(image.samples, dtype=np.uint8).reshape(image.height, image.width, 3)
         result, = self.pipeline.predict(input=pixels[:, :, ::-1].copy())
+        area = page.rect if clip is None else clip & page.rect
+
+        def bbox(box):
+            # Map model pixels back to points on the displayed PDF page.
+            x0, y0, x1, y1 = map(float, box)
+            return [
+                max(area.x0, (image.x + x0) * 72 / self.dpi),
+                max(area.y0, (image.y + y0) * 72 / self.dpi),
+                min(area.x1, (image.x + x1) * 72 / self.dpi),
+                min(area.y1, (image.y + y1) * 72 / self.dpi),
+            ]
+
         if self.mode == "paddleocr":
-            return OCRPage("\n".join(result["rec_texts"]))
+            blocks = [
+                {"type": "text", "text": text, "bbox": bbox(box), "confidence": float(confidence)}
+                for text, box, confidence in zip(
+                    result["rec_texts"], result["rec_boxes"], result["rec_scores"], strict=True
+                ) if text.strip()
+            ]
+            return OCRPage("\n".join(block["text"] for block in blocks), blocks=blocks)
 
         blocks, tables = [], []
         for block in result["parsing_res_list"]:
             content = block.content.strip()
+            item = {"type": block.label, "bbox": bbox(block.bbox)}
             if block.label == "table":
                 tables.append(content)
+                item["html"] = content
                 content = table_text(content)
             if content:
-                blocks.append(content)
-        return OCRPage("\n".join(blocks), tuple(tables))
+                item["text"] = content
+                blocks.append(item)
+        return OCRPage("\n".join(block["text"] for block in blocks), tuple(tables), blocks)
