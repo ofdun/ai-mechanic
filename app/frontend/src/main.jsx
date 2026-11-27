@@ -1,12 +1,13 @@
 import { UiLanguage, translator, useUiText } from './uiLanguage'
 import React, { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Send, Trash2, Wrench } from 'lucide-react'
+import { ArrowRight, CheckCheck, ClipboardList, FileText, Gauge, History, MessageSquare, ScanLine, Trash2, Wrench } from 'lucide-react'
 import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } from './Response'
 import { ManualNavigation } from './ManualReader'
 import { InspectionForm, InspectionList } from './Inspection'
 import { useChatHistory } from './chatHistory'
+import { ChatComposer } from './ChatComposer'
 import './style.css'
 
 const lastVehicleKey = 'ai-mechanic.lastVehicleId'
@@ -421,11 +422,8 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           <button className="secondary" onClick={() => { focusQuestion.current = true; setView('chat') }}><MessageSquare aria-hidden="true" />{t('Задать вопрос')}</button>
           <button type="button" aria-controls="panel-ticket" onClick={() => selectTab('ticket')}>{t('К заявке')}<ArrowRight aria-hidden="true" /></button>
         </div>}
-        {view === 'chat' && <form onSubmit={e => { e.preventDefault(); if (question.trim()) { composer.current?.focus(); run('chat') } }}>
-          <div className="compose-row"><input ref={composer} aria-label={t('Вопрос по двигателю')} placeholder={t('Вопрос по двигателю…')} value={question}
-            maxLength={8000} disabled={!id || !sessionId || historyLocked} onChange={e => setQuestion(e.target.value)} autoComplete="off" />
-            <button type="submit" className="submit" disabled={historyLocked || !id || !question.trim() || !!pending || !sessionId}><Send aria-hidden="true" /><span>{t('Отправить')}</span></button></div>
-        </form>}
+        {view === 'chat' && <ChatComposer key={language} input={composer} question={question} setQuestion={setQuestion}
+          language={language} disabled={!id || !sessionId || historyLocked} pending={!!pending} send={() => run('chat')} />}
         {view === 'ticket' && <button className="primary" disabled={!!pending || !!ticketStatus || (!draft && !canDraft)}
           onClick={() => run(draft ? 'confirm' : 'draft_ticket')}>{ticketStatus ? ticketStatus.ticketId ? t('Отправлено в ТОиР') : t('Отправка заблокирована')
             : draft ? t('Подтвердить заявку') : t('Создать заявку')}</button>}
