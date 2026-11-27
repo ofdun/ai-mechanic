@@ -177,7 +177,7 @@ class ReviewedOperations:
 
     def verify(self, draft: TechnicalDraft, evidence: EvidenceBundle) -> VerifiedResponse:
         supported = self.operations(evidence)
-        return VerifiedResponse(claims=[claim for claim in draft.claims if claim in supported])
+        return VerifiedResponse.from_reviewed(ENGINE, draft, supported)
 
 
 def build_pdf_pipeline(settings: Settings, http: httpx.Client, index: Path) -> Pipeline:

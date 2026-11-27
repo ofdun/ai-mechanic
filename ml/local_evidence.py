@@ -2,7 +2,7 @@
 import re
 from typing import TYPE_CHECKING
 
-from ml.contracts import EvidenceBundle, SearchOutcome, TechnicalClaim
+from ml.contracts import AnswerVerification, CheckedPage, EvidenceBundle, SearchOutcome, TechnicalClaim
 from ml.planner.local import is_diagnostic_followup
 from ml.reviewed_checks import ReviewCatalog
 
@@ -87,7 +87,9 @@ class LocalEvidence:
             return result
         if self.generation is not None:
             if result.claims:
-                return self.generation.outcome(plan, result.evidence, result.claims)
+                written = self.generation.outcome(plan, result.evidence, result.claims)
+                written.verification = result.verification
+                return written
             return self.generation.run(plan, diagnostic)
         if result.claims or diagnosis_lookup:
             return result
@@ -95,7 +97,12 @@ class LocalEvidence:
         if not re.search(r'сколько|момент|давлен|норматив|допуск|температур|зазор|размер|затяж|затян', question):
             self.passages(plan, question, pages, claims)
         evidence = list(pages.values()) if claims else candidate_pages(self.retriever, plan, question)
-        return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=evidence))
+        verification = result.verification
+        if pages:
+            verification = AnswerVerification(engine_model=plan.engine_model,
+                pages=[CheckedPage(evidence_id=key) for key in pages],
+                rejected_claims=verification.rejected_claims if verification else None)
+        return SearchOutcome(plan=plan, claims=claims, evidence=EvidenceBundle(items=evidence), verification=verification)
 
     def passages(self, plan, source_query, pages, claims):
         # Restrict verbatim excerpts to a single complete instruction about the named component.
