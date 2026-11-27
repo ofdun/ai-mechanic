@@ -39,6 +39,67 @@ def serve(app):
             worker.join(timeout=10)
 
 
+def exercise_dictation(context, base_url):
+    page = context.new_page()
+    page.goto(base_url)
+    page.get_by_label('Двигатель', exact=True).select_option('Учебный Д-01')
+    page.get_by_label('Транспортное средство').select_option('ДЕМО-01')
+    page.get_by_role('tab', name='Чат', exact=True).tap()
+    mic = page.get_by_role('button', name='Надиктовать сообщение')
+    field = page.get_by_label('Вопрос по двигателю')
+    send = page.get_by_role('button', name='Отправить', exact=True)
+    posts = []
+    page.on('request', lambda req: posts.append(req.url) if req.method == 'POST' else None)
+
+    def dictate(text):
+        def transcript(route):
+            assert len(route.request.post_data_buffer) > 0
+            route.fulfill(json={'text': text})
+
+        page.route('**/agent/audio?*', transcript, times=1)
+        mic.tap()
+        stop = page.get_by_role('button', name='Остановить диктовку')
+        expect(stop).to_be_visible()
+        page.wait_for_timeout(350)  # Capture microphone frames before stopping the encoder.
+        stop.tap()
+        expect(mic).to_be_enabled()
+
+    page.once('dialog', lambda prompt: prompt.dismiss())
+    mic.tap()
+    expect(mic).to_have_attribute('aria-pressed', 'false')
+    page.once('dialog', lambda prompt: prompt.accept())
+    dictate('Запусти диагностику')
+    expect(field).to_have_value('Запусти диагностику')
+    assert len(posts) == 1 and '/agent/audio?' in posts[0]
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as diagnosis:
+        send.tap()
+    assert diagnosis.value.json()['diagnostic']['status'] == 'anomaly'
+
+    dictate('Почему это')
+    field.fill('Почему это опасно?')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as answer:
+        send.tap()
+    assert answer.value.json()['evidence']['items']
+    expect(page.get_by_role('log').get_by_role('button', name=f'{MANUAL}, стр. 2').last).to_be_visible()
+
+    dictate('Создай заявку')
+    with page.expect_response(lambda r: r.url.endswith('/agent/run')) as draft:
+        send.tap()
+    assert draft.value.json()['ticket_draft']
+    assert not any(url.endswith('/agent/tickets/confirm') for url in posts)
+
+    field.fill('Черновик')
+    page.evaluate("""() => { navigator.mediaDevices.getUserMedia = async () => {
+        throw new DOMException('denied', 'NotAllowedError')
+    } }""")
+    mic.tap()
+    expect(page.get_by_text('Проверьте доступ к микрофону', exact=False)).to_be_visible()
+    expect(field).to_have_value('Черновик')
+    expect(send).to_be_enabled()
+    page.close()
+    print('PASS — диктовка, правка, диагностика, источник, черновик без отправки и отказ микрофона')
+
+
 def exercise(context, base_url):
     page = context.new_page()
     errors = []
@@ -342,11 +403,15 @@ def main():
         }))
         base_url = stack.enter_context(serve(create_app()))
         playwright = stack.enter_context(sync_playwright())
-        browser = playwright.chromium.launch(channel=args.channel)
+        browser = playwright.chromium.launch(channel=args.channel, args=['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'])
         stack.callback(browser.close)
         context = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
         stack.callback(context.close)
         print(f'Chromium {browser.version} · 390×844 · учебные HTTP-сервисы')
+        voice_context = browser.new_context(viewport={'width': 320, 'height': 780}, has_touch=True, is_mobile=True)
+        voice_context.grant_permissions(['microphone'], origin=base_url)
+        exercise_dictation(voice_context, base_url)
+        voice_context.close()
         first_ticket = exercise(context, base_url)
         assert len(ticket_posts) == 1, f'Ожидалась одна запись в ТОиР, отправлено {len(ticket_posts)}'
 
