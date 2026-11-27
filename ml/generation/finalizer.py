@@ -131,6 +131,8 @@ class MechanicFinalizer:
 
     def compose(self, response: AgentResponse) -> str:
         try:
+            if response.localized is not None and response.localized.language != 'ru':
+                return localized_text(response)
             return self.answer(response).text
         except Exception:  # The original pipeline message is a safe fallback for the chat.
             logger.exception('Finalizer failed; keeping the pipeline message')
@@ -332,6 +334,37 @@ def cited_pages(claims: list[TechnicalClaim], sources: dict[str, Evidence]) -> s
             if key in sources:
                 pages[sources[key].manual].add(sources[key].pdf_page)
     return ' · '.join(f'{manual} стр. {", ".join(map(str, sorted(numbers)))}' for manual, numbers in pages.items())
+
+
+def localized_text(response: AgentResponse) -> str:
+    """The answer in the mechanic's language: lead, claims by kind with pages, the Russian original under
+    safety-critical lines, and limitations. Fixed labels come from the language table, never from a model."""
+    answer = response.localized
+    names = answer.labels
+    sources = {item.evidence_id: item for item in response.evidence.items}
+
+    def rendered(text, page_label: str = '') -> list[str]:
+        lines = [f'• {text.text}{page_label}']
+        if text.original:
+            lines.append(f'  ↳ {names["original"]}: {text.original}')
+        return lines
+
+    lines = [answer.message.text, *[text.text for text in answer.summary]]
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for claim, text in zip(response.claims, answer.claims):
+        source = sources.get(claim.evidence_ids[0]) if claim.evidence_ids else None
+        page = f' ({source.manual}, {names["page"]} {source.pdf_page})' if source else ''
+        grouped[claim.kind].extend(rendered(text, page))
+    for kind in SECTION_TITLES:
+        if grouped.get(kind):
+            lines.extend(['', f'{names["section." + kind]}:', *grouped[kind]])
+    if find_conflicts(response.claims, sources):
+        lines.extend(['', f'⚖️ {names["conflict.title"]}. {names["conflict.note"]}'])
+    if answer.limitations:
+        lines.append('')
+        for text in answer.limitations:
+            lines.extend(rendered(text))
+    return '\n'.join(lines).strip()
 
 
 def citation(claim: TechnicalClaim, sources: dict[str, Evidence]) -> str:

@@ -8,11 +8,27 @@ import httpx
 
 from ml.config import Settings
 from ml.contracts import (
-    AgentError, AgentRequest, AgentResponse, ConversationContext, DiagnosticResult, EvidenceBundle, Generator, Retriever,
-    SearchPlan, SearchWorkflow, TechnicalClaim, TicketConfirmation, TicketDraft, TicketPayload, TicketReceipt,
-    TicketReference, Vehicle, Verifier,
+    AgentError,
+    AgentRequest,
+    AgentResponse,
+    ConversationContext,
+    DiagnosticResult,
+    EvidenceBundle,
+    Generator,
+    Retriever,
+    SearchPlan,
+    SearchWorkflow,
+    TechnicalClaim,
+    TicketConfirmation,
+    TicketDraft,
+    TicketPayload,
+    TicketReceipt,
+    TicketReference,
+    Vehicle,
+    Verifier,
 )
 from ml.generation.finalizer import MechanicFinalizer, conflict_notes, ticket_fields
+from ml.generation.translate import Localizer
 from ml.planner import Decision, LLMPlanner, OfflinePlanner, Planner, diagnostic_search
 from ml.planner.local import LocalPlanner
 from ml.providers.openrouter import OpenRouterClient
@@ -53,6 +69,9 @@ class Pipeline:
         self.verifier = verifier
         self.search_workflow = search_workflow
         self.finalizer = finalizer
+        # Translation sends manual text to the provider, so it follows the same switch as generation.
+        external = settings.allow_external_evidence and bool(settings.llm_api_key.get_secret_value())
+        self.localizer = Localizer(OpenRouterClient(http, settings) if external else None, settings.a_generator_model)
         self.planner = planner or {
             'llm': lambda: LLMPlanner(OpenRouterClient(http, settings)),
             'local': LocalPlanner,
@@ -110,6 +129,9 @@ class Pipeline:
             response.message = 'Последние проверки выбранного ТС.'
             response.history = sorted(vehicle.sessions, key=lambda session: session.checked_at)[-5:]
         response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
+        response.language = request.language
+        if request.language != 'ru':
+            response.localized = self.localizer.localize(response, request.language)
         if self.finalizer is not None:
             response.message = self.finalizer.compose(response)
         return response
