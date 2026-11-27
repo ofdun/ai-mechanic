@@ -45,6 +45,7 @@ from ml.tools.inspections import InspectionStore
 from ml.tools.audit import AuditLog
 from ml.tools.tickets import TicketStore
 from ml.tools.vehicle_memory import diagnosis_memory, history_memory
+from ml.usage import collect
 from ml.vehicles import VehicleDirectory
 
 logger = logging.getLogger(__name__)
@@ -144,7 +145,9 @@ class Pipeline:
 
     def run(self, request: AgentRequest, *, context: ConversationContext | None = None) -> AgentResponse:
         try:
-            response = self.answer_turn(request, context=context)
+            with collect() as usage:
+                response = self.answer_turn(request, context=context)
+            response.usage = usage.summary()
         except AgentError as error:
             self.record(lambda audit: audit.turn(request, None, error))
             raise
@@ -427,7 +430,9 @@ class Pipeline:
 
     def confirm_ticket(self, confirmation: TicketConfirmation) -> TicketReceipt:
         try:
-            receipt = self.send_ticket(confirmation)
+            with collect() as usage:
+                receipt = self.send_ticket(confirmation)
+            receipt = receipt.model_copy(update={'usage': usage.summary()})
         except AgentError as error:
             self.record(lambda audit: audit.confirmation(confirmation, None, error))
             raise

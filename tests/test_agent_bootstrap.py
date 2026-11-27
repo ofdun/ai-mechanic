@@ -277,6 +277,10 @@ def confirmation(draft, *, actor='mechanic', confirmed=True, urgency=None):
                               draft_id=draft.draft_id, draft_version=1, confirmed=confirmed, urgency=urgency)
 
 
+def same_ticket(left, right):
+    return left.model_dump(exclude={'usage'}) == right.model_dump(exclude={'usage'})
+
+
 def test_ticket_requires_confirmation_and_is_idempotent(setup):
     upstreams, pipeline = setup
     draft = pipeline.run(utterance(command='draft_ticket')).ticket_draft
@@ -289,7 +293,8 @@ def test_ticket_requires_confirmation_and_is_idempotent(setup):
         assert error.value.code == code
     assert not upstreams.calls('/tickets')
     first = pipeline.confirm_ticket(confirmation(draft))
-    assert pipeline.confirm_ticket(confirmation(draft)) == first
+    # A replay returns the same ticket; ``usage`` measures each call separately.
+    assert same_ticket(pipeline.confirm_ticket(confirmation(draft)), first)
     other_draft = pipeline.run(utterance(command='draft_ticket')).ticket_draft
     with pytest.raises(AgentError) as error:
         pipeline.confirm_ticket(confirmation(other_draft))
@@ -307,8 +312,8 @@ def test_mechanic_priority_is_sent_and_preserved_on_replay(setup):
     decision = confirmation(draft, urgency='high')
     receipt = pipeline.confirm_ticket(decision)
     stored, _, saved_receipt = pipeline.tickets.load(decision)
-    assert stored.payload.urgency == 'high' and saved_receipt == receipt
-    assert pipeline.confirm_ticket(decision) == receipt
+    assert stored.payload.urgency == 'high' and same_ticket(saved_receipt, receipt)
+    assert same_ticket(pipeline.confirm_ticket(decision), receipt)
     with pytest.raises(AgentError) as rejected:
         pipeline.confirm_ticket(confirmation(draft, urgency='medium'))
     assert rejected.value.code == 'DUPLICATE_TICKET'

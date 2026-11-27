@@ -20,6 +20,7 @@ from ml.pipeline import Pipeline
 from ml.providers.openrouter import OpenRouterClient
 from ml.retrieval import RetrievalEngine
 from ml.retrieval.expansion import fault_query
+from ml.usage import measured
 
 
 ENGINE = 'ЯМЗ-236М2'
@@ -150,6 +151,7 @@ class PdfPageRetriever:
             raise AgentError('RAG_INDEX_UNAVAILABLE', 'Индекс PDF недоступен. Запустите сборку индекса.') from error
         return [self.evidence(row) for row in rows if pattern.search(row[4])]
 
+    @measured('retrieval', 'retrieval')
     def search(self, plan: SearchPlan) -> EvidenceBundle:
         queries = [fault_query(plan.anomaly_type) or '', plan.rewritten_query, plan.original_query, *plan.subqueries]
         query = page_query(queries)

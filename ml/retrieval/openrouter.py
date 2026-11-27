@@ -21,6 +21,8 @@ import numpy as np
 
 from ml.config import Settings
 from ml.contracts import AgentError
+from ml.providers.openrouter import amount, whole
+from ml.usage import timed
 
 PREFIX = 'or:'
 API = 'https://openrouter.ai/api/v1'
@@ -55,7 +57,16 @@ class OpenRouterClient:
 
     def post(self, path: str, payload: dict) -> dict:
         model = payload.get('model', path)
+        with timed(path, 'retrieval', model=model) as step:
+            body = self._post(path, payload, model, step)
+        usage = body.get('usage') if isinstance(body, dict) else None
+        usage = usage if isinstance(usage, dict) else {}
+        step.input_tokens, step.cost_usd = whole(usage.get('prompt_tokens')), amount(usage.get('cost'))
+        return body
+
+    def _post(self, path: str, payload: dict, model: str, step) -> dict:
         for attempt in range(self.retries + 1):
+            step.retries = attempt
             try:
                 response = self.http.post(f'{API}/{path}', json=payload,
                                           headers={'Authorization': f'Bearer {self.key}'})
