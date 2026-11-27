@@ -38,6 +38,7 @@ from ml.providers.openrouter import OpenRouterClient
 from ml.tools.services import FleetServices
 from ml.tools.part_numbers import NONE_FOUND, asks_for_parts, part_numbers
 from ml.tools.figures import ReviewedSequence, attach_sequences, figure_note, load_sequences, sequence_figures
+from ml.tools.inspections import InspectionStore
 from ml.tools.tickets import TicketStore
 from ml.tools.vehicle_memory import diagnosis_memory, history_memory
 from ml.vehicles import VehicleDirectory
@@ -92,6 +93,10 @@ class Pipeline:
             self.settings.artifacts_dir / 'agent-tickets.sqlite3', self.settings.http_timeout_seconds * 4 + 10,
         )
 
+    @cached_property
+    def inspections(self) -> InspectionStore:
+        return InspectionStore(self.settings.artifacts_dir / 'agent-inspections.sqlite3')
+
     def ticket_store_for(self, actor_id: str) -> TicketStore:
         return self.tickets
 
@@ -109,9 +114,12 @@ class Pipeline:
             context.actor_id, context.vehicle_id, context.session_id, context.conversation_id, context.engine_model,
         ) != (request.actor_id, request.vehicle_id, request.session_id, request.conversation_id, vehicle.engine_model):
             raise AgentError('CONTEXT_MISMATCH', 'Контекст не соответствует пользователю, диалогу или выбранной сессии ТС.')
+        if request.command == 'record_inspection':
+            return self.record_inspection(request, vehicle, current)
         message = request.message or {
             'diagnose': 'Запусти диагностику выбранной сессии.',
             'draft_ticket': 'Подготовь черновик заявки на дефектовку.',
+            'get_diagnostic_history': 'Покажи историю проверок.',
         }[request.command]
 
         diagnostic = context.diagnostic if context is not None else None
@@ -148,6 +156,7 @@ class Pipeline:
             tickets = self.past_tickets(vehicle.vehicle_id)
             response.memory = history_memory(vehicle, tickets)
             response.past_tickets = tickets or []
+            response.inspections = self.inspections.for_vehicle(vehicle.vehicle_id)
         response.limitations.extend(note for note in conflict_notes(response) if note not in response.limitations)
         if response.claims:
             response.part_numbers = part_numbers(response)
@@ -173,6 +182,19 @@ class Pipeline:
         for figure in response.figures:
             if not figure.sequence:
                 response.limitations.append(figure_note(figure))
+    def record_inspection(self, request: AgentRequest, vehicle: Vehicle, session: SessionRecord) -> AgentResponse:
+        """Stores what the mechanic found. The diagnosis, its context and any ticket stay as they were."""
+        self.inspections.add(request.actor_id, session, request.inspection)
+        response = AgentResponse(
+            request_id=uuid4().hex, vehicle_id=request.vehicle_id, session_id=request.session_id,
+            engine_model=vehicle.engine_model, conversation_id=request.conversation_id, action='record_inspection',
+            message='Результат осмотра записан. Диагноз и заявка не меняются.',
+            inspections=self.inspections.for_vehicle(vehicle.vehicle_id),
+        )
+        response.language = request.language
+        if request.language != 'ru':
+            response.localized = self.localizer.localize(response, request.language)
+        return response
 
     def measurement_issue(self, result: DiagnosticResult) -> str | None:
         if result.status == 'check_failed' or result.signal_quality == 'bad':

@@ -62,6 +62,12 @@ def create_app():
                                      'anomaly_title'}},
         }), 'fleet_status': statuses[vehicle.vehicle_id].model_dump()} for vehicle in vehicles]}
 
+    @app.get('/inspections')
+    def inspections():
+        # Export for the acoustic model team. Not routed through the web backend; the mechanic id is not included.
+        with api_errors():
+            return {'inspections': [record.model_dump(mode='json') for record in pipeline.inspections.export()]}
+
     @app.post('/run')
     def run(body: Run):
         with api_errors():

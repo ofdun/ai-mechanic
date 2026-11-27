@@ -6,6 +6,7 @@ import { conversationId, formatDate, request } from './api'
 import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } from './Response'
 import { ManualNavigation } from './ManualReader'
 import { FleetOverview } from './FleetOverview'
+import { InspectionForm, InspectionList } from './Inspection'
 import { useChatHistory } from './chatHistory'
 import { ChatComposer } from './ChatComposer'
 import './style.css'
@@ -154,7 +155,10 @@ function App() {
   </UiLanguage.Provider>
 }
 
-const pendingLabels = { diagnose: 'Получаем результат', chat: 'Ищем ответ', draft_ticket: 'Готовим черновик', confirm: 'Отправляем заявку' }
+const pendingLabels = {
+  diagnose: 'Получаем результат', chat: 'Ищем ответ', draft_ticket: 'Готовим черновик', confirm: 'Отправляем заявку',
+  record_inspection: 'Сохраняем результат осмотра', get_diagnostic_history: 'Загружаем результаты осмотра',
+}
 const views = [
   { id: 'result', label: 'Результат', icon: FileText },
   { id: 'chat', label: 'Чат', icon: MessageSquare },
@@ -201,6 +205,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   const [ticketStatus, setTicketStatus] = useState(null)
   const [diagnosis, setDiagnosis] = useState(null)
   const [ticketHint, setTicketHint] = useState('')
+  const [inspections, setInspections] = useState(null)
   const chatBody = useRef(null)
   const composer = useRef(null)
   const focusQuestion = useRef(false)
@@ -233,7 +238,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
     if (!pending && diagnosis && lastRequestedLanguage.current !== language) refreshDiagnosis()
   }, [language, pending, diagnosis])
 
-  async function run(kind, turn, languageRefresh = false) {
+  async function run(kind, turn, languageRefresh = false, inspection = null) {
     const text = turn?.question ?? question.trim()
     const retryId = turn?.id
     if (running.current || !sessionId || !id || (kind === 'chat' && historyLocked)) return
@@ -268,6 +273,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         return
       }
       const body = kind === 'chat' ? { message: text } : { command: kind }
+      if (kind === 'record_inspection') body.inspection = inspection
       const result = await request('/agent/run', { ...pair, conversation_id: id, ...(kind !== 'draft_ticket' && language !== 'ru' && { language }), ...body }, controller.signal)
       if (controller.signal.aborted) return
       if (result.vehicle_id !== pair.vehicle_id || result.session_id !== sessionId || result.conversation_id !== id || result.engine_model !== vehicle.engine_model)
@@ -291,6 +297,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
         setOpenedDialog(id)
       }
       if (kind === 'chat') updateTurn({ result })
+      if (kind === 'record_inspection' || kind === 'get_diagnostic_history') setInspections(result.inspections || [])
       if (result.diagnostic || result.action === 'draft_ticket') {
         setTicketHint(result.ticket_draft || result.can_create_ticket ? '' : ticketUnavailableReason(result))
         setCanDraft(Boolean(result.can_create_ticket && !result.requires_remeasurement))
@@ -372,6 +379,8 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           title={sessionId ? t('Результат ещё не запрошен') : t('У этой машины пока нет проверок')}>
           {sessionId ? t('Проверьте параметры замера и нажмите «Получить результат диагностики».') : t('Выберите другую машину в списке транспорта.')}
         </EmptyView>}
+        {diagnosis?.diagnostic?.status === 'anomaly' && !diagnosis.requires_remeasurement && !diagnosis.recognition_error &&
+          <InspectionForm disabled={!!pending} onSave={found => run('record_inspection', null, false, found)} />}
       </div>
       <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
         <header className="dialog-bar">
@@ -409,6 +418,12 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
       </div>
       <div className="pane" hidden={view !== 'history'} id="panel-history" aria-labelledby="tab-history" role="tabpanel" tabIndex={0}>
         <VehicleHistory vehicleId={vehicle.vehicle_id} sessions={vehicle.sessions.slice(0, 5)} />
+        <section className="history-report"><h3>{t('Результаты осмотра')}</h3>
+          {/* Loaded on request: the History tab itself works from the vehicle list without calling the agent. */}
+          {inspections ? <InspectionList records={inspections} vehicleId={vehicle.vehicle_id} />
+            : <button type="button" className="secondary" disabled={!id || !sessionId || !!pending}
+              onClick={() => run('get_diagnostic_history')}>{t('Показать результаты осмотра')}</button>}
+        </section>
       </div>
       <div className="pane" hidden={view !== 'ticket'} id="panel-ticket" aria-labelledby="tab-ticket" role="tabpanel" tabIndex={0}>
         {ticketStatus ? ticketStatus.ticketId
