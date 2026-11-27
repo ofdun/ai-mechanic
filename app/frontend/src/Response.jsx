@@ -3,6 +3,7 @@ import React, { useContext } from 'react'
 import { CheckCircle2, CircleAlert, RotateCcw } from 'lucide-react'
 import { formatDate } from './api'
 import { Source } from './ManualReader'
+import { TighteningFigures } from './Figures'
 
 const outcomes = { normal: 'Норма', anomaly: 'Отклонение', check_failed: 'Сбой проверки', recognition_error: 'Ошибка распознавания' }
 const recordingWarnings = { warning: 'Запись с помехами', bad: 'Запись непригодная' }
@@ -99,6 +100,7 @@ function LocalizedResponse({ result, compact = false, report = false }) {
         <p className="limitations"><strong>{labels['conflict.title']}</strong> {labels['conflict.note']}</p>}
       {Array.from(pages, ([key, source]) => <Source key={key} source={source} />)}
       {result.action === 'get_diagnostic_history' && <VehicleHistory vehicleId={result.vehicle_id} sessions={[...(result.history || [])].reverse()} />}
+      <TighteningFigures result={result} className={report ? 'report-row' : 'claims'} />
     </>}
     {answer.limitations.filter(line => !compact || line.text === labels.untranslated)
       .map((line, index) => <AnswerLine key={index} line={line} />)}
@@ -211,6 +213,7 @@ export function Response({ result }) {
           </>} /></section>
       })}
     </ManualAnswer>
+    <TighteningFigures result={result} />
     {!insufficient && limitations.length > 0 && <section className="limitations"><h4>{t('Ограничения')}</h4>
       <Entries items={limitations} /></section>}
     {insufficient && <div className="search-fallback">

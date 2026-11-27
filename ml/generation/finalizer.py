@@ -145,6 +145,11 @@ class MechanicFinalizer:
             answer = self.diagnosis(response)
         elif response.action == 'search_manuals':
             answer = self.manual_answer(response)
+            # A tightening order people checked against the figure; without it the limitation points to the figure.
+            answer.sections.extend(AnswerSection(
+                title=f'Порядок затяжки (рис. {figure.figure})', numbered=True,
+                items=[AnswerItem(text=step, manual=figure.manual, pdf_page=figure.pdf_page) for step in figure.sequence],
+            ) for figure in response.figures if figure.sequence)
         else:
             answer = MechanicAnswer(tone='info', verdict=response.message)
         answer.text = render(answer)

@@ -258,3 +258,5 @@ li + li { margin-top: .35rem; }
   .dialog-bar .reset-chat { max-width: 100%; }
   .answer-language { max-width: 100%; }
 }
+.tightening-figures ol { margin: .3rem 0 .5rem; padding-left: 1.4rem; }
+.tightening-figures > div > div + div { margin-top: .75rem; }

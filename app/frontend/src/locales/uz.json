@@ -141,5 +141,8 @@
   "Чтобы открыть её, нажмите «Получить результат диагностики».": "Uni ochish uchun «Diagnostika natijasini olish» tugmasini bosing.",
   "Язык": "Til",
   "стр.": "bet",
-  "страница": "sahifa"
+  "страница": "sahifa",
+  "Порядок затяжки": "Tortish tartibi",
+  "Рисунок {number}": "{number}-rasm",
+  "Последовательность показана только на рисунке. Откройте страницу: агент не перечисляет её без проверенных данных.": "Ketma-ketlik faqat rasmda ko'rsatilgan. Sahifani oching: agent uni tekshirilgan ma'lumotlarsiz sanab bermaydi."
 }

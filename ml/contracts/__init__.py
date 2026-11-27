@@ -176,6 +176,17 @@ class TicketReceipt(BaseModel):
     status: Literal['created']
 
 
+class FigureReference(BaseModel):
+    """A figure with a tightening order on a page of this engine's manual."""
+    figure: Text
+    caption: str | None = None
+    manual: Text
+    document_id: Text
+    pdf_page: PageNumber
+    # Numbered steps only from a sequence people checked against this page; empty means «open the figure».
+    sequence: list[str] = Field(default_factory=list)
+
+
 class AgentTurn(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -232,6 +243,7 @@ class AgentResponse(BaseModel):
     evidence: EvidenceBundle = Field(default_factory=EvidenceBundle)
     claims: list[TechnicalClaim] = Field(default_factory=list)
     history: list[SessionRecord] = Field(default_factory=list)
+    figures: list[FigureReference] = Field(default_factory=list)
     ticket_draft: TicketDraft | None = None
     limitations: list[str] = Field(default_factory=list)
     language: Language = 'ru'
