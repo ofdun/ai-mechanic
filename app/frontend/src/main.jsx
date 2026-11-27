@@ -7,6 +7,8 @@ import { DiagnosticReport, DiagnosticVerdict, Draft, Response, VehicleHistory } 
 import { ManualNavigation } from './ManualReader'
 import { useChatHistory } from './chatHistory'
 import { ChatComposer } from './ChatComposer'
+import { PlatePhoto } from './PlatePhoto'
+import { InspectionPhotos } from './InspectionPhotos'
 import './style.css'
 
 const lastVehicleKey = 'ai-mechanic.lastVehicleId'
@@ -88,6 +90,12 @@ function App() {
     setVehicleId(id)
     setSessionId(selectedSession(catalog.find(item => item.vehicle_id === id)))
   }
+  function pickVehicle(id) {
+    const picked = catalog.find(item => item.vehicle_id === id)
+    if (!picked) return
+    setEngineFilter(picked.engine_model)
+    changeVehicle(id)
+  }
   function changeEngine(engine) {
     setEngineFilter(engine)
     changeVehicle('', 'engine')
@@ -126,7 +134,7 @@ function App() {
         : !catalog ? <p role="status">{t('Загружаем список транспорта…')}</p>
         : !catalog.length ? <p role="status">{t('В справочнике пока нет транспортных средств.')}</p>
         : <Workspace key={JSON.stringify([vehicleId, sessionId])}
-          {...{ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }} />}
+          {...{ language, view, setView, vehicles: catalog, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession, pickVehicle }} />}
     </main>
   </UiLanguage.Provider>
 }
@@ -164,7 +172,7 @@ function sameDiagnostic(previous, current) {
     Object.keys(current).every(key => previous[key] === current[key])
 }
 
-function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession }) {
+function Workspace({ language, view, setView, vehicles, vehiclesByEngine, engineFilter, vehicle, sessionId, changeEngine, changeVehicle, changeSession, pickVehicle }) {
   const t = useUiText()
   const { id, turns, setTurns, reset, warning } = useChatHistory(vehicle?.vehicle_id, sessionId)
   const [openedDialog, setOpenedDialog] = useState(null)
@@ -311,6 +319,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
   return <ManualNavigation sessionKey={id} returnLabel={t(returnLabels[view])}><div className="workspace">
     <aside className="controls" aria-labelledby="checking">
       <div className="controls-heading"><h2 id="checking"><Gauge aria-hidden="true" />{t('Параметры замера')}</h2>
+        <PlatePhoto vehicles={vehicles} disabled={pending === 'confirm'} onPick={pickVehicle} />
       </div>
       <div id="selection">
       <div><label htmlFor="engine">{t('Двигатель')}</label>
@@ -349,6 +358,7 @@ function Workspace({ language, view, setView, vehiclesByEngine, engineFilter, ve
           title={sessionId ? t('Результат ещё не запрошен') : t('У этой машины пока нет проверок')}>
           {sessionId ? t('Проверьте параметры замера и нажмите «Получить результат диагностики».') : t('Выберите другую машину в списке транспорта.')}
         </EmptyView>}
+        {sessionId && <InspectionPhotos vehicleId={vehicle.vehicle_id} sessionId={sessionId} language={language} />}
       </div>
       <div className="chat-panel" hidden={view !== 'chat'} id="panel-chat" aria-labelledby="tab-chat" role="tabpanel" tabIndex={0}>
         <header className="dialog-bar">

@@ -11,16 +11,13 @@ const serviceMessages = {
   LLM_EVIDENCE_NOT_ALLOWED: 'Для ответа по этому руководству требуется доступ. Обратитесь к администратору.',
   RAG_INDEX_UNAVAILABLE: 'Поиск по руководствам сейчас недоступен. Попробуйте позже.',
   RAG_SCHEMA_ERROR: 'Не удалось подтвердить ответ по руководству выбранного двигателя.',
+  PLATE_OCR_UNAVAILABLE: 'Распознавание номера на этом сервере не настроено. Выберите машину из списка.',
+  PLATE_OCR_FAILED: 'Номер не распознан. Выберите машину из списка.',
+  PLATE_IMAGE_INVALID: 'Не удалось открыть фото. Сделайте снимок ещё раз.',
 }
 
-export async function request(path, body, signal) {
-  const response = await fetch(path, {
-    method: body ? 'POST' : 'GET',
-    credentials: 'same-origin',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  }).catch(error => {
+async function send(path, init, signal) {
+  const response = await fetch(path, { credentials: 'same-origin', ...init, signal }).catch(error => {
     if (signal?.aborted) throw error
     throw new Error('Нет связи с сервером. Проверьте соединение.')
   })
@@ -34,6 +31,16 @@ export async function request(path, body, signal) {
     throw error
   }
   return data
+}
+
+export function request(path, body, signal) {
+  return send(path, body ? {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  } : { method: 'GET' }, signal)
+}
+
+export function sendImage(path, blob, signal) {
+  return send(path, { method: 'POST', headers: { 'Content-Type': blob.type || 'image/jpeg' }, body: blob }, signal)
 }
 
 export const formatDate = (value, language = 'ru') => new Intl.DateTimeFormat(language, {

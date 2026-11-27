@@ -15,6 +15,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build go test -tags=nomsgpack -tri
 FROM python:3.12-slim-bookworm AS agent
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH="/app/.venv/bin:$PATH"
+# Local OCR for registration plate photos; plate symbols are Latin look-alikes, so English data is enough.
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir uv && uv sync --locked --extra api --no-dev --no-install-project --no-cache
 COPY ml ./ml
