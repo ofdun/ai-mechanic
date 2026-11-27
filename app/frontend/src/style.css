@@ -267,3 +267,38 @@ li + li { margin-top: .35rem; }
   .compose-row button { min-width: 44px; padding-inline: .6rem; }
   .compose-row .submit span { display: none; }
 }
+
+.answer-checks { margin-top: 1rem; border-top: 1px solid var(--line); }
+.answer-checks summary { padding: .75rem 0; cursor: pointer; font-weight: 600; }
+.answer-checks[open] > :not(summary) { margin-block: .4rem; }
+.draft-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+.print-sheet { display: none; }
+@media print {
+  @page defect-sheet { size: A4; margin: 0; }
+  :root { background: #fff; color: #000; }
+  body:has(> .print-sheet) > #root { display: none; }
+  .print-sheet {
+    page: defect-sheet; padding: 14mm 13mm; box-decoration-break: clone;
+    display: block; color: #000; background: #fff;
+    font-size: 10.5pt; line-height: 1.35; overflow-wrap: anywhere;
+  }
+  .print-sheet h1 { font-size: 16pt; letter-spacing: -.01em; }
+  .print-sheet h2 { font-size: 11pt; margin-bottom: 1.5mm; }
+  .print-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm; padding-bottom: 2mm; border-bottom: 1.5pt solid #000; }
+  .print-heading p { font-variant-numeric: tabular-nums; }
+  .print-fields { display: grid; grid-template-columns: 44mm minmax(0, 1fr); }
+  .print-fields > * { padding: 1.6mm 0; border-bottom: .5pt solid #000; break-inside: avoid; }
+  .print-fields dt { padding-right: 3mm; font-weight: 600; }
+  .print-fields dd p + p { margin-top: 1mm; }
+  .print-section { margin-top: 4mm; }
+  .print-section h2 { break-after: avoid; }
+  .print-checklist { list-style: none; padding: 0; margin: 0; }
+  .print-checklist li { display: flex; align-items: flex-start; gap: 2.5mm; padding: 1.4mm 0; border-bottom: .5pt dotted #000; break-inside: avoid; }
+  .print-checklist li + li { margin-top: 0; }
+  .print-box { flex: none; width: 3.8mm; height: 3.8mm; margin-top: .4mm; border: 1pt solid #000; }
+  .print-references { margin: 0; padding-left: 6mm; }
+  .print-references li + li { margin-top: .8mm; }
+  .print-signoff { display: grid; grid-template-columns: 2fr 1fr 1.2fr; gap: 6mm; margin-top: 10mm; break-inside: avoid; }
+  .print-signoff p { padding-top: 9mm; border-bottom: .75pt solid #000; }
+  .print-signoff span { display: block; transform: translateY(5mm); font-size: 8.5pt; }
+}

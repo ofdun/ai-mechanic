@@ -236,6 +236,8 @@ class Pipeline:
             response.evidence = scope_evidence(outcome.evidence, plan.engine_model)
             source_ids = {item.evidence_id for item in response.evidence.items}
             response.claims = [claim for claim in outcome.claims if all(key in source_ids for key in claim.evidence_ids)]
+            if len(response.claims) == len(outcome.claims):
+                response.verification = outcome.verification
             if not response.claims:
                 response.limitations.append(
                     'На найденных страницах не удалось подтвердить ответ на этот вопрос.'
@@ -267,10 +269,13 @@ class Pipeline:
             return
 
         draft = self.generator.generate(plan, response.evidence, diagnostic)
+        verified = self.verifier.verify(draft, response.evidence)
         response.claims = [
-            claim for claim in self.verifier.verify(draft, response.evidence).claims
+            claim for claim in verified.claims
             if claim in draft.claims and all(key in sources for key in claim.evidence_ids)
         ]
+        if len(response.claims) == len(verified.claims):
+            response.verification = verified.verification
         if not response.claims:
             response.limitations.append('На найденных страницах руководства нет подтверждения для ответа.')
 
