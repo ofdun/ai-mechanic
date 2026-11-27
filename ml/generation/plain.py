@@ -4,7 +4,7 @@ import json
 import logging
 import re
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ml.contracts import AgentError, TechnicalClaim
 from ml.generation import prompts
@@ -32,6 +32,11 @@ class PlainOutput(BaseModel):
     lead: str = Field(max_length=OUTPUT_CHARS)
     lines: list[str] = Field(max_length=MAX_LINES)
     assessment: str = Field(max_length=OUTPUT_CHARS)
+
+    @field_validator('assessment')
+    @classmethod
+    def _whole_assessment(cls, value: str) -> str:
+        return whole_sentences(value, ASSESSMENT_CHARS)
 
 
 def whole_sentences(text: str, limit: int) -> str:
@@ -114,5 +119,4 @@ class PlainWriter:
         except AgentError:
             logger.warning('Plain answer failed; the structured answer stays without a lead', exc_info=True)
             return ''
-        output = output.model_copy(update={'assessment': whole_sentences(output.assessment, ASSESSMENT_CHARS)})
         return plain_text(output, claims, engine_model, conflict=conflict)
