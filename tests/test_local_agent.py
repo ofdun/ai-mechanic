@@ -17,9 +17,25 @@ from ml.planner.local import LocalPlanner
     ('Не оформляй заявку', 'clarify'),
     ('Не оформляй заявку, покажи историю', 'get_diagnostic_history'),
     ('Какой момент затяжки крышек коренных подшипников?', 'search_manuals'),
+    ('Как снять топливный фильтр?', 'search_manuals'),
+    ('Проверь моторное масло', 'search_manuals'),
+    ('Какое действие предписано, когда источником шума оказался подшипник генератора?', 'search_manuals'),
+    ('Покажи прошлые заявки на эту машину', 'get_diagnostic_history'),
+    ('Повторялась ли эта неисправность?', 'get_diagnostic_history'),
+    ('Создай список прошлых заявок', 'clarify'),
+    ('Создай заявку по прошлой проверке', 'draft_ticket'),
 ])
 def test_local_intent(message, action):
     assert LocalPlanner().plan(message, 'Стенд', None).action == action
+
+
+def test_index_vocabulary_does_not_route_one_off_fragments_or_generic_words():
+    terms = LocalPlanner().tokenize
+    labels = {'клапан': [(0, 1), (1, 1), (2, 1)], 'ужин': [(0, 1), (1, 1)],
+              'приготовить': [(0, 1), (1, 1), (2, 1)]}
+    planner = LocalPlanner.from_postings({terms(word)[0]: pages for word, pages in labels.items()})
+    assert planner.plan('Что приготовить на ужин?', 'Стенд', None).action == 'clarify'
+    assert planner.plan('Как проверить клапан?', 'Стенд', None).action == 'search_manuals'
 
 
 def diagnostic():

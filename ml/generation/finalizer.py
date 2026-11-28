@@ -16,6 +16,7 @@ from ml.contracts import AgentResponse, DiagnosticResult, Evidence, InspectionRe
 from ml.generation.claims import conflict_group, quote_of
 from ml.generation.profiles import PROFILES, URGENCY_LABELS, Urgency, urgency_for
 from ml.generation.text import claim_numbers, content_stems, fold, has_negation
+from ml.operability import DECISION_NOTE, RELEASE_LIMIT, is_release_question, release_details
 
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,6 @@ STEP_KINDS = {'check', 'operation'}
 SIGNAL_LABELS = {'good': 'хорошая', 'warning': 'с помехами', 'bad': 'непригодна'}
 CONFLICT_TITLE = 'Руководства пишут по-разному'
 CONFLICT_NOTE = 'Уточните у мастера или специалиста, какая инструкция подходит вашему двигателю.'
-DECISION_NOTE = 'Решение о ремонте и выпуске машины принимает механик или ответственный специалист.'
 ML_NOTE = 'Тип неисправности — гипотеза акустической модели, её подтверждает проверка по руководству.'
 PAGE_NOTE = 'Номера страниц указаны по PDF.'
 NO_EVIDENCE_LIMITATIONS = {
@@ -54,7 +54,6 @@ _PROHIBITION = re.compile(
     r'(?:запрещ[а-я]*|не\s+допуска[а-я]*|нельзя)\s+(?:[а-я]+\s+){0,3}?'
     r'(?:эксплуатац|работ|пуск|запуск|движени|выезд|выпуск)',
 )
-_RELEASE_QUESTION = re.compile(r'перег[оа]н|своим ходом|выпус|в рейс|ехать|доехать|эксплуатир')
 
 
 class AnswerItem(BaseModel):
@@ -235,21 +234,26 @@ class MechanicFinalizer:
     def manual_answer(self, response: AgentResponse) -> MechanicAnswer:
         sources = {item.evidence_id: item for item in response.evidence.items}
         question = response.search_plan.original_query if response.search_plan else ''
-        extra = [DECISION_NOTE] if _RELEASE_QUESTION.search(fold(question)) else []
+        if response.search_plan and is_release_question(question):
+            refusal = next((text for text in (response.message, response.summary) if text.startswith(RELEASE_LIMIT)), '')
+            details = [refusal.removeprefix(RELEASE_LIMIT).strip()] if refusal else [
+                release_details(response.search_plan), DECISION_NOTE,
+            ]
+            return MechanicAnswer(tone='info', verdict=f'📘 {RELEASE_LIMIT}', details=details)
         if not response.claims:
             details = [f'В руководствах для {response.engine_model} нет подтверждённого ответа на этот вопрос.']
             return MechanicAnswer(tone='info', verdict='📘 Данных недостаточно.', details=details,
-                                  sections=self.closing_sections(response, sources, extra=extra))
+                                  sections=self.closing_sections(response, sources, extra=[]))
         sections = self.claim_sections(response.claims, sources)
         summary = response.summary.strip()
         if not summary:
-            sections.extend(self.closing_sections(response, sources, extra=extra))
+            sections.extend(self.closing_sections(response, sources, extra=[]))
             return MechanicAnswer(tone='info', verdict=f'📘 Ответ по руководствам для {response.engine_model}',
                                   sections=sections)
         # Plain lead first, then the checked claims with pages; the full source list is already inline.
         conflict = ' · Руководства расходятся' if find_conflicts(response.claims, sources) else ''
         technical = f'🔧 {response.engine_model} · {cited_pages(response.claims, sources)}{conflict}'
-        limitations = self.closing_sections(response, sources, extra=extra)
+        limitations = self.closing_sections(response, sources, extra=[])
         sections.extend(section for section in limitations if section.title != 'Источники')
         return MechanicAnswer(tone='info', verdict=technical, details=summary.splitlines(), sections=sections)
 

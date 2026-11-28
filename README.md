@@ -278,17 +278,17 @@ PLANNER_MODE=offline uv run uvicorn demo.app:create_app --factory --port 8080
 
 По умолчанию Compose задаёт `WEB_RETRIEVAL_MODE=team`. Сервис `index` читает шесть PDF и готовит в общем томе `retrieval/` для поиска и `manuals.sqlite3` для читалки. Go передаёт запрос в Python-worker по существующему API. Для свободных вопросов worker ищет страницы по модели двигателя через BM25 с русским стеммингом. Для нормативов и работ использует проверенные записи со ссылками на конкретные страницы. Штатный профиль выполняется на CPU без ключа LLM.
 
-Для веб-профиля генерации A задайте в серверном `.env` параметры ниже и укажите ключ OpenRouter в `LLM_API_KEY`. Поиск страниц и выбор инструмента выполняются на сервере. Генератор получает вопрос и материалы по выбранному двигателю. Для отправки фрагментов руководств требуется разрешение владельца данных.
+Для веб-профиля A задайте в серверном `.env` параметры ниже и укажите ключ OpenRouter в `LLM_API_KEY`. Этот профиль объединяет BM25 и BGE-M3, переупорядочивает 30 страниц с помощью MongoDB rerank-2.5 и передаёт генератору до 8 страниц по выбранному двигателю. Для первого построения эмбеддингов и для поиска с reranking требуется разрешение владельца данных на передачу текста руководств OpenRouter.
 
 ```dotenv
 WEB_RETRIEVAL_MODE=team
 PLANNER_MODE=local
 AGENT_ARCHITECTURE=a
-RETRIEVAL_CONFIG_PATH=/app/configs/retrieval-web.yaml
+RETRIEVAL_CONFIG_PATH=/app/configs/retrieval-web-hybrid.yaml
 ALLOW_EXTERNAL_EVIDENCE=true
 ```
 
-После обновления образов и индекса примените настройки командой `docker compose up -d --no-deps agent`. Для автономного режима верните `AGENT_ARCHITECTURE=baseline` и `ALLOW_EXTERNAL_EVIDENCE=false`.
+Выполните `docker compose build agent`, затем `docker compose up -d index agent`. Индексатор запишет в общий том страницы и векторы. Если фрагменты и модель остались прежними, индексатор переиспользует готовые векторы. Для автономного режима укажите `RETRIEVAL_CONFIG_PATH=/app/configs/retrieval-web.yaml`, `AGENT_ARCHITECTURE=baseline` и `ALLOW_EXTERNAL_EVIDENCE=false` и снова запустите `docker compose up -d index agent`.
 
 Чтобы воспроизвести предыдущий поиск через SQLite, задайте в `.env` параметр `WEB_RETRIEVAL_MODE=legacy` и выполните `docker compose up -d index agent`.
 

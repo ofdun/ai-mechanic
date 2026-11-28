@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr &
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir uv && uv sync --locked --extra api --no-dev --no-install-project --no-cache
 COPY ml ./ml
-COPY configs/retrieval.yaml configs/retrieval-web.yaml ./configs/
+COPY configs/retrieval.yaml configs/retrieval-web*.yaml ./configs/
 RUN useradd --create-home mechanic && install -d -o mechanic -g mechanic /state
 USER mechanic
 CMD ["uvicorn","ml.worker:create_app","--factory","--host","0.0.0.0","--port","8000"]

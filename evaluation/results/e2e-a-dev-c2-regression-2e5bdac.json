@@ -1,0 +1,269 @@
+{
+  "cases": 143,
+  "completed": 143,
+  "errors": [],
+  "answer_correctness": 0.8636,
+  "verdicts": {
+    "correct": 114,
+    "partial": 19,
+    "incorrect": 9,
+    "abstained": 1
+  },
+  "numeric_accuracy": 0.8384,
+  "citation_accuracy": 0.6326,
+  "reference_page_coverage": 0.7712,
+  "unsupported_claim_rate": 0.1454,
+  "abstention_accuracy": 0.958,
+  "conflicts_shown": 0.6667,
+  "drafted_claims": 722,
+  "answer_claims": 596,
+  "rejection_reasons": {
+    "duplicate": 19,
+    "invented_negation": 5,
+    "lost_condition": 14,
+    "lost_negation": 13,
+    "number_not_in_quote": 3,
+    "numbers_out_of_order": 3,
+    "quote_not_found": 6,
+    "quote_splits_word": 3,
+    "quote_too_long": 2,
+    "quote_too_short": 9,
+    "range_truncated": 6,
+    "unknown_engine_in_claim": 1,
+    "unrelated_to_quote": 29
+  },
+  "by_outcome": {
+    "abstain": {
+      "cases": 2,
+      "answered": 0
+    },
+    "answer": {
+      "cases": 136,
+      "answered": 130
+    },
+    "conflicting_sources": {
+      "cases": 3,
+      "answered": 3
+    },
+    "partially_supported": {
+      "cases": 2,
+      "answered": 2
+    }
+  },
+  "latency_p50_ms": 13632.6,
+  "latency_p95_ms": 26045.3,
+  "cost_per_cycle_usd": 0.003251,
+  "llm_calls": 474,
+  "judged_cases": 143,
+  "routes": {
+    "search_manuals": 143
+  },
+  "rewritten_queries": 2,
+  "retrieval_cases_with_reference": 140,
+  "retrieval_hits": {
+    "1": 125,
+    "3": 136,
+    "5": 138,
+    "8": 139,
+    "10": 139,
+    "30": 139
+  },
+  "retrieval_mrr": 0.933,
+  "context_any_reference": 139,
+  "context_all_references": 126,
+  "wrong_engine_pages": 0,
+  "retrieval_p50_ms": 3039.900958072394,
+  "retrieval_p95_ms": 11516.552416025661,
+  "true_refusals": {
+    "cases": 2,
+    "abstained": 2
+  },
+  "failure_stage_counts": {
+    "ok": 114,
+    "completeness": 18,
+    "retrieval": 2,
+    "verification": 8,
+    "review": 1
+  },
+  "provider_http_statuses": {
+    "200": 905
+  },
+  "provider_models": {
+    "parasail-bge-m3": 75,
+    "BAAI/bge-m3": 70,
+    "rerank-2.5": 143,
+    "z-ai/glm-5.3-flash": 280,
+    "deepseek/deepseek-v4.1-flash": 337
+  },
+  "case_api_calls_with_judge": 905,
+  "index_cost_usd": 0.00540945,
+  "case_cost_including_judge_usd": 0.47763725,
+  "total_cost_usd": 0.4830467,
+  "cost_covered_by_provider_fields": 905,
+  "versions": {
+    "main": "6e5eb4e",
+    "routing": "2d8debf",
+    "candidate": "2e5bdac",
+    "dataset_sha256": "2ee3e6f4467d73e76710e2f9ae2a2b770c2e4844e3036dacd0d6846864d9afc2"
+  },
+  "profile": {
+    "retrieval": {
+      "mode": "hybrid",
+      "chunker": "page",
+      "chunk_words": 300,
+      "chunk_overlap": 50,
+      "analyzer": "stem",
+      "bm25_k1": 1.2,
+      "bm25_b": 0.75,
+      "embedder": "or:baai/bge-m3",
+      "embed_max_seq_length": 512,
+      "embed_batch_size": 8,
+      "device": "cpu",
+      "expand_anomaly": true,
+      "per_query_k": 30,
+      "rrf_k": 60,
+      "sparse_weight": 1.0,
+      "dense_weight": 1.0,
+      "reranker": "or:mongodb/rerank-2.5",
+      "rerank_candidates": 30,
+      "rerank_max_length": 512,
+      "rerank_query": "original",
+      "rerank_context": true,
+      "rerank_passage_words": null,
+      "rerank_passage_overlap": 40,
+      "rerank_prior_weight": 0.0,
+      "top_k": 8,
+      "context": "page",
+      "neighbor_pages": 0,
+      "max_evidence_words": 6000
+    },
+    "architecture": "a",
+    "planner": "local",
+    "judge": "z-ai/glm-5.3-flash",
+    "split": "dev"
+  },
+  "spent_all_attempts_usd": 0.4830467,
+  "wall_seconds_current_invocation": 431.0,
+  "api_calls": {
+    "product_total": 762,
+    "embeddings": 145,
+    "rerank": 143,
+    "judge": 143,
+    "product_llm": 474
+  },
+  "benchmark_charges_usd": 0.47763725,
+  "comparison": {
+    "previous_report": "https://github.com/ofdun/ai-mechanic/issues/9#issuecomment-7226162233",
+    "previous_metrics": {
+      "answer_correctness": 0.8217,
+      "numeric_accuracy": 0.8253,
+      "citation_accuracy": 0.594,
+      "true_refusals": {
+        "cases": 2,
+        "abstained": 0
+      },
+      "latency_p50_ms": 12990.2,
+      "latency_p95_ms": 20469.7
+    },
+    "remaining_141_paired": {
+      "same_judge_label": 105,
+      "higher_score": 22,
+      "lower_score": 13,
+      "different_label_same_score": 1,
+      "same_gold_rank": 140
+    },
+    "changed_search_plans": [
+      "Q003",
+      "Q004"
+    ],
+    "known_confounders": "Prior run at 4e042f5 with routing. New run at 2e5bdac based on 6e5eb4e including PR #56. Live models and judge were invoked again."
+  },
+  "acceptance": {
+    "architecture_a_live_worker": {
+      "fleet": {
+        "vehicles": 50,
+        "sessions": 195,
+        "chief_status_fields_present": false
+      },
+      "C1": {
+        "pass": true,
+        "reference_page": 52,
+        "unconfirmed_blocked": true,
+        "confirmation_idempotent": true
+      },
+      "C2": {
+        "pass": true,
+        "refusals": 2,
+        "attempts": 2
+      },
+      "C3": {
+        "pass": true,
+        "remeasurement_required": true,
+        "draft_blocked": true
+      },
+      "measurement_controls": {
+        "normal": true,
+        "low_confidence": true,
+        "bad_fuel_match": true
+      }
+    },
+    "bm25_fleet_regression": {
+      "vehicles": 50,
+      "sessions": 195,
+      "counts": {
+        "normal": 111,
+        "repeat": 32,
+        "recognition_error": 3,
+        "check_failed": 15,
+        "anomaly": 69,
+        "valid_anomaly": 49,
+        "confirmed_operation": 27,
+        "manual_referral": 22
+      },
+      "fault_codes": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F08",
+        "F09",
+        "F10",
+        "F11",
+        "F12",
+        "F13",
+        "F14"
+      ],
+      "same_business_outputs": 195
+    },
+    "browser_c4_separate_pr50": {
+      "pass": true,
+      "vehicles": 50,
+      "statuses": {
+        "attention": 16,
+        "normal": 25,
+        "quarantine": 9
+      },
+      "quarantine_filter": true,
+      "history_on_click": true,
+      "chart_points": 4,
+      "viewport": "390x844",
+      "branch": "PR #50 at 2f9ad5a"
+    },
+    "b1_separate_pr48": {
+      "tests_passed": 9,
+      "head": "8fe6ad3"
+    },
+    "unmerged_prs_at_verification": [
+      46,
+      48,
+      50
+    ]
+  },
+  "known_quality_gaps": {
+    "Q001": "partial in both runs; torque answer omitted procedures or limits despite finding both annotated pages.",
+    "Q008": "correct to incorrect in repeated run. The generated lead inverted a timing condition while a retained claim still used the source wording."
+  }
+}

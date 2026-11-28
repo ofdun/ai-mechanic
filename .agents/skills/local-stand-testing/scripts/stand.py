@@ -52,7 +52,8 @@ def main():
                ML_API_URL="http://ml:8001", MAINTENANCE_API_URL="http://maintenance:8002",
                PLANNER_MODE="local", AGENT_ARCHITECTURE="baseline" if args.baseline else "a",
                LOCAL_EXTERNAL_EVIDENCE="false" if args.baseline else "true", WEB_RETRIEVAL_MODE="team",
-               RETRIEVAL_CONFIG_PATH="/app/configs/retrieval-web.yaml")
+               RETRIEVAL_CONFIG_PATH=("/app/configs/retrieval-web.yaml" if args.baseline
+                                      else "/app/configs/retrieval-web-hybrid.yaml"))
     if args.baseline:
         env["LLM_API_KEY"] = ""
     dc = ["docker", "compose", "-p", project, "--project-directory", str(root),

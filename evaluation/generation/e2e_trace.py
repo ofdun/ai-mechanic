@@ -113,9 +113,10 @@ def attribute(case: Case, result, expected: set, retrieved: set, with_context: s
 
 
 def run_case(case: Case, corpus: Corpus, engine: RetrievalEngine, settings: Settings, client: OpenRouterClient,
-             usage: Usage, *, pipeline: Pipeline, model: str | None, judge_model: str | None):
+             usage: Usage, *, pipeline: Pipeline, model: str | None, judge_model: str | None,
+             planner: LocalPlanner | None = None):
     usage.start(case.id)
-    decision = LocalPlanner().plan(case.question, case.engine_model, None, recent_messages=case.prior_facts)
+    decision = (planner or LocalPlanner()).plan(case.question, case.engine_model, None, recent_messages=case.prior_facts)
     routed = decision.action == 'search_manuals'
     plan = SearchPlan(engine_model=case.engine_model, original_query=case.question,
                       rewritten_query=decision.rewritten_query or case.question, subqueries=decision.subqueries)
@@ -192,6 +193,7 @@ def main() -> int:
         if args.index is None:
             build_index(args.pages, index, config, manifest=manifest)
         engine = RetrievalEngine.load(index, config)
+        planner = LocalPlanner.from_postings(engine.sparse.postings if engine.sparse else {})
         cases = Case.load(args.dataset, split=args.split, ids=set(args.ids.split(',')) if args.ids else None)
         cases = cases[:args.limit] if args.limit else cases
         usage = Usage()
@@ -200,7 +202,7 @@ def main() -> int:
             with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
                 results = list(pool.map(lambda case: run_case(
                     case, corpus, engine, settings, client, usage, pipeline=args.pipeline, model=args.model,
-                    judge_model=args.judge_model), cases))
+                    judge_model=args.judge_model, planner=planner), cases))
 
     summary = {**summarize(results), 'breakdown': breakdown(results), 'commit': git_commit(),
                'retrieval': {'mode': config.mode, 'top_k': config.top_k, 'max_evidence_words': config.max_evidence_words},
