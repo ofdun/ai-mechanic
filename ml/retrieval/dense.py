@@ -74,7 +74,9 @@ def embed_chunks(
     return meta
 
 
-def load_dense(index_dir: Path, model: str, chunk_ids: Sequence[str]) -> DenseIndex:
+def load_dense(
+    index_dir: Path, model: str, chunk_ids: Sequence[str], *, max_seq_length: int | None = None,
+) -> DenseIndex:
     vectors_path, meta_path = vector_paths(index_dir, model)
     try:
         meta = DenseMeta.model_validate_json(meta_path.read_bytes())
@@ -83,6 +85,8 @@ def load_dense(index_dir: Path, model: str, chunk_ids: Sequence[str]) -> DenseIn
         raise AgentError(
             'RAG_INDEX_UNAVAILABLE', f'Нет векторов {model} в {index_dir}. Запустите python -m ml.retrieval embed.',
         ) from error
-    if meta.chunk_ids_sha256 != chunk_ids_digest(chunk_ids) or vectors.shape != (meta.rows, meta.dimension):
+    if (meta.model != model or meta.chunk_ids_sha256 != chunk_ids_digest(chunk_ids)
+            or vectors.shape != (len(chunk_ids), meta.dimension) or meta.rows != len(chunk_ids)
+            or (max_seq_length is not None and meta.max_seq_length != max_seq_length)):
         raise AgentError('RAG_INDEX_UNAVAILABLE', f'Векторы {model} не соответствуют фрагментам индекса. Пересчитайте их.')
     return DenseIndex(vectors)

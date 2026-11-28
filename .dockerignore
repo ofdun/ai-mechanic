@@ -3,6 +3,7 @@
 !configs/
 !configs/retrieval.yaml
 !configs/retrieval-web.yaml
+!configs/retrieval-web-hybrid.yaml
 !pyproject.toml
 !uv.lock
 !ml/

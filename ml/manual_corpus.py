@@ -60,7 +60,7 @@ def build_index(data_dir: Path, output: Path, manifest: Path | None = None, *,
             pages = Path(temp) / 'pages.jsonl'
             with pages.open('w', encoding='utf-8') as export:
                 count = _index_pages(db, documents, export)
-            build_retrieval_index(pages, retrieval_dir, retrieval_config, manifest=manifest)
+            build_retrieval_index(pages, retrieval_dir, retrieval_config, manifest=manifest, with_dense=True)
             return count
 
 

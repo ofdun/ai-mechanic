@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from ml.contracts import AgentError, Evidence, EvidenceBundle, ParsedDocument, SearchPlan
 from ml.document_ids import document_id_variants
 from ml.retrieval.chunking import CHUNKERS, Chunk, corpus_version, load_documents, nfc, page_chunks
-from ml.retrieval.dense import DenseIndex, embed_chunks, load_dense
+from ml.retrieval.dense import DenseIndex, embed_chunks, load_dense, vector_paths
 from ml.retrieval.embeddings import Embedder
 from ml.retrieval.expansion import fault_query
 from ml.retrieval.fusion import reciprocal_rank_fusion
@@ -149,6 +149,7 @@ def _read_jsonl(path: Path) -> list[Chunk]:
 
 def build_index(
     source: Path, output: Path, config: RetrievalConfig | None = None, *, manifest: Path | None = None,
+    with_dense: bool = False,
 ) -> Manifest:
     """Build from the ingestion export (pages.jsonl plus manifest.json) or a directory of ParsedDocument JSON."""
     config = config or RetrievalConfig()
@@ -173,7 +174,8 @@ def build_index(
         engine_models=sorted({model for document in documents for model in document.engine_models}),
         documents=[summarize(document, document_chunks) for document, document_chunks in by_document],
     )
-    write_index(output, chunks, pages, manifest)
+    dense_config = config if with_dense and config.mode != 'sparse' else None
+    write_index(output, chunks, pages, manifest, dense_config=dense_config)
     return manifest
 
 
@@ -214,7 +216,10 @@ def is_index(path: Path) -> bool:
     return True
 
 
-def write_index(output: Path, chunks: list[Chunk], pages: list[Chunk], manifest: Manifest) -> None:
+def write_index(
+    output: Path, chunks: list[Chunk], pages: list[Chunk], manifest: Manifest,
+    *, dense_config: RetrievalConfig | None = None,
+) -> None:
     """Write into a fresh sibling directory, then swap it in. Only a verified index is ever removed."""
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -226,6 +231,9 @@ def write_index(output: Path, chunks: list[Chunk], pages: list[Chunk], manifest:
         _write_jsonl(staging / CHUNKS, chunks)
         _write_jsonl(staging / PAGES, pages)
         (staging / MANIFEST).write_text(manifest.model_dump_json(indent=2), encoding='utf-8')
+        if dense_config is not None and not _copy_dense(output, staging, chunks, dense_config):
+            embed_chunks(staging, load_embedder(dense_config), [chunk.chunk_id for chunk in chunks],
+                         [index_text(chunk) for chunk in chunks], max_seq_length=dense_config.embed_max_seq_length)
         if output.exists():
             if not is_index(output):
                 raise AgentError('RAG_CONFIG_INVALID', f'{output} не является индексом retrieval, он не будет заменён.')
@@ -243,6 +251,23 @@ def write_index(output: Path, chunks: list[Chunk], pages: list[Chunk], manifest:
             shutil.rmtree(staging, ignore_errors=True)
     if previous is not None:
         shutil.rmtree(previous, ignore_errors=True)
+
+
+def _copy_dense(output: Path, staging: Path, chunks: list[Chunk], config: RetrievalConfig) -> bool:
+    # IDs can stay the same when a manual is edited. Reuse vectors only for identical chunks.
+    previous_chunks = output / CHUNKS
+    if not previous_chunks.is_file() or previous_chunks.read_bytes() != (staging / CHUNKS).read_bytes():
+        return False
+    try:
+        load_dense(output, config.embedder, [chunk.chunk_id for chunk in chunks],
+                   max_seq_length=config.embed_max_seq_length)
+    except AgentError:
+        return False
+    target = staging / 'dense'
+    target.mkdir()
+    for path in vector_paths(output, config.embedder):
+        shutil.copyfile(path, target / path.name)
+    return True
 
 
 def read_index(path: Path) -> tuple[Manifest, list[Chunk], list[Chunk]]:

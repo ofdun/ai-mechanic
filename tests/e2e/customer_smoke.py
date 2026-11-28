@@ -349,6 +349,7 @@ def main():
             'DATA_DIR': str(args.data_dir), 'VEHICLES_PATH': str(args.mock_dir / 'data' / 'vehicles.json'),
             'ARTIFACTS_DIR': str(state), 'PLANNER_MODE': 'local', 'AGENT_ARCHITECTURE': 'baseline',
             'WEB_RETRIEVAL_MODE': 'team', 'REPEAT_ON_WARNING': 'true',
+            'RETRIEVAL_CONFIG_PATH': os.environ.get('RETRIEVAL_CONFIG_PATH') or str(Path('configs/retrieval.yaml').resolve()),
             'ALLOW_EXTERNAL_EVIDENCE': 'false', 'MIN_DIAGNOSTIC_CONFIDENCE': '0.70',
             'ML_API_URL': stack.enter_context(serve(mock_ml)),
             'MAINTENANCE_API_URL': stack.enter_context(serve(mock_toir)),

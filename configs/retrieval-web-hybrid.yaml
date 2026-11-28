@@ -1,0 +1,9 @@
+# Профиль A из совместного прогона генерации и retrieval на dev.
+mode: hybrid
+embedder: or:baai/bge-m3
+reranker: or:mongodb/rerank-2.5
+rerank_candidates: 30
+rerank_query: original
+rerank_context: true
+top_k: 8
+max_evidence_words: 6000
