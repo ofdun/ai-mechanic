@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from time import monotonic
 from typing import Any, TypeVar
 
@@ -6,11 +8,20 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from ml.config import Settings
-from ml.contracts import AgentError
+from ml.contracts import AgentError, CallUsage
+from ml.usage import timed
 
 
 logger = logging.getLogger(__name__)
 Result = TypeVar('Result', bound=BaseModel)
+
+
+def whole(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def amount(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 class OpenRouterClient:
@@ -22,18 +33,18 @@ class OpenRouterClient:
         self.timeout = settings.llm_timeout_seconds
 
     def select_tool(self, messages: list[dict[str, str]], tools: list[dict[str, Any]]) -> tuple[str, str]:
-        message = self._complete('planner', self.model, messages, tools=tools, tool_choice='required',
-                                 parallel_tool_calls=False, max_tokens=1200)
-        try:
-            calls = message['tool_calls']
-            if len(calls) != 1 or calls[0]['type'] != 'function':
-                raise ValueError('Expected one function call')
-            call = calls[0]['function']
-            if not isinstance(call['name'], str) or not isinstance(call['arguments'], str):
-                raise ValueError('Invalid function call')
-        except (KeyError, IndexError, TypeError, ValueError) as error:
-            raise AgentError('LLM_SCHEMA_ERROR', 'Planner получил некорректный вызов инструмента.') from error
-        return call['name'], call['arguments']
+        with self._completion('planner', self.model, messages, tools=tools, tool_choice='required',
+                                 parallel_tool_calls=False, max_tokens=1200) as message:
+            try:
+                calls = message['tool_calls']
+                if len(calls) != 1 or calls[0]['type'] != 'function':
+                    raise ValueError('Expected one function call')
+                call = calls[0]['function']
+                if not isinstance(call['name'], str) or not isinstance(call['arguments'], str):
+                    raise ValueError('Invalid function call')
+            except (KeyError, IndexError, TypeError, ValueError) as error:
+                raise AgentError('LLM_SCHEMA_ERROR', 'Planner получил некорректный вызов инструмента.') from error
+            return call['name'], call['arguments']
 
     def complete_json(
         self, role: str, model: str, messages: list[dict[str, str]], response_type: type[Result],
@@ -47,19 +58,25 @@ class OpenRouterClient:
         elif model.startswith('z-ai/glm-'):
             # GLM cannot switch reasoning off, and by default it can think through the whole token limit.
             options['reasoning'] = {'effort': 'minimal'}
-        message = self._complete(role, model, messages, max_tokens=max_tokens, response_format={
+        with self._completion(role, model, messages, max_tokens=max_tokens, response_format={
             'type': 'json_schema',
             'json_schema': {'name': response_type.__name__, 'strict': True, 'schema': response_type.model_json_schema()},
-        }, provider={'require_parameters': True}, **options)
-        try:
-            return response_type.model_validate_json(message['content'])
-        except (KeyError, TypeError, ValidationError) as error:
-            raise AgentError('LLM_SCHEMA_ERROR', f'{role} вернул данные вне ожидаемой схемы.') from error
+        }, provider={'require_parameters': True}, **options) as message:
+            try:
+                return response_type.model_validate_json(message['content'])
+            except (KeyError, TypeError, ValidationError) as error:
+                raise AgentError('LLM_SCHEMA_ERROR', f'{role} вернул данные вне ожидаемой схемы.') from error
 
-    def _complete(self, role: str, model: str, messages: list[dict[str, str]], **parameters: Any) -> dict[str, Any]:
+    @contextmanager
+    def _completion(self, role: str, model: str, messages: list[dict[str, str]], **parameters: Any) -> Iterator[dict[str, Any]]:
         api_key = self.api_key.get_secret_value()
         if not api_key:
             raise AgentError('LLM_NOT_CONFIGURED', 'Укажите LLM_API_KEY или включите PLANNER_MODE=offline.')
+        with timed(role, 'llm', model=model) as usage:
+            yield self._send(role, model, messages, api_key, usage, **parameters)
+
+    def _send(self, role: str, model: str, messages: list[dict[str, str]], api_key: str, step: CallUsage,
+              **parameters: Any) -> dict[str, Any]:
         started = monotonic()
         try:
             response = self.http.post(
@@ -85,6 +102,10 @@ class OpenRouterClient:
         usage = usage if isinstance(usage, dict) else {}
         details = usage.get('completion_tokens_details')
         details = details if isinstance(details, dict) else {}
+        step.model = data['model'] if isinstance(data.get('model'), str) else model
+        step.provider = data['provider'] if isinstance(data.get('provider'), str) else None
+        step.input_tokens, step.output_tokens = whole(usage.get('prompt_tokens')), whole(usage.get('completion_tokens'))
+        step.reasoning_tokens, step.cost_usd = whole(details.get('reasoning_tokens')), amount(usage.get('cost'))
         logger.info('%s model=%s provider=%s input_tokens=%s output_tokens=%s reasoning_tokens=%s cost=%s latency_ms=%d retries=0',
                     role, data.get('model', model), data.get('provider'), usage.get('prompt_tokens'),
                     usage.get('completion_tokens'), details.get('reasoning_tokens'), usage.get('cost'),

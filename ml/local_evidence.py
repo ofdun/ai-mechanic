@@ -6,6 +6,7 @@ from ml.contracts import AnswerVerification, CheckedPage, EvidenceBundle, Search
 from ml.operability import is_release_question, release_outcome
 from ml.planner.local import is_diagnostic_followup
 from ml.reviewed_checks import ReviewCatalog
+from ml.tools.part_numbers import DESIGNATION, named_designation, requested_names
 
 if TYPE_CHECKING:
     from ml.architectures import LLMEvidenceWorkflow
@@ -77,6 +78,19 @@ class LocalEvidence:
         if is_release_question(question):
             return release_outcome(plan, self.retriever.search)
 
+        names = requested_names(models.sub(' ', question))
+        if names:
+            for item in self.retriever.search(plan).items:
+                if plan.engine_model not in item.engine_models:
+                    continue
+                for line in item.text.splitlines():
+                    for match in DESIGNATION.finditer(line):
+                        quoted = named_designation(line, match, names)
+                        if not quoted:
+                            continue
+                        claim = TechnicalClaim(kind='observation', text=quoted, quote=quoted,
+                                               evidence_ids=[item.evidence_id])
+                        return SearchOutcome(plan=plan, claims=[claim], evidence=EvidenceBundle(items=[item]))
         followup = diagnostic is not None and is_diagnostic_followup(question)
         diagnosis_lookup = diagnostic is not None and (plan.anomaly_type is not None or followup)
         if diagnosis_lookup:

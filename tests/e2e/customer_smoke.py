@@ -24,7 +24,7 @@ from urllib.error import URLError
 from mobile_smoke import serve
 
 
-def exercise(page, base_url, ranked_pages):
+def exercise(page, base_url, ranked_pages, agent_url):
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(base_url)
@@ -152,7 +152,6 @@ def exercise(page, base_url, ranked_pages):
     assert followup['action'] == 'search_manuals'
     assert not followup['claims'] and not followup['evidence']['items']
     expect(thread).to_contain_text('Данных недостаточно, чтобы подтвердить возможность перегона')
-    expect(thread).to_contain_text('Рекомендуется дефектовка')
     for text, expected_action in (
         ('Как снять топливный фильтр?', 'search_manuals'),
         ('Как приготовить пирог?', 'clarify'),
@@ -199,6 +198,23 @@ def exercise(page, base_url, ranked_pages):
     expect(page.get_by_text(receipt, exact=True)).to_be_visible()
     replay = page.request.post(confirmed.url, data=confirmed.request.post_data_json)
     assert replay.ok and replay.json()['ticket_id'] == receipt
+
+    audit_path = '/audit?session_id=S-0005'
+    assert page.request.get(base_url + audit_path).status == 404
+    entries = page.request.get(agent_url + audit_path).json()['entries']
+    assert entries[0]['action'] == 'diagnose'
+    logged = next(entry for entry in entries if entry.get('request_id') == followup['request_id'])
+    assert logged['answer'] == followup['message'] and logged['question'] == 'Можно ли своим ходом перегнать машину на базу?'
+    assert logged['answer_details']['limitations'] == followup['limitations']
+    assert all(entry['actor_id'] == entries[0]['actor_id'] and entry['vehicle_id'] == 'M333YK47' for entry in entries)
+    draft_entry = next(entry for entry in entries if entry.get('action') == 'draft_ticket')
+    assert draft_entry['answer_details']['ticket_draft']['payload'] == draft
+    assert draft_entry['draft_id'] == entries[-1]['draft_id'] and entries[-1]['ticket_id'] == receipt
+    assert entries[-1]['urgency'] == 'high' and entries[-1]['kind'] == 'ticket_confirm'
+    assert entries.index(logged) < entries.index(draft_entry)
+    assert [entry['at'] for entry in entries] == sorted(entry['at'] for entry in entries)
+    assert page.request.get(agent_url + audit_path + '&vehicle_id=missing').json()['entries'] == []
+    print('PASS: internal audit reconstructs the browser question, answer, draft, confirmation and replay.')
 
     with page.expect_response(lambda r: r.url.endswith('/agent/run')):
         language.select_option('ru')
@@ -319,6 +335,7 @@ def main():
     parser.add_argument('--data-dir', type=Path, required=True)
     parser.add_argument('--mock-dir', type=Path, required=True, help='Unpacked directory containing mock_ml and mock_toir')
     parser.add_argument('--index', type=Path, help='Reuse manuals.sqlite3 with its sibling retrieval directory')
+    parser.add_argument('--signal-warning', action='store_true', help='Exercise explicit consent on a controlled ML warning')
     parser.add_argument('--channel')
     parser.add_argument('--backend', type=Path, required=True, help='Compiled Go web server')
     args = parser.parse_args()
@@ -375,7 +392,12 @@ def main():
         browser = pw.chromium.launch(channel=args.channel)
         stack.callback(browser.close)
         page = browser.new_page(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
-        exercise(page, base_url, ranked_pages)
+        if args.signal_warning:
+            from mock_ml.app import SESSIONS
+            from warning_flow import exercise as exercise_warning
+            exercise_warning(page, base_url, SESSIONS)
+        else:
+            exercise(page, base_url, ranked_pages, agent_url)
 
 
 if __name__ == '__main__':

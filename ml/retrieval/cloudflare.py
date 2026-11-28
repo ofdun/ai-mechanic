@@ -17,6 +17,7 @@ import numpy as np
 
 from ml.config import Settings
 from ml.contracts import AgentError
+from ml.usage import timed
 
 PREFIX = 'cf:'
 API = 'https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}'
@@ -41,6 +42,11 @@ class CloudflareClient:
                              f'{what} отправляет текст руководств в Cloudflare. Разрешите ALLOW_EXTERNAL_EVIDENCE=true.')
 
     def run(self, model: str, payload: dict) -> dict:
+        # Workers AI does not return a price per call, so the service view shows the cost as unknown.
+        with timed('cloudflare', 'retrieval', model=PREFIX + model):
+            return self._run(model, payload)
+
+    def _run(self, model: str, payload: dict) -> dict:
         try:
             response = self.http.post(API.format(account=self.account, model=model), json=payload,
                                       headers={'Authorization': f'Bearer {self.token}'})

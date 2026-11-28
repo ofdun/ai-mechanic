@@ -147,6 +147,34 @@ def test_search_builds_rewritten_plan_for_selected_engine(setup):
     assert not upstreams.calls('/diagnose')
 
 
+def test_unanswered_question_points_to_a_candidate_page_without_claiming_a_repair(setup):
+    upstreams, pipeline = setup
+    upstreams.planner_call = ('search_manuals', {'rewritten_query': 'Проверка форсунок'})
+    pipeline.verifier = None
+    answer = pipeline.run(utterance(message='Как проверить форсунки?'))
+    assert not answer.claims and not answer.can_create_ticket
+    assert answer.limitations[-1] == 'Для самостоятельной проверки откройте «Fixture», стр. 3 (PDF).'
+    assert len(answer.evidence.items) == 1 and answer.evidence.items[0].pdf_page == 3
+
+
+def test_defect_inspection_suggestion_uses_only_a_related_reliable_diagnosis(setup):
+    upstreams, pipeline = setup
+    diagnosis = pipeline.run(utterance(command='diagnose', conversation_id='chat')).diagnostic
+    context = ConversationContext(actor_id='mechanic', vehicle_id=VEHICLE, session_id=SESSION,
+                                  conversation_id='chat', engine_model=ENGINE, diagnostic=diagnosis)
+    class NoPages:
+        def search(self, plan):
+            return EvidenceBundle()
+    pipeline.retriever = NoPages()
+    upstreams.planner_call = ('search_manuals', {'rewritten_query': 'Проверка форсунок'})
+    for question, named_unit in [('Как проверить форсунки?', True), ('Как проверить термостат?', False)]:
+        answer = pipeline.run(utterance(message=question, conversation_id='chat'), context=context)
+        assert 'В руководстве по этому двигателю ответ не найден.' in answer.limitations
+        assert 'в листе осмотра' in answer.limitations[-1].lower()
+        assert ('дизельная топливная аппаратура' in answer.limitations[-1]) == named_unit
+        assert not answer.claims and not answer.can_create_ticket and not answer.evidence.items
+
+
 def test_follow_up_uses_backend_context_instead_of_archived_anomaly(setup):
     upstreams, pipeline = setup
     upstreams.result = diagnostic('check_failed', signal='bad')
@@ -258,6 +286,10 @@ def confirmation(draft, *, actor='mechanic', confirmed=True, urgency=None):
                               draft_id=draft.draft_id, draft_version=1, confirmed=confirmed, urgency=urgency)
 
 
+def same_ticket(left, right):
+    return left.model_dump(exclude={'usage'}) == right.model_dump(exclude={'usage'})
+
+
 def test_ticket_requires_confirmation_and_is_idempotent(setup):
     upstreams, pipeline = setup
     draft = pipeline.run(utterance(command='draft_ticket')).ticket_draft
@@ -270,7 +302,8 @@ def test_ticket_requires_confirmation_and_is_idempotent(setup):
         assert error.value.code == code
     assert not upstreams.calls('/tickets')
     first = pipeline.confirm_ticket(confirmation(draft))
-    assert pipeline.confirm_ticket(confirmation(draft)) == first
+    # A replay returns the same ticket; ``usage`` measures each call separately.
+    assert same_ticket(pipeline.confirm_ticket(confirmation(draft)), first)
     other_draft = pipeline.run(utterance(command='draft_ticket')).ticket_draft
     with pytest.raises(AgentError) as error:
         pipeline.confirm_ticket(confirmation(other_draft))
@@ -288,8 +321,8 @@ def test_mechanic_priority_is_sent_and_preserved_on_replay(setup):
     decision = confirmation(draft, urgency='high')
     receipt = pipeline.confirm_ticket(decision)
     stored, _, saved_receipt = pipeline.tickets.load(decision)
-    assert stored.payload.urgency == 'high' and saved_receipt == receipt
-    assert pipeline.confirm_ticket(decision) == receipt
+    assert stored.payload.urgency == 'high' and same_ticket(saved_receipt, receipt)
+    assert same_ticket(pipeline.confirm_ticket(decision), receipt)
     with pytest.raises(AgentError) as rejected:
         pipeline.confirm_ticket(confirmation(draft, urgency='medium'))
     assert rejected.value.code == 'DUPLICATE_TICKET'

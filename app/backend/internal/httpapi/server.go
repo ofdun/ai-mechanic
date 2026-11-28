@@ -32,6 +32,7 @@ func (s *Server) Routes(dist string) http.Handler {
 	session := router.Group("/", s.resolveSession)
 	session.Match(read, "/api/vehicles", s.vehicles)
 	session.POST("/agent/audio", s.audio)
+	session.POST("/api/plate", s.plate)
 	session.POST("/agent/run", s.run)
 	session.POST("/agent/tickets/confirm", s.confirm)
 

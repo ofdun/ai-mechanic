@@ -14,6 +14,7 @@ from ml.api import create_agent_router
 from ml.config import Settings
 from ml.pipeline import Pipeline
 from ml.manual_api import manual_router
+from ml.tools.fleet_status import FleetStatus, fleet_statuses
 from demo.sessions import SESSION_SECONDS, WebSessions
 
 
@@ -21,6 +22,9 @@ class SessionOption(BaseModel):
     session_id: str
     checked_at: datetime
     status: str
+    anomaly_score: float | None = None
+    anomaly_type: str | None = None
+    anomaly_title: str | None = None
 
 
 class VehicleOption(BaseModel):
@@ -29,6 +33,7 @@ class VehicleOption(BaseModel):
     model: str | None = None
     engine_model: str
     sessions: list[SessionOption]
+    fleet_status: FleetStatus | None = None
 
 
 class VehicleList(BaseModel):
@@ -75,9 +80,12 @@ def create_app(
 
     @app.get('/api/vehicles', response_model=VehicleList)
     def vehicles(actor: str = Depends(current_actor)):
+        vehicles = list(pipeline.vehicles.vehicles.values())
+        statuses = fleet_statuses(vehicles, pipeline)
         return VehicleList(vehicles=[
-            VehicleOption.model_validate(vehicle, from_attributes=True)
-            for vehicle in pipeline.vehicles.vehicles.values()
+            VehicleOption.model_validate(vehicle, from_attributes=True).model_copy(
+                update={'fleet_status': statuses[vehicle.vehicle_id]})
+            for vehicle in vehicles
         ])
 
     app.include_router(manual_router(settings, index, documents))

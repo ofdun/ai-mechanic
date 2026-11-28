@@ -184,6 +184,8 @@ def session(day, status, score):
     ([0.17, 0.76, 0.22], 'Оценка аномалии снизилась по сравнению с прошлой проверкой'),
     ([0.2, 0.2, 0.25], 'Оценка аномалии стабильна'),
     ([0.3], 'Для оценки динамики'),
+    ([0.2, 0.3], 'Оценка аномалии растёт'),        # 0.3 - 0.2 is 0.0999… in floating point
+    ([0.3, 0.2], 'Оценка аномалии снижается'),
 ])
 def test_trend(scores, start):
     sessions = [session(day, 'anomaly', score) for day, score in enumerate(scores, 1)]
